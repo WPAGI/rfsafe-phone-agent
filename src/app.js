@@ -131,7 +131,7 @@ function createApp(d) {
 
   async function admin(req, res, u) {
     if (!isAdmin(req)) return json(res, 401, { error: 'unauthorized' });
-    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config))?)?$/);
+    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config|kb-bundle))?)?$/);
     if (!m) return json(res, 404, { error: 'not_found' });
     if (req.method === 'POST' && !m[1]) {
       const t = JSON.parse(await readBody(req)); t.numbers = t.numbers || []; t.sms_enabled = false; // texting only after A2P approval
@@ -151,6 +151,13 @@ function createApp(d) {
       if (typeof next.extra_instructions === 'string' && next.extra_instructions.length > 12000) return json(res, 400, { error: 'extra_instructions_too_long' });
       Object.assign(t, body); d.tenants.save(t); d.kbReset && d.kbReset(t.id); log('tenant.updated', { tenant: t.id, fields: Object.keys(body) });
       return json(res, 200, { tenant: t.id, updated: Object.keys(body), status: ob.onboardingStatus(t) });
+    }
+    if (m[2] === 'kb-bundle') {
+      // Admin token only. Uploads the full Second Brain KB export; John approves each upload like a deploy.
+      if (req.method !== 'PUT' || !d.kbBundleDir) return json(res, 405, { error: 'method_not_allowed' });
+      const kbb = require('./kbbundle');
+      try { const r = kbb.installBundle(await kbb.readRaw(req), d.kbBundleDir, t.id); d.kbReset && d.kbReset(t.id); log('kb.bundle_installed', { tenant: t.id, pages: r.pages }); return json(res, 200, { tenant: t.id, pages: r.pages }); }
+      catch (e) { return json(res, e.status || 400, { error: 'bundle_rejected', detail: String(e.message).slice(0, 200) }); }
     }
     if (m[2] === 'approvals') return json(res, 200, { approvals: approvals.list(t.id) });
     if (m[2] === 'config') { const { secrets, ...rest } = t; return json(res, 200, { tenant: t.id, config: { ...rest, secrets: Object.keys(secrets || {}) } }); } // read-only; secret refs by name only

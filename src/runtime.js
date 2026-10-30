@@ -40,7 +40,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   const kbCache = new Map(); const shopCache = new Map(); const smsCache = new Map();
   const kbReset = (id) => { kbCache.delete(id); shopCache.delete(id); };
   // Curated topic cards ship with the code: kb/curated/<tenant>/*.md (see kb/curated/README.md). Added automatically, no tenant PATCH needed.
-  const curatedDirFor = (id) => { const dir = path.join(__dirname, '..', 'kb', 'curated', String(id).replace(/[^a-z0-9_-]/gi, '')); return fs.existsSync(dir) ? [dir] : []; };
+  const curatedDirFor = (id) => { const dir = path.join(__dirname, '..', 'kb', 'curated', String(id).replace(/[^a-z0-9_-]/gi, '')); const wiki = path.join(dataDir, 'kb', String(id).replace(/[^a-z0-9_-]/gi, '') + '-wiki'); return [dir, wiki].filter((x) => fs.existsSync(x)); };
   const kbFor = (t) => { if (!kbCache.has(t.id)) kbCache.set(t.id, new KB({ dirs: [...(t.kb?.dirs || []).map((p) => path.resolve(tenantsDir, p)), ...curatedDirFor(t.id)], allowlist: t.link_allowlist })); return kbCache.get(t.id); };
   const liveFetch = createFetch({ timeoutMs: 8000, retries: 2, backoffMs: 50 });
   // Admin credentials: tenant secret refs shopify_client_id / shopify_client_secret, or the deploy-wide
@@ -74,6 +74,8 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   };
   const outbox = path.join(dataDir, 'owner-outbox.jsonl');
   const notify = async (t, item) => { fs.appendFileSync(outbox, JSON.stringify({ tenant: t.id, to: t.owner_email || null, ...item }) + '\n', { mode: 0o600 }); };
+  // Build each tenant's KB index right after boot (~3 s for the full wiki) so the first caller does not wait.
+  if (mode === 'live') setTimeout(() => { for (const t of tenants.list()) { try { kbFor(t); } catch { /* logged on use */ } } }, 0).unref();
   return {
     mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: log || makeLogger(env.PA_LOG_FILE, secretValues(env)),
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
@@ -81,7 +83,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
     adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
-    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'),
+    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),
     newsletter: (() => { const { Newsletter, deriveSecret } = require('./newsletter'); return new Newsletter({ secret: deriveSecret(env), file: path.join(dataDir, 'newsletter.jsonl'), baseUrl: env.PUBLIC_BASE_URL || 'https://callbots.org' }); })(),
     sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
     brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.3', fetchImpl: liveFetch }) : new MockBrain(),
