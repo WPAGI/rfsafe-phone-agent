@@ -23,7 +23,7 @@ All prices are published list prices read on 2026-10-29. Anything I could not co
 |---|---|---|
 | Local number | **$1.15/mo** | https://www.twilio.com/en-us/sip-trunking/pricing/us ; https://www.twilio.com/en-us/sms/pricing/us |
 | Elastic SIP origination (inbound to the trunk, local) | **$0.0034/min** | SIP trunking pricing |
-| Elastic SIP termination (outbound legs, e.g. a transfer to John's phone; US 48 states, Zone 1) | **$0.0100/min** | SIP trunking pricing |
+| Elastic SIP termination (outbound legs, e.g. a transfer to a staff phone; US 48 states, Zone 1) | **$0.0100/min** | SIP trunking pricing |
 | Concurrency | "Unlimited Call Concurrency: Included" | SIP trunking pricing |
 | Emergency calling (optional) | $0.75/mo per number | SIP trunking pricing |
 | Call recording (optional) | $0.0025/min | SIP trunking pricing |
@@ -36,7 +36,7 @@ All prices are published list prices read on 2026-10-29. Anything I could not co
 
 **How a transfer is billed (best reading of the published pages):**
 - Twilio keeps billing the caller's inbound leg at $0.0034/min.
-- The new leg to John's phone bills at $0.0100/min of termination.
+- The new leg to the staff phone bills at $0.0100/min of termination.
 - xAI may keep billing $0.08/min (UNCONFIRMED, see above).
 - Worst case for a transferred minute: $0.0934. Best case: $0.0134.
 

@@ -47,7 +47,7 @@ async function handleInboundSms({ tenant, from, body, consent, toolsFor, brain, 
   if (STOP_WORDS.test(text)) { consent.record(tenant.id, from, 'stop'); log('sms.stop', { tenant: tenant.id, from: fp(from) }); return `You are unsubscribed from ${tenant.name} texts. No more messages will be sent. Reply START to resubscribe.`; }
   if (START_WORDS.test(text)) { consent.record(tenant.id, from, 'start'); return `You are resubscribed to ${tenant.name}. Reply STOP to opt out, HELP for help.`; }
   consent.record(tenant.id, from, 'inbound');
-  if (HELP_WORDS.test(text)) return `${tenant.name} support (AI assistant). Visit https://${tenant.link_allowlist[0]} or call this number. Reply STOP to opt out. Msg&data rates may apply.`;
+  if (HELP_WORDS.test(text)) return `${tenant.name} support (AI assistant). Visit https://${tenant.link_allowlist[0]}${tenant.support_email ? ', email ' + tenant.support_email : ''} or call this number. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out.`;
   if (looksLikeCard(text)) { log('guard.payment_blocked', { tenant: tenant.id, channel: 'sms' }); return 'Please do not text card details. We never take payment by text. You can order securely on our website.'; }
   const tools = toolsFor(tenant).ctxCall({ channel: 'sms', caller: from });
   const toolsView = { definitions: () => toolsFor(tenant).definitions(), run: tools.run };

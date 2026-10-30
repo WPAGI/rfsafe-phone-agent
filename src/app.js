@@ -129,7 +129,7 @@ function createApp(d) {
 
   async function admin(req, res, u) {
     if (!isAdmin(req)) return json(res, 401, { error: 'unauthorized' });
-    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals))?)?$/);
+    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config))?)?$/);
     if (!m) return json(res, 404, { error: 'not_found' });
     if (req.method === 'POST' && !m[1]) {
       const t = JSON.parse(await readBody(req)); t.numbers = t.numbers || []; t.sms_enabled = false; // texting only after A2P approval
@@ -139,7 +139,7 @@ function createApp(d) {
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
     if (req.method === 'PATCH' && !m[2]) {
       // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
-      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled'];
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email'];
       const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
       if ('order_lookup_enabled' in body && typeof body.order_lookup_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['order_lookup_enabled must be boolean'] });
       if ('shopify' in body && !validShopifyPatch(body.shopify)) return json(res, 400, { error: 'invalid', detail: ['shopify: {shop, mode: public|storefront, public_domain?, admin_shop?: *.myshopify.com} only'] });
@@ -150,6 +150,7 @@ function createApp(d) {
       return json(res, 200, { tenant: t.id, updated: Object.keys(body), status: ob.onboardingStatus(t) });
     }
     if (m[2] === 'approvals') return json(res, 200, { approvals: approvals.list(t.id) });
+    if (m[2] === 'config') { const { secrets, ...rest } = t; return json(res, 200, { tenant: t.id, config: { ...rest, secrets: Object.keys(secrets || {}) } }); } // read-only; secret refs by name only
     return json(res, 200, { tenant: t.id, status: ob.onboardingStatus(t) });
   }
 
@@ -189,6 +190,8 @@ function createApp(d) {
     const u = new URL(req.url, 'http://x');
     try {
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding());
+      if (req.method === 'GET' && (u.pathname === '/privacy' || u.pathname === '/privacy-policy')) return html(res, 200, require('./legal').renderPrivacy());
+      if (req.method === 'GET' && (u.pathname === '/terms' || u.pathname === '/terms-of-service')) return html(res, 200, require('./legal').renderTerms());
       if (req.method === 'GET' && u.pathname === '/robots.txt') return bytes(res, 200, 'text/plain; charset=utf-8', ROBOTS);
       if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);

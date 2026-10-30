@@ -43,7 +43,7 @@ Set these in the Render dashboard. Generate each random value with `openssl rand
    node scripts/provision-number.js --apply
    ```
    Copy the signing secret into `RFSAFE_XAI_WEBHOOK_SECRET` immediately. The script prints it and does not write it to disk.
-6. **Replace the EXAMPLE tenant.** On the disk, edit `/var/data/tenants/rfsafe-demo.json` or add `rfsafe.json` from `deploy/rfsafe.tenant.json` with the real E.164 number, John's transfer number (`tel:+1...`), business hours, and `owner_email`. Keep `sms_enabled` false. Keep `order_lookup_enabled` false. Secret fields stay references (`env:RFSAFE_XAI_WEBHOOK_SECRET`, `env:RFSAFE_TWILIO_AUTH_TOKEN`), never raw values. Remove or stop using the EXAMPLE demo tenant before live traffic so 555 numbers are not what xAI routes.
+6. **Replace the EXAMPLE tenant.** On the disk, edit `/var/data/tenants/rfsafe-demo.json` or add `rfsafe.json` from `deploy/rfsafe.tenant.json` with the real E.164 number, the Quanta X Technology staff transfer number (`tel:+1...`), business hours, and `owner_email`. Keep `sms_enabled` false. Keep `order_lookup_enabled` false. Secret fields stay references (`env:RFSAFE_XAI_WEBHOOK_SECRET`, `env:RFSAFE_TWILIO_AUTH_TOKEN`), never raw values. Remove or stop using the EXAMPLE demo tenant before live traffic so 555 numbers are not what xAI routes.
 7. **A2P 10DLC, before any texting.** US long-code SMS to customers requires a registered brand and campaign. Use Low Volume Standard if there is an EIN, or Sole Proprietor if there is not. Budget about $19 up front and a few dollars a month, and about a week for approval. Until Twilio shows the campaign as approved, leave `sms_enabled` false. The voice agent will say texting is not on yet and will offer the link out loud or take a message. Inbound STOP, HELP, and START are already handled for the day texting is turned on. There is no payment language in those replies.
 8. **E911.** Emergency calling on a Twilio number is optional and about $0.75 per month. This agent does not place emergency calls and does not advertise that it can. If the number can dial out at all, turn on E911 in the Twilio console and register a real service address for Quanta X Technology. That is separate from this server.
 9. **Flip to live.** Set `PA_MODE` to `live` and redeploy. If a required variable or the disk is missing, the process exits before it listens and the log names each gap. `GET /health` should return `"mode": "live"`. `/admin` should show `ready_for_live: true` except the optional Shopify token and A2P, which stay false until texting is approved.
@@ -60,9 +60,9 @@ When the name is ready, add the domain in Render and point DNS at `rfsafe-phone-
 ## If a live call misbehaves
 
 - Render: roll back to the previous deploy. Demo mode is the safe default.
-- Twilio: clear the trunk origination URI, or set the number to forward to John. Calls stop reaching the AI.
+- Twilio: clear the trunk origination URI, or set the number to forward to Quanta X Technology staff. Calls stop reaching the AI.
 - xAI: delete the phone-number registration. Suspend the Render service to stop all traffic.
-- Disk files (`/var/data/consent.jsonl`, `secrets.enc.json`, `calls.jsonl`, `owner-outbox.jsonl`) survive a rollback. `owner-outbox.jsonl` is the only place a callback number is stored, mode 0600, so John can return a voicemail. It is not written to the log stream.
+- Disk files (`/var/data/consent.jsonl`, `secrets.enc.json`, `calls.jsonl`, `owner-outbox.jsonl`) survive a rollback. `owner-outbox.jsonl` is the only place a callback number is stored, mode 0600, so Quanta X Technology staff can return a voicemail. It is not written to the log stream.
 
 ## Shopify order lookup (QuantaCase)
 - Dev Dashboard app "CallBots" on rf-safe-quantacase.myshopify.com, scopes read_orders, read_customers, read_products, read_fulfillments.
