@@ -39,8 +39,11 @@ function faviconIco() {
 const FAVICON_SVG = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <title>CallBots</title>
-  <rect width="32" height="32" rx="6" fill="#12382f"/>
-  <path d="M9 8h8a2 2 0 0 1 2 2v4H15V12H11v8h4v-2h4v4a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z" fill="#f4f1ea"/>
+  <rect width="32" height="32" rx="8" fill="#10241e"/>
+  <rect x="6" y="14" width="3" height="8" rx="1.5" fill="#f6c56b"/>
+  <rect x="11.5" y="8" width="3" height="16" rx="1.5" fill="#9ee7d4"/>
+  <rect x="17" y="11" width="3" height="13" rx="1.5" fill="#f4f1ea"/>
+  <rect x="22.5" y="15" width="3" height="7" rx="1.5" fill="#f6c56b"/>
 </svg>`;
 
 let ico;
