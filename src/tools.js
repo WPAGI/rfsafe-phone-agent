@@ -20,6 +20,7 @@ function inHours(hours, now = new Date()) {
 }
 
 const DEFS = {
+  note_unanswered: { description: 'Call this whenever you could not answer a caller\'s question from kb_answer / website_lookup results (no passage, or the passages did not cover it). Records the topic so staff can add it to the knowledge base. Then say you do not have that information yet and offer to take a message or text a link to rfsafe.org.', parameters: { type: 'object', properties: { question: { type: 'string', description: 'the caller\'s question, in a few words, no personal details' } }, required: ['question'] } },
   kb_answer: { description: 'Look up the answer to a question about the company, its research, or its products in the official knowledge base. Always use this before answering factual questions.', parameters: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] } },
   product_search: { description: 'Search the live product catalog (read-only). Returns title, price, availability, and product page URL.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
   website_lookup: { description: 'Look up a page on the official website. Returns a title, a short excerpt, and an allowlisted URL. Use this before describing what a page says.', parameters: { type: 'object', properties: { query: { type: 'string' }, url: { type: 'string' } } } },
@@ -39,7 +40,7 @@ class Tools {
   // deps: { kbFor(tenant), shopifyFor(tenant), smsFor(tenant), consent, callControl, notify, approvals, log, now }
   constructor(tenant, deps) { this.tenant = tenant; this.d = deps; }
   definitions() {
-    const names = ['kb_answer', 'website_lookup', 'send_link', 'send_link_sms', 'take_message', 'end_call', 'transfer_to_human'];
+    const names = ['kb_answer', 'note_unanswered', 'website_lookup', 'send_link', 'send_link_sms', 'take_message', 'end_call', 'transfer_to_human'];
     if (this.tenant.shopify) names.splice(2, 0, 'product_search');
     if (this.tenant.sar_lookup && this.d.sarFor) names.splice(1, 0, 'sar_lookup');
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
@@ -57,7 +58,8 @@ class Tools {
     if (Object.values(args).some((v) => looksLikeCard(v))) { log('guard.payment_blocked', { tenant: t.id, tool: name }); return { ok: false, error: 'payment_details_refused', say: 'We never take payment details by phone or text. I can text you a link to order on the official website.' }; }
     try {
       switch (name) {
-        case 'kb_answer': return { ok: true, ...this.d.kbFor(t).answer(String(args.question || '').slice(0, 500)) };
+        case 'kb_answer': { const q = String(args.question || '').slice(0, 500); const a = this.d.kbFor(t).answer(q); if (!a.found) this.gapLog({ tenant: t.id, question: q.slice(0, 200), reason: 'no_match', channel: ctx && ctx.channel }); return { ok: true, ...a, ...(a.found ? { guidance: a.guidance + ' If these passages do not actually answer the question, call note_unanswered and do not guess.' } : {}) }; }
+        case 'note_unanswered': { this.gapLog({ tenant: t.id, question: String(args.question || '').slice(0, 200), reason: 'model_unanswered', channel: ctx && ctx.channel }); return { ok: true, say: 'I do not have that information yet. I can take a message for the RF Safe team or text you a link to rfsafe.org.' }; }
         case 'website_lookup': return await this.websiteLookup(args);
         case 'sar_lookup': { const r = await this.d.sarFor(t).lookup(String(args.phone || '').slice(0, 120)); if (!r.found) return { ok: true, found: false, close_matches: r.close || [], say: 'I could not find that exact model in our SAR database. Ask for the exact model name, or offer to text the SAR lookup page.' }; for (const k of ['sar_page', 'kids_visual', 'ranking']) if (!checkUrl(r[k], t.link_allowlist).ok) delete r[k]; return { ok: true, ...r }; }
         case 'product_search': {
@@ -142,6 +144,7 @@ class Tools {
     const r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to, body: g.body, log });
     return r.ok ? { ok: true, sent: true, to_last4: last4(to) } : { ok: false, error: r.reason };
   }
+  gapLog(ev) { if (this.d.kbGapFile) { try { appendJsonl(this.d.kbGapFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
   emailLog(ev) { if (this.d.emailLogFile) { try { appendJsonl(this.d.emailLogFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
   setEmailAddress(args, ctx) {
     const t = this.tenant; const log = this.d.log || (() => {});
