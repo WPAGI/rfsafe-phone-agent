@@ -7,7 +7,7 @@ sequenceDiagram
   participant T as Twilio number + Elastic SIP Trunk
   participant X as xAI Grok Voice (SIP)
   participant S as Our tool server (Render)
-  participant H as Human (John)
+  participant H as Human (Quanta X Technology staff)
   C->>T: dials new number
   T->>X: SIP INVITE sip:+1...@sip.voice.x.ai;transport=tls
   X->>S: POST /xai/webhook realtime.call.incoming (signed)

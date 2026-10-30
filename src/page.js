@@ -128,44 +128,22 @@ const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
+  <url>
+    <loc>https://callbots.org/privacy</loc>
+    <lastmod>2026-10-30</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://callbots.org/terms</loc>
+    <lastmod>2026-10-30</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
 </urlset>
 `;
 
-function icon(body) {
-  return `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
-}
-
-function renderLanding() {
-  const faqHtml = FAQ.map((item) => `<details class="faq-item">
-        <summary>${esc(item.q)}</summary>
-        <p>${esc(item.a)}</p>
-      </details>`).join('\n      ');
-  const early = MAIL + '?subject=CallBots%20early%20access';
-  const demo = MAIL + '?subject=Book%20a%20CallBots%20demo';
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(TITLE)}</title>
-<meta name="description" content="${esc(DESCRIPTION)}">
-<meta name="robots" content="index,follow">
-<link rel="canonical" href="${CANONICAL}">
-<meta property="og:title" content="${esc(TITLE)}">
-<meta property="og:description" content="${esc(DESCRIPTION)}">
-<meta property="og:url" content="${CANONICAL}">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="CallBots">
-<meta property="og:locale" content="en_US">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="${esc(TITLE)}">
-<meta name="twitter:description" content="${esc(DESCRIPTION)}">
-<meta name="theme-color" content="#10241e" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="icon" href="/favicon.ico" sizes="16x16">
-<style>
-  :root {
+const CSS = `  :root {
     color-scheme: light;
     --bg: #f4f1ea;
     --bg-2: #fffcf7;
@@ -314,14 +292,15 @@ function renderLanding() {
     html { scroll-behavior: auto; }
     .wave rect, .flow-dash { animation: none; }
   }
-</style>
-<script type="application/ld+json">${jsonLdScript(structuredData())}</script>
-</head>
-<body>
-<a class="skip" href="#content">Skip to content</a>
-<header class="site-header">
-  <div class="wrap bar">
-    <a class="brand" href="${CANONICAL}">
+  .legal { max-width: 760px; padding: 2.4rem 0 3rem; }
+  .legal h1 { margin-bottom: .4rem; }
+  .legal h2 { margin-top: 2rem; font-size: 1.25rem; }
+  .legal .eff { color: var(--muted); }
+  .legal ul { padding-left: 1.2rem; }
+  .foot-links { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: .8rem 0 0; padding: 0; list-style: none; }
+`;
+
+const BRAND = `    <a class="brand" href="${CANONICAL}">
       <svg viewBox="0 0 32 32" role="img" aria-label="CallBots logo for the AI call bot">
         <rect width="32" height="32" rx="8" fill="#10241e"/>
         <rect x="6" y="14" width="3" height="8" rx="1.5" fill="#f0c36a"/>
@@ -330,7 +309,70 @@ function renderLanding() {
         <rect x="22.5" y="15" width="3" height="7" rx="1.5" fill="#f0c36a"/>
       </svg>
       <span>CallBots</span>
-    </a>
+    </a>`;
+
+const OPERATOR = { name: 'Quanta X Technology LLC', state: 'Florida', street: '8134 122nd St N', city: 'Seminole, FL 33772', email: 'support@quantaxtechnology.com' };
+
+function siteFooter() {
+  return `<footer>
+  <div class="wrap">
+    <p><strong>CallBots</strong> is a product of Quanta X Technology LLC.</p>
+    <address>
+      Quanta X Technology LLC<br>
+      ${OPERATOR.street}, ${OPERATOR.city}<br>
+      <a href="${MAIL}">${OPERATOR.email}</a>
+    </address>
+    <ul class="foot-links">
+      <li><a href="/privacy">Privacy Policy</a></li>
+      <li><a href="/terms">Terms of Service</a></li>
+    </ul>
+  </div>
+</footer>`;
+}
+
+function icon(body) {
+  return `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+}
+
+function renderLanding() {
+  const faqHtml = FAQ.map((item) => `<details class="faq-item">
+        <summary>${esc(item.q)}</summary>
+        <p>${esc(item.a)}</p>
+      </details>`).join('\n      ');
+  const early = MAIL + '?subject=CallBots%20early%20access';
+  const demo = MAIL + '?subject=Book%20a%20CallBots%20demo';
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(TITLE)}</title>
+<meta name="description" content="${esc(DESCRIPTION)}">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="${CANONICAL}">
+<meta property="og:title" content="${esc(TITLE)}">
+<meta property="og:description" content="${esc(DESCRIPTION)}">
+<meta property="og:url" content="${CANONICAL}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CallBots">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${esc(TITLE)}">
+<meta name="twitter:description" content="${esc(DESCRIPTION)}">
+<meta name="theme-color" content="#10241e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="16x16">
+<style>
+${CSS}
+</style>
+<script type="application/ld+json">${jsonLdScript(structuredData())}</script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="site-header">
+  <div class="wrap bar">
+${BRAND}
     <div class="nav-end">
       <a class="cta solid nav-cta" href="${early}"><span class="wide">Get early access</span><span class="narrow">Access</span></a>
       <details class="nav-pop">
@@ -474,19 +516,10 @@ function renderLanding() {
     </div>
   </section>
 </main>
-<footer>
-  <div class="wrap">
-    <p><strong>CallBots</strong> is a product of Quanta X Technology LLC.</p>
-    <address>
-      Quanta X Technology LLC<br>
-      Seminole, FL<br>
-      <a href="${MAIL}">support@quantaxtechnology.com</a>
-    </address>
-  </div>
-</footer>
+${siteFooter()}
 </body>
 </html>`;
 }
 
-module.exports = { renderLanding, TITLE, DESCRIPTION, FAQ, ROBOTS, SITEMAP, CANONICAL };
+module.exports = { CSS, BRAND, OPERATOR, siteFooter, esc, renderLanding, TITLE, DESCRIPTION, FAQ, ROBOTS, SITEMAP, CANONICAL };
 

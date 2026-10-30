@@ -21,7 +21,8 @@ test('instructions carry only the last 4 digits and the confirm-before-text scri
   const on = sessionUpdate(t, [], { callerLast4: '0142' }).session.instructions;
   assert.match(on, /ending in 0142, okay to text\?/); assert.match(on, /set_text_number/); assert.match(on, /Do not ask the caller for their number/);
   const anon = sessionUpdate(t, [], {}).session.instructions;
-  assert.match(anon, /Caller ID is blocked/); assert.match(anon, /ask for the mobile number/);
+  assert.match(anon, /Caller ID is blocked, so you cannot text/); assert.doesNotMatch(anon, /ask for the mobile number/i);
+  assert.match(on, /only go to the number the caller is calling from/);
   const off = sessionUpdate({ ...t, sms_enabled: false }, [], { callerLast4: '0142' }).session.instructions;
   assert.match(off, /not switched on yet: do not offer to text/); assert.doesNotMatch(off, /okay to text/);
 });

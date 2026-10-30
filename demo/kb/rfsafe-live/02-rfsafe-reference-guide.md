@@ -8,7 +8,7 @@ Voice note: this is reference data. Speak short plain answers and never read a U
 **Date:** October 28, 2026  
 
 > **Core Editorial & Working Rules (Always Apply):**
-> 1. **No Unapproved Public Actions:** Nothing is ever submitted, filed, sent, or posted on John's behalf without his explicit approval.
+> 1. **No Unapproved Public Actions:** Nothing is ever submitted, filed, sent, or posted on RF Safe's behalf without explicit approval from Quanta X Technology LLC, which owns the RF Safe trademark.
 > 2. **Label Hypotheses Explicitly:** Theoretical synthesis models—**S4–Mito–Spin**, **Density Gating**, **Bioelectric Fidelity / Low-Fidelity Biology**, and **ceLLM (Cellular Bioelectric / Large-Language-Model-Analogue Runtime)**—must always be labeled as **hypotheses / interpretive frameworks**, not established clinical fact.
 > 3. **Keep Null & Contrary Findings In:** Do not claim "every study shows harm" or that RF is proven to cause a specific human disease on its own; RF Safe treats null results as expected parameter-space boundary conditions (frequency, pulse/modulation, polarization, S4/mitochondrial tissue density, genotype, and timing).
 > 4. **Education-First Positioning on Cases:** Never claim any case offers "99% protection everywhere" or replaces distance/habits. TruthCase™ / QuantaCase® is an engineering reference standard designed to eliminate the 5 common market red flags that trigger phone power-up and antenna detuning.
@@ -72,7 +72,7 @@ Voice note: this is reference data. Speak short plain answers and never read a U
 
 
 ### C. Shareable SAR Image Directory & Kid-vs-Adult Visual Generators (`/SAR-share/`)
-John generated 28,000+ pre-rendered shareable SAR comparison cards, kid-vs-adult penetration visuals, and auto-toggling GIFs accessible on both `rfsafe.org` and `rfsafe.com`:
+RF Safe founder John Coates generated 28,000+ pre-rendered shareable SAR comparison cards, kid-vs-adult penetration visuals, and auto-toggling GIFs accessible on both `rfsafe.org` and `rfsafe.com`:
 - **Main Shareable SAR Hub:** `https://www.rfsafe.com/SAR-share/`
 - **Per-Phone Shareable Snapshot Page:** `https://www.rfsafe.com/SAR-share/index.php?slug=<slug>`
   - Examples:
@@ -262,7 +262,7 @@ John generated 28,000+ pre-rendered shareable SAR comparison cards, kid-vs-adult
      - The FDA has already proven non-thermal bioelectric efficacy in humans by authorizing the **TheraBionic P1** system (27.12 MHz amplitude-modulated RF at 0.023–1.35 mW/kg, 100×–1,000× below cell phone SAR limits, acting via Cav1.2 `CACNA1C` voltage-gated calcium channels without heating).
 2. **Distinguish Established Empirical Facts from Our Unifying Theoretical Hypotheses (And Why That Makes Our Case Unassailable):**
    - Always label **S4–Mito–Spin**, **Density Gating**, **Bioelectric Dissonance / Low-Fidelity Biology**, and **ceLLM (Cellular Bioelectric Runtime)** as **RF Safe's proposed theoretical/interpretive frameworks (hypotheses)** that unify the experimental record and generate falsifiable predictions—while keeping null and contrary findings in view as expected boundary conditions.
-   - As John explains in *"Why the S4–Mito–Spin Framework Stays Out of Human Causation Debates — And Why That's a Strength for RF-EMF Safety Advocacy"*, we never need to claim that RF radiation single-handedly causes a specific human clinical diagnosis in every person. Instead, we show that **non-thermal RF is an informational and bioelectric stressor that degrades signaling fidelity and drains Biological Reserve upstream across multiple organ systems**.
+   - As RF Safe founder John Coates explains in *"Why the S4–Mito–Spin Framework Stays Out of Human Causation Debates — And Why That's a Strength for RF-EMF Safety Advocacy"*, we never need to claim that RF radiation single-handedly causes a specific human clinical diagnosis in every person. Instead, we show that **non-thermal RF is an informational and bioelectric stressor that degrades signaling fidelity and drains Biological Reserve upstream across multiple organ systems**.
    - This framing turns industry's favorite talking point ("some studies find no effect") against them: in a nonlinear, density-gated, timing-sensitive system, **null results are expected** when a study uses low-S4/low-mitochondria cell lines (like quiescent skin fibroblasts), unpolarized continuous waves, brief exposures that are temporarily masked by HSP70/antioxidant compensation, or insensitive genotypes.
 
 ---

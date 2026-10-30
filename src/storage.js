@@ -17,15 +17,18 @@ function isWritable(dir) {
   }
 }
 
-function copyMissing(src, dest) {
+// A shipped directory containing a `.managed` marker is owned by the repo: files whose content differs on
+// disk are replaced, so KB corrections ship with a deploy. Other directories only get missing files.
+function copyMissing(src, dest, managed = false) {
   if (!fs.existsSync(src)) return 0;
+  managed = managed || fs.existsSync(path.join(src, '.managed'));
   fs.mkdirSync(dest, { recursive: true });
   let n = 0;
   for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
     const from = path.join(src, ent.name);
     const to = path.join(dest, ent.name);
-    if (ent.isDirectory()) n += copyMissing(from, to);
-    else if (!fs.existsSync(to)) { fs.copyFileSync(from, to); n += 1; }
+    if (ent.isDirectory()) n += copyMissing(from, to, managed);
+    else if (!fs.existsSync(to) || (managed && !fs.readFileSync(from).equals(fs.readFileSync(to)))) { fs.copyFileSync(from, to); n += 1; }
   }
   return n;
 }
@@ -61,7 +64,7 @@ function resolveStorage({ mode, env = process.env, root, log = () => {} }) {
   if (path.resolve(tenantsDir) !== path.resolve(seedTenants)) {
     seeded = seedIfEmpty(tenantsDir, seedTenants);
     const kbDest = path.resolve(tenantsDir, '..', 'kb');
-    // KB seed files are copied on every start, but only where missing, so new shipped KB pages reach the disk and edits on disk are kept.
+    // KB seed files are copied on every start where missing (edits on disk are kept), and refreshed in `.managed` dirs.
     const added = copyMissing(seedKb, kbDest); if (added) log('kb.seeded', { files: added });
     if (seeded) log('tenants.seeded', { from: 'demo/tenants' });
   }

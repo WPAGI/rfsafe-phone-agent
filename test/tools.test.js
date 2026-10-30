@@ -30,15 +30,18 @@ test('send_link: voice needs a confirmed number; STOP blocks; texting-off says s
   assert.ok(!m.tools.definitions().some((d) => d.name === 'set_text_number'));
   m = mk({ approval_mode: true }); await m.tools.run('set_text_number', { use_caller_id: true }, voice); const r = await m.tools.run('send_link', url, voice); assert.ok(r.queued_for_approval); assert.strictEqual(m.sms.sent.length, 0);
 });
-test('set_text_number: spoken number, blocked caller ID, per-call scope', async () => {
+test('set_text_number: caller ID only; no other number; blocked caller ID cannot be texted; per-call scope', async () => {
   const m = mk(); const url = { url: 'https://rfsafe.org/a' }; const anon = { channel: 'voice', callId: 'c9', caller: null };
-  const need = await m.tools.run('send_link', url, anon); assert.strictEqual(need.error, 'confirm_number_first'); assert.match(need.say, /blocked/i);
+  const need = await m.tools.run('send_link', url, anon); assert.strictEqual(need.error, 'confirm_number_first'); assert.match(need.say, /blocked, so texting is not possible/);
   assert.strictEqual((await m.tools.run('set_text_number', { use_caller_id: true }, anon)).error, 'no_caller_id');
-  assert.strictEqual((await m.tools.run('set_text_number', { number: '12345' }, anon)).error, 'bad_number');
-  assert.strictEqual((await m.tools.run('set_text_number', {}, anon)).error, 'need_confirmation');
-  assert.strictEqual((await m.tools.run('set_text_number', { number: '(727) 555-0188' }, anon)).number_last4, '0188');
-  assert.ok((await m.tools.run('send_link', url, anon)).sent); assert.strictEqual(m.sms.sent[0].to, '+17275550188');
-  assert.strictEqual((await m.tools.run('send_link', url, { ...anon, callId: 'c10' })).error, 'confirm_number_first'); // other call
+  assert.strictEqual((await m.tools.run('set_text_number', { number: '(727) 555-0188' }, anon)).error, 'caller_number_only');
+  assert.strictEqual((await m.tools.run('set_text_number', { number: '(727) 555-0188', use_caller_id: true }, voice)).error, 'caller_number_only');
+  assert.strictEqual((await m.tools.run('set_text_number', {}, voice)).error, 'need_confirmation');
+  assert.ok(!('number' in m.tools.definitions().find((d) => d.name === 'set_text_number').parameters.properties));
+  assert.ok((await m.tools.run('set_text_number', { use_caller_id: true }, voice)).confirmed);
+  assert.ok((await m.tools.run('send_link', url, voice)).sent); assert.strictEqual(m.sms.sent[0].to, voice.caller);
+  assert.strictEqual((await m.tools.run('send_link', url, { ...voice, callId: 'c10' })).error, 'confirm_number_first'); // other call
+  assert.strictEqual(m.sms.sent.length, 1);
   assert.strictEqual((await m.tools.run('set_text_number', { use_caller_id: true }, { channel: 'sms', caller: '+15555550142' })).error, 'voice_only');
 });
 test('transfer: in hours refers; after hours refuses; failure reported', async () => {

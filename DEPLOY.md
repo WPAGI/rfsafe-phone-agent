@@ -38,7 +38,7 @@ Until step 6 is approved, keep `sms_enabled: false` (the default in `deploy/rfsa
    - **Copy the signing secret immediately**, because it is shown only once. Save it as `RFSAFE_XAI_WEBHOOK_SECRET`.
 4. **Tenant:** edit `deploy/rfsafe.tenant.json`:
    - the real number;
-   - John's transfer number;
+   - the Quanta X Technology staff transfer number;
    - business hours.
    Then load it with the admin API (`POST /admin/tenants`) or copy it to `TENANTS_DIR`.
 5. **KB:** run `node scripts/export-kb.js` to copy the approved wiki and rfsafe.org pages into the tenant KB dir. Redeploy.
@@ -52,5 +52,5 @@ Until step 6 is approved, keep `sms_enabled: false` (the default in `deploy/rfsa
 
 ## Rollback
 - Render: Deploys, then roll back to the previous deploy.
-- Emergency: remove the origination URI from the trunk, or set the number's voice to forward to John. Calls then stop reaching the AI.
+- Emergency: remove the origination URI from the trunk, or set the number's voice to forward to Quanta X Technology staff. Calls then stop reaching the AI.
 - To fully stop: in xAI, `DELETE` the phone number registration. Suspend the Render service.

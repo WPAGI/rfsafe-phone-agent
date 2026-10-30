@@ -10,7 +10,7 @@ status: built, not deployed
   - product lookup (read-only Shopify);
   - KB answers (wiki and rfsafe.org);
   - link-only SMS to quantacase.com and rfsafe.org;
-  - transfer to John during hours, or a message.
+  - transfer to Quanta X Technology staff during hours, or a message.
 - **Never:** payments, card data, or links to other domains. These are enforced in code.
 - **Code:** `/workspace/code/phone-agent/`. Package: `dist/rfsafe-phone-agent-v0.1.0.zip`.
 - **Status:** built and tested with mocks and EXAMPLE data. No accounts, purchases, A2P registration or deploy.

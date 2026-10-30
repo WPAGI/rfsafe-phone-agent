@@ -19,6 +19,17 @@ function validateTenant(t) {
   if (t.hours && !(t.hours.tz && /^\d\d:\d\d$/.test(t.hours.open) && /^\d\d:\d\d$/.test(t.hours.close))) errs.push('hours needs tz, open, close (HH:MM)');
   for (const [k, v] of Object.entries(t.secrets || {})) if (!/^env:[A-Z][A-Z0-9_]*$|^store:[a-z0-9_.-]+$/.test(String(v))) errs.push(`secrets.${k} must be env:NAME or store:KEY reference, never a value`);
   if (t.payments_enabled) errs.push('payments are never supported');
+  if (t.known_callers != null) {
+    if (typeof t.known_callers !== 'object' || Array.isArray(t.known_callers)) errs.push('known_callers must be an object of E.164 number -> {name, role?, greeting?}');
+    else for (const [n, v] of Object.entries(t.known_callers)) {
+      if (!E164.test(n)) errs.push(`known_callers key ${n} must be E.164`);
+      if (!v || typeof v.name !== 'string' || !v.name.trim() || v.name.length > 40) errs.push(`known_callers.${n}.name required (max 40)`);
+      if (v && v.role != null && (typeof v.role !== 'string' || v.role.length > 120)) errs.push(`known_callers.${n}.role max 120 chars`);
+      if (v && v.greeting != null && (typeof v.greeting !== 'string' || v.greeting.length > 200)) errs.push(`known_callers.${n}.greeting max 200 chars`);
+      if (v && Object.keys(v).some((k) => !['name', 'role', 'greeting'].includes(k))) errs.push(`known_callers.${n} allows only name, role, greeting`);
+    }
+  }
+  if (t.support_email != null && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(t.support_email)) errs.push('support_email must be an email address');
   return errs;
 }
 
