@@ -29,4 +29,9 @@ function mockShopifyFetch(products = EXAMPLE_PRODUCTS) {
   f.calls = calls; return f;
 }
 
-module.exports = { MockRealtimeWs, MockCallControl, mockShopifyFetch, EXAMPLE_PRODUCTS };
+function mockSarFetch() {
+  const rows = [{ id: '1', post_id: '152573', brand: 'Apple', model: 'iPhone 17 Pro Max', post_name: 'Apple iPhone 17 Pro Max', fccid: 'EXAMPLE', ushead: '1.11', usbody: '1.12', hotspot: '1.13', simulheadus: '1.14', simulbodyus: '1.15' }];
+  return async () => ({ ok: true, status: 200, json: async () => rows });
+}
+
+module.exports = { mockSarFetch, MockRealtimeWs, MockCallControl, mockShopifyFetch, EXAMPLE_PRODUCTS };

@@ -10,6 +10,7 @@ const { XaiCallControl } = require('./xai');
 const { MockBrain, XaiTextBrain } = require('./sms');
 const { SmsRateLimit } = require('./ratelimit');
 const { createFetch } = require('./fetch');
+const { SarCatalog } = require('./sar');
 const { collectChecks, assertLiveReady, DEMO_ADMIN } = require('./readiness');
 const { isWritable } = require('./storage');
 const { scrubFields, redactLine } = require('./util');
@@ -37,6 +38,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   const secrets = new SecretStore(path.join(dataDir, 'secrets.enc.json'), env.PA_MASTER_KEY || (mode === 'demo' ? Buffer.alloc(32, 7).toString('base64') : null));
   const consent = new Consent(path.join(dataDir, 'consent.jsonl'));
   const kbCache = new Map(); const shopCache = new Map(); const smsCache = new Map();
+  const kbReset = (id) => kbCache.delete(id);
   const kbFor = (t) => { if (!kbCache.has(t.id)) kbCache.set(t.id, new KB({ dirs: (t.kb?.dirs || []).map((p) => path.resolve(tenantsDir, p)), allowlist: t.link_allowlist })); return kbCache.get(t.id); };
   const liveFetch = createFetch({ timeoutMs: 8000, retries: 2, backoffMs: 50 });
   const shopifyFor = (t) => { if (!shopCache.has(t.id)) shopCache.set(t.id, new ShopifyClient({ shop: t.shopify.shop, mode: t.shopify.mode, publicDomain: t.shopify.public_domain, storefrontToken: resolveSecret(t, 'shopify_storefront_token', { env, store: secrets }), adminToken: t.order_lookup_enabled ? resolveSecret(t, 'shopify_admin_token', { env, store: secrets }) : null, fetchImpl: mode === 'live' ? liveFetch : mocks.mockShopifyFetch() })); return shopCache.get(t.id); };
@@ -60,7 +62,8 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: log || makeLogger(env.PA_LOG_FILE, secretValues(env)),
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
-    websiteFetch: mode === 'live' ? liveFetch : null,
+    websiteFetch: mode === 'live' ? liveFetch : null, kbReset,
+    sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
     brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.3', fetchImpl: liveFetch }) : new MockBrain(),
     publicBaseUrl: env.PUBLIC_BASE_URL || 'http://localhost:8787', adminToken: env.PA_ADMIN_TOKEN || (mode === 'demo' ? 'demo-admin-token-EXAMPLE' : null),
     stateSecret: env.PA_STATE_SECRET || (mode === 'demo' ? 'demo-state-secret-EXAMPLE' : null),
