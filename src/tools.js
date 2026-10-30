@@ -6,7 +6,7 @@ const { sendCustomerSms } = require('./twilio');
 const { SmsRateLimit } = require('./ratelimit');
 const { fetchAllowlistedPage } = require('./web');
 const { fp, appendJsonl } = require('./util');
-const { buildEmail, checkLinks, maskEmail, validEmail, SUBJECT } = require('./email');
+const { buildEmail, checkLinks, maskEmail, validEmail, cleanSummary, subjectFor } = require('./email');
 const EMAILS_PER_CALL = 3;
 
 function inHours(hours, now = new Date()) {
@@ -26,7 +26,7 @@ const DEFS = {
   set_text_number: { description: 'Voice calls: after the caller says yes to "Is the number you\'re calling from, ending in XXXX, okay to text?", record that consent. Texts can only go to the number they are calling from; a different number is not possible. Never read out the full number.', parameters: { type: 'object', properties: { use_caller_id: { type: 'boolean', description: 'true once the caller said yes' } }, required: ['use_caller_id'] } },
   send_link_sms: { description: 'Text the caller one https link on an official domain, plus a short note. On calls it goes to the number confirmed with set_text_number. Link-only. Rate-limited per call and per caller. Never use for payment details.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
   set_email_address: { description: 'Voice calls, email links: after the caller says their email address, spell it back letter by letter and ask "Is that right?". Call this ONLY after the caller gives a spoken yes. One address per call; it cannot be changed later on the call.', parameters: { type: 'object', properties: { email: { type: 'string', description: 'the address exactly as confirmed' }, caller_said_yes: { type: 'boolean', description: 'true only after the caller said yes to the spelled-back address' } }, required: ['email', 'caller_said_yes'] } },
-  send_email: { description: 'Email the caller only the official links (quantacase.com, rfsafe.org) they asked for, to the address confirmed with set_email_address. Subject "Your RF Safe links". No marketing, no extra links. Up to 3 emails per call, up to 5 links each. After sending, tell the caller it is on its way and to check their spam or junk folder.', parameters: { type: 'object', properties: { urls: { type: 'array', items: { type: 'string' }, description: 'https links the caller asked for' }, note: { type: 'string', description: 'optional one-line note, e.g. which product' } }, required: ['urls'] } },
+  send_email: { description: 'Email the caller, at the address confirmed with set_email_address, either the official links they asked for or a written summary of information they asked for. For information: FIRST call kb_answer (and website_lookup if useful), then write a plain-text summary based ONLY on what those returned (RF Safe knowledge base and rfsafe.org / quantacase.com pages). Never invent studies, figures, quotes or PMIDs. Include 1-5 relevant source links (rfsafe.org, quantacase.com) in urls. No marketing. Up to 3 emails per call. After sending, tell the caller it is on its way and to check their spam or junk folder.', parameters: { type: 'object', properties: { urls: { type: 'array', items: { type: 'string' }, description: '1-5 https source links on rfsafe.org or quantacase.com' }, summary: { type: 'string', description: 'optional plain-text summary (up to about 4000 characters, paragraphs separated by blank lines), based only on kb_answer / website_lookup results' }, topic: { type: 'string', description: 'short topic for the subject line, e.g. FCC exposure limits' }, note: { type: 'string', description: 'optional one-line note, e.g. which product' } }, required: ['urls'] } },
   transfer_to_human: { description: 'Transfer the call to a person, during business hours only.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
   take_message: { description: 'Take a message for the owner (name, callback number, message).', parameters: { type: 'object', properties: { name: { type: 'string' }, callback: { type: 'string' }, message: { type: 'string' } }, required: ['message'] } },
   sar_lookup: { description: 'Look up a phone model\'s FCC-reported SAR values (head, body, hotspot; cellular-only and with Wi-Fi on) from RF Safe\'s public SAR database. Speak the numbers briefly; never read the URLs aloud.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'brand and model, e.g. iPhone 17 Pro Max' } }, required: ['phone'] } },
@@ -166,11 +166,14 @@ class Tools {
     const g = checkLinks(args.urls ?? args.url, t.link_allowlist);
     if (!g.ok) { log('guard.link_blocked', { tenant: t.id, reason: g.reason, channel: 'email' }); return { ok: false, error: g.reason, say: 'I can only email links to our official websites.' }; }
     const note = String(args.note || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/\s+/g, ' ').trim().slice(0, 140);
-    const { text, html } = buildEmail({ links: g.links, note });
+    const summary = cleanSummary(args.summary, t.link_allowlist);
+    if (summary && looksLikeCard(summary)) return { ok: false, error: 'blocked_content', say: 'I cannot email that. I can send just the links instead.' };
+    const { text, html } = buildEmail({ links: g.links, note, summary });
+    const subject = subjectFor(args.topic, !!summary);
     counts.set(key, n + 1); // count attempts, so a failing provider cannot be retried without limit
-    const r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject: SUBJECT, text, html });
+    const r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html });
     const masked = maskEmail(to);
-    log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, reason: r.ok ? undefined : r.reason });
+    log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, summary_chars: summary.length, reason: r.ok ? undefined : r.reason });
     this.emailLog({ kind: r.ok ? 'sent' : 'send_failed', tenant: t.id, call: ctx.callId, to_masked: masked, to_fp: fp(to), links: g.links.map((l) => l.url), provider_id: r.id || null, reason: r.ok ? undefined : r.reason });
     return r.ok ? { ok: true, sent: true, to_masked: masked, say: 'Done, it is on its way from rfsafe@callbots.org. If you do not see it in a minute or two, please check your spam or junk folder.' } : { ok: false, error: r.reason, say: 'The email did not go through. I can say the site name aloud or take a message.' };
   }
