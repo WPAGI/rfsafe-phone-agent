@@ -33,10 +33,14 @@ class Newsletter {
   confirmUrl(x) { return this.base + '/newsletter/confirm?t=' + this.token({ ...x, action: 'sub' }); }
   unsubscribeUrl(x) { return this.base + '/newsletter/unsubscribe?t=' + this.token({ ...x, action: 'unsub' }); }
   record(o, kind) { appendJsonl(this.file, { kind, email: o.e, name: o.n || null, tenant: o.t, at: new Date(this.now()).toISOString(), source: 'phone' }); }
+  isSubscriber(tenant, email) {
+    const e = String(email || '').trim().toLowerCase(); if (!e) return false;
+    return this.subscribers().some((s) => s.tenant === tenant && String(s.email || '').trim().toLowerCase() === e);
+  }
   subscribers() {
     let lines = []; try { lines = fs.readFileSync(this.file, 'utf8').split('\n').filter(Boolean); } catch { return []; }
     const m = new Map();
-    for (const l of lines) { let r; try { r = JSON.parse(l); } catch { continue; } const k = r.tenant + '|' + r.email; if (r.kind === 'confirmed') m.set(k, r); else if (r.kind === 'unsubscribed') m.delete(k); }
+    for (const l of lines) { let r; try { r = JSON.parse(l); } catch { continue; } const k = r.tenant + '|' + String(r.email || '').trim().toLowerCase(); if (r.kind === 'confirmed') m.set(k, r); else if (r.kind === 'unsubscribed') m.delete(k); }
     return [...m.values()].map(({ email, name, tenant, at, source }) => ({ email, name, tenant, confirmed_at: at, source }));
   }
 }
