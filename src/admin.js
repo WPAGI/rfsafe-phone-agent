@@ -1,0 +1,119 @@
+'use strict';
+// Admin dashboard: passwordless sign-in (one-time email link to a FIXED address), session cookie, CSRF,
+// newsletter + call-log views and CSV exports. Zero dependencies.
+const crypto = require('crypto');
+const fs = require('fs');
+const { appendJsonl } = require('./util');
+
+const LINK_TTL_MS = 15 * 60 * 1000;
+const LINK_MAX_PER_WINDOW = 3;
+const SESSION_MS = 12 * 3600 * 1000;
+const CALL_RETENTION_DAYS = 180;
+const DEFAULT_ADMIN_EMAIL = 'support@quantaxtechnology.com';
+const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+const rnd = (n = 32) => crypto.randomBytes(n).toString('base64url');
+const eq = (a, b) => { const x = Buffer.from(String(a)); const y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+
+function adminSecret(env = {}) {
+  const base = env.PA_STATE_SECRET || env.PA_MASTER_KEY || env.PA_ADMIN_TOKEN || 'demo-admin-EXAMPLE';
+  return crypto.createHmac('sha256', String(base)).update('rfsafe-admin-session-v1').digest();
+}
+function parseCookies(h) { const o = {}; for (const p of String(h || '').split(';')) { const i = p.indexOf('='); if (i > 0) o[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); } return o; }
+
+class AdminAuth {
+  constructor({ secret, email, now = () => Date.now() }) { this.secret = secret; this.email = email || DEFAULT_ADMIN_EMAIL; this.now = now; this.links = new Map(); this.sends = []; this.revoked = new Map(); }
+  mac(s) { return crypto.createHmac('sha256', this.secret).update(s).digest('base64url'); }
+  // One-time login link: random token, only its hash is stored. Max 3 issued per 15 minutes.
+  issueLink() {
+    const t = this.now(); this.sends = this.sends.filter((x) => t - x < LINK_TTL_MS);
+    if (this.sends.length >= LINK_MAX_PER_WINDOW) return null;
+    for (const [h, e] of this.links) if (e < t) this.links.delete(h);
+    const tok = rnd(32); this.links.set(sha(tok), t + LINK_TTL_MS); this.sends.push(t); return tok;
+  }
+  checkLink(tok) { const e = this.links.get(sha(tok || '')); return !!e && e >= this.now(); }
+  consumeLink(tok) { const h = sha(tok || ''); const e = this.links.get(h); if (!e) return false; this.links.delete(h); return e >= this.now(); }
+  // Session cookie: sid.exp.mac (stateless; logout revokes the sid in memory).
+  newSession() { const sid = rnd(18); const exp = this.now() + SESSION_MS; const p = sid + '.' + exp; return p + '.' + this.mac('s|' + p); }
+  session(cookie) {
+    const [sid, exp, m] = String(cookie || '').split('.'); if (!sid || !exp || !m) return null;
+    if (!eq(m, this.mac('s|' + sid + '.' + exp))) return null;
+    if (Number(exp) < this.now() || this.revoked.has(sid)) return null;
+    return { sid, exp: Number(exp) };
+  }
+  revoke(sid) { const t = this.now(); for (const [k, e] of this.revoked) if (e < t) this.revoked.delete(k); this.revoked.set(sid, t + SESSION_MS); }
+  csrfFor(sid) { return this.mac('c|' + sid); }
+}
+
+// Per-call records with the full caller number for the admin's quality review. Pruned after CALL_RETENTION_DAYS.
+class CallRecords {
+  constructor({ file, now = () => Date.now(), retentionDays = CALL_RETENTION_DAYS }) { this.file = file; this.now = now; this.keepMs = retentionDays * 86400000; this.lastPrune = 0; }
+  add(rec) { if (!this.file) return; appendJsonl(this.file, rec); if (this.now() - this.lastPrune > 86400000) this.prune(); }
+  read() { let l = []; try { l = fs.readFileSync(this.file, 'utf8').split('\n').filter(Boolean); } catch { return []; } const out = []; for (const x of l) { try { out.push(JSON.parse(x)); } catch { /* skip */ } } return out; }
+  prune() {
+    this.lastPrune = this.now(); const cut = this.now() - this.keepMs; const all = this.read(); const keep = all.filter((r) => Date.parse(r.at) >= cut);
+    if (keep.length !== all.length) { const tmp = this.file + '.tmp'; fs.writeFileSync(tmp, keep.map((r) => JSON.stringify(r)).join('\n') + (keep.length ? '\n' : ''), { mode: 0o600 }); fs.renameSync(tmp, this.file); }
+  }
+}
+
+// Build a call record from a CallSession summary (tools carry per-tool detail).
+function callRecord(summary, caller, endedAt) {
+  const tools = summary.tools || [];
+  const kb = tools.filter((t) => t.tool === 'kb_answer' && t.q).map((t) => t.q);
+  const emails = tools.filter((t) => t.tool === 'send_email').map((t) => ({ to_masked: t.to_masked || null, topic: t.topic || null, ok: !!t.ok }));
+  const topics = [...new Set([...kb, ...emails.map((e) => e.topic).filter(Boolean)])];
+  return {
+    at: summary.started_at || endedAt, ended_at: endedAt, call: summary.call || null, tenant: summary.tenant, caller: caller || null,
+    seconds: summary.seconds ?? null, tools: [...new Set(tools.map((t) => t.tool))], kb_queries: kb, emails,
+    newsletter_optin: tools.some((t) => t.tool === 'send_email' && t.ok && t.newsletter_optin === true),
+    summary: topics.length ? topics.slice(0, 5).join('; ').slice(0, 300) : null,
+  };
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function csvCell(v) { let s = v == null ? '' : String(v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+const toCsv = (cols, rows) => [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\r\n') + '\r\n';
+
+// Newsletter: full history per subscriber (confirmed + unsubscribed).
+function newsletterRows(file) {
+  let lines = []; try { lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean); } catch { return []; }
+  const m = new Map();
+  for (const l of lines) {
+    let r; try { r = JSON.parse(l); } catch { continue; }
+    const k = r.tenant + '|' + String(r.email || '').trim().toLowerCase();
+    if (r.kind === 'confirmed') m.set(k, { name: r.name || '', email: r.email, tenant: r.tenant, confirmed_at: r.at, source: r.source || 'phone', consent_method: 'phone verbal yes + email double opt-in click', confirm_ip: r.ip || '', user_agent: r.ua || '', unsubscribed_at: '' });
+    else if (r.kind === 'unsubscribed' && m.has(k)) m.get(k).unsubscribed_at = r.at;
+  }
+  return [...m.values()];
+}
+const NL_COLS = ['name', 'email', 'tenant', 'confirmed_at', 'source', 'consent_method', 'confirm_ip', 'user_agent', 'unsubscribed_at'];
+const CALL_COLS = ['at', 'ended_at', 'tenant', 'caller', 'seconds', 'summary', 'kb_queries', 'tools', 'emails', 'newsletter_optin'];
+function callCsvRows(recs) { return recs.map((r) => ({ ...r, kb_queries: (r.kb_queries || []).join(' | '), tools: (r.tools || []).join(' '), emails: (r.emails || []).map((e) => `${e.to_masked || '?'} (${e.topic || 'links'})${e.ok ? '' : ' FAILED'}`).join(' | '), newsletter_optin: r.newsletter_optin ? 'yes' : 'no' })); }
+function filterCalls(recs, { from, to, number }) {
+  const f = from ? Date.parse(from + 'T00:00:00Z') : null; const t = to ? Date.parse(to + 'T23:59:59.999Z') : null; const n = String(number || '').replace(/\D/g, '');
+  return recs.filter((r) => { const a = Date.parse(r.at); if (f && a < f) return false; if (t && a > t) return false; if (n && !String(r.caller || '').replace(/\D/g, '').includes(n)) return false; return true; }).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+const STYLE = 'body{font-family:system-ui,sans-serif;max-width:1200px;margin:30px auto;padding:0 20px;color:#222}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #ddd;padding:5px;text-align:left;vertical-align:top}th{background:#f4f4f4}button{font-size:15px;padding:10px 18px;border:0;border-radius:6px;background:#0b5;color:#fff;cursor:pointer}.k{display:inline-block;margin:0 18px 10px 0;padding:10px 14px;background:#f4f8f4;border-radius:6px}.k b{font-size:22px;display:block}small{color:#777}';
+function shell(title, body) { return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><style>${STYLE}</style></head><body>${body}</body></html>`; }
+const hidden = (csrf) => `<input type="hidden" name="csrf" value="${esc(csrf)}">`;
+function loginPage(csrf, msg) { return shell('Admin sign-in', `<h1>CallBots admin</h1>${msg ? `<p>${esc(msg)}</p>` : ''}<p>Press the button and a one-time sign-in link (valid 15 minutes) is emailed to the admin inbox.</p><form method="post" action="/admin/login">${hidden(csrf)}<button type="submit">Send sign-in link</button></form>`); }
+function authPage(csrf, tok) { return shell('Sign in', `<h1>CallBots admin</h1><form method="post" action="/admin/auth">${hidden(csrf)}<input type="hidden" name="t" value="${esc(tok)}"><button type="submit">Sign in</button></form><p><small>This link works once and expires 15 minutes after it was sent.</small></p>`); }
+function msgPage(title, text) { return shell(title, `<h1>${esc(title)}</h1><p>${esc(text)}</p><p><a href="/admin/login">Back to sign-in</a></p>`); }
+function dashboard({ csrf, nl, calls, q, now }) {
+  const t = now; const d7 = t - 7 * 86400000; const d30 = t - 30 * 86400000;
+  const active = nl.filter((r) => !r.unsubscribed_at);
+  const k = (label, n) => `<span class="k"><b>${n}</b>${esc(label)}</span>`;
+  const since = (x) => nl.filter((r) => Date.parse(r.confirmed_at) >= x).length;
+  const nlRows = nl.slice().sort((a, b) => String(b.confirmed_at).localeCompare(String(a.confirmed_at))).map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.email)}</td><td>${esc(r.tenant)}</td><td>${esc(r.confirmed_at)}</td><td>${esc(r.source)}</td><td>${esc(r.confirm_ip)}</td><td>${esc(r.unsubscribed_at)}</td></tr>`).join('');
+  const callRows = calls.slice(0, 500).map((r) => `<tr><td>${esc(r.at)}</td><td>${esc(r.caller || 'withheld')}</td><td>${r.seconds != null ? esc(r.seconds) + 's' : ''}</td><td>${esc(r.summary || '')}</td><td>${esc((r.tools || []).join(', '))}</td><td>${(r.emails || []).map((e) => esc(`${e.to_masked || '?'}: ${e.topic || 'links'}${e.ok ? '' : ' (failed)'}`)).join('<br>')}</td><td>${r.newsletter_optin ? 'yes' : ''}</td></tr>`).join('');
+  const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString();
+  return shell('CallBots admin', `<form method="post" action="/admin/logout" style="float:right">${hidden(csrf)}<button type="submit" style="background:#888">Sign out</button></form><h1>CallBots admin</h1>
+<h2>Newsletter</h2>${k('confirmed (active)', active.length)}${k('unsubscribed', nl.length - active.length)}${k('new, last 7 days', since(d7))}${k('new, last 30 days', since(d30))}
+<p><a href="/admin/newsletter.csv">Download CSV</a> <small>(includes consent method, confirm time, IP and browser when recorded)</small></p>
+<table><tr><th>Name</th><th>Email</th><th>Tenant</th><th>Confirmed (UTC)</th><th>Source</th><th>Confirm IP</th><th>Unsubscribed</th></tr>${nlRows || '<tr><td colspan="7">No subscribers yet.</td></tr>'}</table>
+<h2>Call log</h2><form method="get" action="/admin">From <input type="date" name="from" value="${esc(q.from || '')}"> To <input type="date" name="to" value="${esc(q.to || '')}"> Number <input name="number" value="${esc(q.number || '')}" placeholder="digits, e.g. 727555"> <button type="submit">Filter</button> <a href="/admin">Clear</a></form>
+<p>${calls.length} call(s). <a href="/admin/calls.csv${qs ? '?' + esc(qs) : ''}">Download CSV</a> <small>Call records are kept ${CALL_RETENTION_DAYS} days. Times are UTC.</small></p>
+<table><tr><th>Time (UTC)</th><th>Caller</th><th>Duration</th><th>Asked about</th><th>Tools</th><th>Emails sent</th><th>Newsletter opt-in</th></tr>${callRows || '<tr><td colspan="7">No calls recorded yet.</td></tr>'}</table>`);
+}
+
+module.exports = { AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, dashboard, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };

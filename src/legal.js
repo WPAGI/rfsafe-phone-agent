@@ -104,8 +104,14 @@ function renderPrivacy() {
 ${SMS_SECTION}
 ${EMAIL_SECTION}
 ${NEWSLETTER_SECTION}
+<h2 id="call-logs">Call logs for quality review</h2>
+<ul>
+  <li>For each call we keep a short record for quality review by Quanta X Technology staff: the calling number, the time and length of the call, the topics you asked the assistant about, which tools it used, a masked copy of any email address it sent to with the email's topic, and whether you asked for the newsletter.</li>
+  <li>We do not keep full call transcripts in this record. Call records are deleted after 180 days.</li>
+  <li>Access is limited to our administrators, who sign in with a one-time link sent to our company inbox.</li>
+</ul>
 <h2>Retention and security</h2>
-<p>We keep information only as long as needed for the purposes above, including to resolve disputes and meet legal requirements. We use reasonable safeguards to protect it; for example, our system logs record phone numbers in a shortened, non-readable form. No method of transmission or storage is completely secure.</p>
+<p>We keep information only as long as needed for the purposes above, including to resolve disputes and meet legal requirements. We use reasonable safeguards to protect it; for example, our technical system logs record phone numbers in a shortened, non-readable form, and the call records described above are visible only to signed-in administrators. No method of transmission or storage is completely secure.</p>
 <h2>Your choices</h2>
 <ul>
   <li>Reply STOP to any text to opt out of texts.</li>

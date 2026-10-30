@@ -149,7 +149,7 @@ class CallSession {
       let args = {}; try { args = JSON.parse(ev.arguments || '{}'); } catch { /* bad args -> tool reports error */ }
       this.pending.push((async () => {
         const out = await this.tools.ctxCall(this).run(ev.name, args);
-        this.events.push({ tool: ev.name, ok: out.ok !== false });
+        this.events.push(toolDetail(ev.name, args, out));
         this.ws.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: ev.call_id, output: JSON.stringify(out) } }));
       })());
     }
@@ -161,9 +161,18 @@ class CallSession {
   }
   finish() {
     if (this.closed) return; this.closed = true; clearTimeout(this.timer);
-    const summary = { call: this.callId, tenant: this.tenant.id, seconds: Math.round((Date.now() - this.started) / 1000), tools: this.events, turns: this.transcript.length };
+    const summary = { call: this.callId, tenant: this.tenant.id, started_at: new Date(this.started).toISOString(), seconds: Math.round((Date.now() - this.started) / 1000), tools: this.events, turns: this.transcript.length };
     this.log('call.ended', summary); this.onEnd && this.onEnd(summary, this.transcript);
   }
 }
 
-module.exports = { knownCallerFor, WebhookVerifier, signWebhook, sipHeader, callerIdFromSip, last4, sessionUpdate, buildInstructions, forceMessage, XaiCallControl, CallSession };
+// Per-tool detail kept for the admin call log: kb questions and email topics only (no transcripts, no full emails).
+function toolDetail(name, args, out) {
+  const e = { tool: name, ok: !!out && out.ok !== false };
+  const short = (v, n) => String(v || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+  if (name === 'kb_answer' && args.question) e.q = short(args.question, 160);
+  if (name === 'send_email') { if (args.topic) e.topic = short(args.topic, 80); if (out && out.to_masked) e.to_masked = out.to_masked; if (args.newsletter_optin === true) e.newsletter_optin = true; }
+  return e;
+}
+
+module.exports = { toolDetail, knownCallerFor, WebhookVerifier, signWebhook, sipHeader, callerIdFromSip, last4, sessionUpdate, buildInstructions, forceMessage, XaiCallControl, CallSession };
