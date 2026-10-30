@@ -56,3 +56,24 @@ test('instructions offer email when texting is off; privacy mentions email', () 
   assert.ok(!/set_email_address/.test(off));
   assert.match(privacyPage(), /id="email"/); assert.match(privacyPage(), /rfsafe@callbots\.org/);
 });
+test('send_email with KB summary: topic subject, allowlisted URLs kept, others stripped, escaped, capped', async () => {
+  const m = mk(); await m.tools.run('set_email_address', { email: 'jane@gmail.com', caller_said_yes: true }, voice);
+  const summary = 'RF Safe says the FCC limits are thermal only.\n\nSee https://rfsafe.org/fcc and <b>bold</b> & https://evil.com/x ok.';
+  const s = await m.tools.run('send_email', { urls: ['https://rfsafe.org/fcc'], summary, topic: 'FCC exposure limits\n<script>' }, voice);
+  assert.ok(s.sent); const e = m.mail.sent[0];
+  assert.strictEqual(e.subject, 'Your RF Safe info: FCC exposure limits script');
+  assert.ok(!e.text.includes('evil.com')); assert.ok(!e.html.includes('evil.com'));
+  assert.match(e.text, /https:\/\/rfsafe\.org\/fcc and/); assert.match(e.text, /Sources:/);
+  assert.ok(e.html.includes('&lt;b&gt;bold&lt;/b&gt; &amp;')); assert.ok(!e.html.includes('<b>bold'));
+  assert.strictEqual((e.html.match(/<p>RF Safe says|<p>See /g) || []).length, 2);
+  assert.match(e.html, /Quanta X Technology LLC/);
+  const long = 'Sentence here. '.repeat(500);
+  await m.tools.run('send_email', { urls: ['https://rfsafe.org/a'], summary: long }, voice);
+  const e2 = m.mail.sent[1]; assert.strictEqual(e2.subject, 'Your RF Safe info');
+  assert.ok(e2.text.length < 4600); assert.ok(require('../src/email').cleanSummary(long, ['rfsafe.org']).length <= 4004);
+  assert.strictEqual((await m.tools.run('send_email', { urls: ['https://rfsafe.org/a'], summary: 'card 4111 1111 1111 1111' }, voice)).ok, false);
+});
+test('instructions: email info must come from kb_answer, no invented studies', () => {
+  const ins = buildInstructions({ name: 'RF Safe', link_allowlist: ['rfsafe.org'], blocked_topics: [], sms_enabled: false, email_enabled: true }, {});
+  assert.match(ins, /kb_answer/); assert.match(ins, /Never invent studies/); assert.match(ins, /1-5/);
+});
