@@ -1,0 +1,18 @@
+{
+  "_note": "EXAMPLE DATA for local demo. Numbers are 555 fictional numbers; no real accounts.",
+  "id": "rfsafe-demo",
+  "name": "RF Safe (DEMO)",
+  "owner_email": "owner@example.com",
+  "numbers": ["+17275550100"],
+  "link_allowlist": ["quantacase.com", "rfsafe.org"],
+  "transfer_target": "tel:+17275550199",
+  "hours": { "tz": "America/New_York", "open": "09:00", "close": "17:00", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] },
+  "voice": "eve",
+  "keyterms": ["QuantaCase", "RF Safe", "SAR"],
+  "kb": { "dirs": ["../kb/rfsafe"] },
+  "shopify": { "shop": "quantacase.com", "mode": "public", "public_domain": "quantacase.com" },
+  "sms_enabled": true,
+  "approval_mode": false,
+  "instant_link_reply": true,
+  "secrets": { "xai_webhook_secret": "env:DEMO_XAI_WEBHOOK_SECRET", "twilio_auth_token": "env:DEMO_TWILIO_AUTH_TOKEN" }
+}

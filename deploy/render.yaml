@@ -1,0 +1,37 @@
+# Render Blueprint (NOT applied; nothing is deployed). Starter plan = $7/mo always-on, 1 GB disk = $0.25/mo.
+services:
+  - type: web
+    name: rfsafe-phone-agent
+    runtime: node
+    plan: starter
+    region: virginia
+    buildCommand: "npm test"
+    startCommand: "node bin/server.js"
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PA_MODE
+        value: live
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data
+      - key: TENANTS_DIR
+        value: /var/data/tenants
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: PA_ADMIN_TOKEN
+        sync: false
+      - key: PA_STATE_SECRET
+        sync: false
+      - key: PA_MASTER_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: RFSAFE_XAI_WEBHOOK_SECRET
+        sync: false
+      - key: RFSAFE_TWILIO_AUTH_TOKEN
+        sync: false

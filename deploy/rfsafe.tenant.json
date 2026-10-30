@@ -1,0 +1,18 @@
+{
+  "id": "rfsafe",
+  "name": "RF Safe",
+  "owner_email": "SET_AT_DEPLOY",
+  "numbers": ["+1NEWNUMBER_SET_AT_DEPLOY"],
+  "link_allowlist": ["quantacase.com", "rfsafe.org"],
+  "transfer_target": "tel:+1SET_AT_DEPLOY",
+  "hours": { "tz": "America/New_York", "open": "09:00", "close": "17:00", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] },
+  "voice": "eve",
+  "keyterms": ["QuantaCase", "RF Safe", "SAR", "rfsafe.org"],
+  "kb": { "dirs": ["kb/rfsafe"] },
+  "shopify": { "shop": "quantacase.com", "mode": "public", "public_domain": "quantacase.com" },
+  "sms_enabled": false,
+  "approval_mode": true,
+  "instant_link_reply": false,
+  "order_lookup_enabled": false,
+  "secrets": { "xai_webhook_secret": "env:RFSAFE_XAI_WEBHOOK_SECRET", "twilio_auth_token": "env:RFSAFE_TWILIO_AUTH_TOKEN" }
+}

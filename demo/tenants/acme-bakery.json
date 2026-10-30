@@ -1,0 +1,12 @@
+{
+  "_note": "EXAMPLE DATA: a second fictional tenant to demonstrate isolation.",
+  "id": "acme-bakery-demo",
+  "name": "Acme Bakery (DEMO)",
+  "owner_email": "owner@example.net",
+  "numbers": ["+14155550123"],
+  "link_allowlist": ["example.com"],
+  "voice": "ara",
+  "kb": { "dirs": ["../kb/acme"] },
+  "sms_enabled": false,
+  "secrets": { "xai_webhook_secret": "env:DEMO_ACME_XAI_WEBHOOK_SECRET", "twilio_auth_token": "env:DEMO_ACME_TWILIO_AUTH_TOKEN" }
+}
