@@ -9,7 +9,7 @@ const { hostAllowed } = require('./linkguard');
 const STOP = new Set('a an and are as at be by can do does for from has have how i if in is it its me my of on or our that the this to was what when where which who why will with you your'.split(' '));
 // Spoken / spelled variants collapse to one token so 'Li-Fi', 'LiFi', 'lie fi', 'light fidelity' all match.
 const SYN = [[/\b(?:li[\s-]?fi|lie[\s-]?fi|lye[\s-]?fi|light[\s-]fidelity)\b/gi, ' lifi '], [/\bwi[\s-]?fi\b/gi, ' wifi '], [/\bchildren\b|\bkids?\b/gi, ' child '], [/\bnon[\s-]thermal\b/gi, ' nonthermal '], [/\bnational toxicology program\b/gi, ' ntp '], [/\bs4[\s-]+mito[\s-–]+spin\b|\bs\s?four mito spin\b/gi, ' s4mitospin '], [/\bcell\s?lm\b|\bc\.?e\.?l\.?l\.?m\b|\bsell m\b/gi, ' cellm '], [/\blow[\s-]fidelity\b/gi, ' lowfidelity '], [/\b(?:public law|p\.?\s?l\.?)\s*90[\s-]?602\b/gi, ' pl90602 '], [/\bsection\s*704\b/gi, ' section704 ']];
-const norm = (s) => SYN.reduce((a, [re, r]) => a.replace(re, r), String(s));
+const norm = (s) => SYN.reduce((a, [re, r]) => a.replace(re, r), String(s).normalize('NFKC').replace(/[\u2010-\u2015\u2212]/g, '-'));
 const tok = (s) => norm(s).toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
 
 function parse(text, file) {

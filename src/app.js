@@ -156,7 +156,7 @@ function createApp(d) {
       // Admin token only. Uploads the full Second Brain KB export; John approves each upload like a deploy.
       if (req.method !== 'PUT' || !d.kbBundleDir) return json(res, 405, { error: 'method_not_allowed' });
       const kbb = require('./kbbundle');
-      try { const r = kbb.installBundle(await kbb.readRaw(req), d.kbBundleDir, t.id); d.kbReset && d.kbReset(t.id); log('kb.bundle_installed', { tenant: t.id, pages: r.pages }); return json(res, 200, { tenant: t.id, pages: r.pages }); }
+      try { const r = kbb.installBundle(await kbb.readRaw(req), d.kbBundleDir, t.id); d.kbReset && d.kbReset(t.id); log('kb.bundle_installed', { tenant: t.id, pages: r.pages }); return json(res, 200, { tenant: t.id, pages: r.pages, version: r.version, generated: r.generated }); }
       catch (e) { return json(res, e.status || 400, { error: 'bundle_rejected', detail: String(e.message).slice(0, 200) }); }
     }
     if (m[2] === 'approvals') return json(res, 200, { approvals: approvals.list(t.id) });
