@@ -98,6 +98,10 @@ function shell(title, body) { return `<!doctype html><html lang="en"><head><meta
 const hidden = (csrf) => `<input type="hidden" name="csrf" value="${esc(csrf)}">`;
 function loginPage(csrf, msg) { return shell('Admin sign-in', `<h1>CallBots admin</h1>${msg ? `<p>${esc(msg)}</p>` : ''}<p>Press the button and a one-time sign-in link (valid 15 minutes) is emailed to the admin inbox.</p><form method="post" action="/admin/login">${hidden(csrf)}<button type="submit">Send sign-in link</button></form>`); }
 function authPage(csrf, tok) { return shell('Sign in', `<h1>CallBots admin</h1><form method="post" action="/admin/auth">${hidden(csrf)}<input type="hidden" name="t" value="${esc(tok)}"><button type="submit">Sign in</button></form><p><small>This link works once and expires 15 minutes after it was sent.</small></p>`); }
+function sentPage(csrf, nonce, email) {
+  return shell('Sign-in link sent', `<h1>Sign-in link sent</h1><p>Check <strong>${esc(email)}</strong> (and spam). The link expires in <strong id="ttl">15:00</strong>.</p><form method="post" action="/admin/login">${hidden(csrf)}<button type="submit" id="resend" disabled>Resend link (<span id="rs">60</span>s)</button></form><p><a href="/admin/login">Back to sign-in</a></p>
+<script nonce="${esc(nonce)}">(function(){var end=Date.now()+900000,rend=Date.now()+60000,ttl=document.getElementById('ttl'),b=document.getElementById('resend'),rs=document.getElementById('rs');function p(n){return n<10?'0'+n:''+n}function tick(){var l=Math.max(0,Math.round((end-Date.now())/1000));ttl.textContent=l?Math.floor(l/60)+':'+p(l%60):'expired';var r=Math.max(0,Math.ceil((rend-Date.now())/1000));if(r){rs.textContent=r}else{b.disabled=false;b.textContent='Resend link'}if(l)setTimeout(tick,1000)}tick()})();</script>`);
+}
 function msgPage(title, text) { return shell(title, `<h1>${esc(title)}</h1><p>${esc(text)}</p><p><a href="/admin/login">Back to sign-in</a></p>`); }
 function dashboard({ csrf, nl, calls, q, now }) {
   const t = now; const d7 = t - 7 * 86400000; const d30 = t - 30 * 86400000;
@@ -116,4 +120,4 @@ function dashboard({ csrf, nl, calls, q, now }) {
 <table><tr><th>Time (UTC)</th><th>Caller</th><th>Duration</th><th>Asked about</th><th>Tools</th><th>Emails sent</th><th>Newsletter opt-in</th></tr>${callRows || '<tr><td colspan="7">No calls recorded yet.</td></tr>'}</table>`);
 }
 
-module.exports = { AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, dashboard, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };
+module.exports = { AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, sentPage, dashboard, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };
