@@ -8,7 +8,8 @@ const { WebhookVerifier, sipHeader, CallSession, buildInstructions } = require('
 const { verifyTwilio, twiml } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
 const { handleInboundSms } = require('./sms');
-const { renderLanding } = require('./page');
+const { renderLanding, ROBOTS, SITEMAP } = require('./page');
+const { faviconIco, FAVICON_SVG } = require('./favicon');
 const { DEMO_ADMIN } = require('./readiness');
 const ob = require('./onboarding');
 
@@ -25,7 +26,8 @@ function createApp(d) {
   const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(body); };
+  const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
+  const bytes = (res, code, type, body) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff' }); res.end(body); };
   const loopback = (host) => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host || '');
   const isAdmin = (req) => {
     const h = req.headers.authorization || '';
@@ -174,7 +176,11 @@ function createApp(d) {
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
     try {
-      if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding({ mode: d.mode || 'demo', tenants: d.tenants.list().length }));
+      if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding());
+      if (req.method === 'GET' && u.pathname === '/robots.txt') return bytes(res, 200, 'text/plain; charset=utf-8', ROBOTS);
+      if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
+      if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
+      if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
       if (req.method === 'GET' && u.pathname === '/health') return json(res, 200, { ok: true, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
       if (req.method === 'GET' && (u.pathname === '/admin' || u.pathname === '/admin/status')) return adminStatus(req, res);
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);

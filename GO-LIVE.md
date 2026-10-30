@@ -30,7 +30,7 @@ Set these in the Render dashboard. Generate each random value with `openssl rand
 
 ## Steps
 
-1. **Confirm demo.** `GET /health` returns `"ok": true` and `"mode": "demo"`. `/` is the callbots.org status page. Logs must not show raw phone numbers or secret values.
+1. **Confirm demo.** `GET /health` returns `"ok": true` and `"mode": "demo"`. `/` is the public CallBots page. Logs must not show raw phone numbers or secret values.
 2. **Set the random secrets and `PUBLIC_BASE_URL`.** Leave `PA_MODE` as `demo`. Redeploy. Open `/admin` and read the checklist.
 3. **Buy one Twilio local number** for Quanta X Technology / RF Safe. Do not reuse a personal number. Cost is about $1.15 per month.
 4. **Dry-run the trunk script** from a machine that has the env vars, not from the web process:
