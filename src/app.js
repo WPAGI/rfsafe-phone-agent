@@ -4,7 +4,7 @@
 const { URL } = require('url');
 const { readBody, safeEq, fp, appendJsonl } = require('./util');
 const { normNumber, resolveSecret } = require('./tenants');
-const { WebhookVerifier, sipHeader, CallSession, buildInstructions } = require('./xai');
+const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTwilio, twiml } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
 const { handleInboundSms } = require('./sms');
@@ -71,8 +71,8 @@ function createApp(d) {
       return json(res, 200, { ok: true });
     }
     if (ev.type !== 'realtime.call.incoming') return json(res, 200, { ignored: ev.type });
-    const caller = normNumber(sipHeader(ev.data, 'From') || '');
-    d.consent.record(tenant.id, caller, 'inbound'); // calling first = opt-in to replies with requested links
+    const caller = callerIdFromSip(ev.data); // null when blocked/anonymous
+    if (caller) d.consent.record(tenant.id, caller, 'inbound'); // calling first = opt-in to replies with requested links
     json(res, 200, { accepted: true });
     const ws = await d.openRealtime(tenant, callId);
     const afterHours = !inHours(tenant.hours, now());
@@ -84,7 +84,7 @@ function createApp(d) {
         d.notify(tenant, { kind: 'call_summary', caller, ...summary, transcript });
       } });
     calls.set(callId, session);
-    log('call.started', { tenant: tenant.id, call: callId, from: fp(caller), afterHours });
+    log('call.started', { tenant: tenant.id, call: callId, from: caller ? fp(caller) : 'withheld', afterHours });
   }
 
   async function twilioStatus(req, res) {

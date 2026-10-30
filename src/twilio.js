@@ -24,8 +24,9 @@ const HELP_WORDS = /^\s*(help|info)\s*$/i;
 class Consent {
   constructor(file) { this.file = file; this.state = new Map(); if (file && fs.existsSync(file)) for (const l of fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)) this._apply(JSON.parse(l)); }
   _k(t, p) { return t + '|' + p; }
-  _apply(e) { const k = this._k(e.tenant, e.phone); const s = this.state.get(k) || { contacted: false, optedOut: false }; if (e.type === 'inbound') s.contacted = true; if (e.type === 'stop') s.optedOut = true; if (e.type === 'start') { s.optedOut = false; s.contacted = true; } this.state.set(k, s); }
+  _apply(e) { const k = this._k(e.tenant, e.phone); const s = this.state.get(k) || { contacted: false, optedOut: false }; if (e.type === 'inbound' || e.type === 'verbal_call') s.contacted = true; if (e.type === 'stop') s.optedOut = true; if (e.type === 'start') { s.optedOut = false; s.contacted = true; } this.state.set(k, s); }
   record(tenant, phone, type) { const e = { tenant, phone, type, at: new Date().toISOString() }; this._apply(e); if (this.file) { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.appendFileSync(this.file, JSON.stringify(e) + '\n', { mode: 0o600 }); } }
+  isOptedOut(tenant, phone) { const s = this.state.get(this._k(tenant, phone)); return !!(s && s.optedOut); }
   canText(tenant, phone) { const s = this.state.get(this._k(tenant, phone)); return !!(s && s.contacted && !s.optedOut); }
 }
 
