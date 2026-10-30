@@ -70,3 +70,30 @@ test('HTTP: GET shows button only, POST confirms, unsubscribe, admin list', asyn
     assert.ok(!JSON.stringify(a.logs).includes('jane@gmail.com'));
   } finally { await a.close(); }
 });
+test('existing subscriber recognized: no confirm link, unsubscribe kept, server-side', async () => {
+  const m = mk();
+  m.nl.record({ e: 'Sub@Gmail.com ', n: 'Sam', t: 'r' }, 'confirmed');
+  m.nl.record({ e: 'gone@gmail.com', n: 'G', t: 'r' }, 'confirmed'); m.nl.record({ e: 'gone@gmail.com', t: 'r' }, 'unsubscribed');
+  m.nl.record({ e: 'other@gmail.com', t: 'zz' }, 'confirmed');
+  assert.ok(m.nl.isSubscriber('r', '  SUB@gmail.com')); assert.ok(!m.nl.isSubscriber('r', 'gone@gmail.com')); assert.ok(!m.nl.isSubscriber('r', 'other@gmail.com'));
+  const r = await m.tools.run('set_email_address', { email: ' sub@GMAIL.com', caller_said_yes: true }, voice);
+  assert.strictEqual(r.already_subscriber, true);
+  await m.tools.run('send_email', { urls: ['https://rfsafe.org/a'], recipient_name: 'Sam', newsletter_optin: true }, voice);
+  const e = m.mail.sent[0];
+  assert.match(e.text, /^Hi Sam, thank you for being an RF Safe newsletter subscriber and for requesting information from RF Safe\./);
+  assert.ok(!e.text.includes('newsletter/confirm') && !e.html.includes('newsletter/confirm'));
+  assert.ok(e.text.includes('newsletter/unsubscribe') && e.html.includes('newsletter/unsubscribe'));
+  assert.ok(!JSON.stringify(m.logs).toLowerCase().includes('sub@gmail.com'));
+});
+test('non-subscriber / unsubscribed: already_subscriber false, normal flow', async () => {
+  const m = mk(); m.nl.record({ e: 'gone@gmail.com', t: 'r' }, 'confirmed'); m.nl.record({ e: 'gone@gmail.com', t: 'r' }, 'unsubscribed');
+  const r = await m.tools.run('set_email_address', { email: 'gone@gmail.com', caller_said_yes: true }, voice);
+  assert.strictEqual(r.already_subscriber, false);
+  await m.tools.run('send_email', { urls: ['https://rfsafe.org/a'], recipient_name: 'G' }, voice);
+  assert.match(m.mail.sent[0].text, /^Hi G, thank you for requesting information from RF Safe\./);
+  assert.ok(!m.mail.sent[0].text.includes('newsletter/'));
+});
+test('instructions mention already_subscriber skip', () => {
+  const s = JSON.stringify(buildInstructions({ id: 'r', name: 'RF Safe', email_enabled: true, link_allowlist: ['rfsafe.org'], numbers: [], blocked_topics: [] }, { afterHours: false }));
+  assert.match(s, /already_subscriber/);
+});
