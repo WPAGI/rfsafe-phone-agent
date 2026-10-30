@@ -32,7 +32,7 @@ class Newsletter {
   }
   confirmUrl(x) { return this.base + '/newsletter/confirm?t=' + this.token({ ...x, action: 'sub' }); }
   unsubscribeUrl(x) { return this.base + '/newsletter/unsubscribe?t=' + this.token({ ...x, action: 'unsub' }); }
-  record(o, kind) { appendJsonl(this.file, { kind, email: o.e, name: o.n || null, tenant: o.t, at: new Date(this.now()).toISOString(), source: 'phone' }); }
+  record(o, kind, meta = {}) { appendJsonl(this.file, { kind, email: o.e, name: o.n || null, tenant: o.t, at: new Date(this.now()).toISOString(), source: 'phone', ...(meta.ip ? { ip: String(meta.ip).slice(0, 64) } : {}), ...(meta.ua ? { ua: String(meta.ua).slice(0, 300) } : {}) }); }
   isSubscriber(tenant, email) {
     const e = String(email || '').trim().toLowerCase(); if (!e) return false;
     return this.subscribers().some((s) => s.tenant === tenant && String(s.email || '').trim().toLowerCase() === e);

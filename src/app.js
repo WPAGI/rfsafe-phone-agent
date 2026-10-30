@@ -12,6 +12,7 @@ const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
 const { DEMO_ADMIN } = require('./readiness');
 const ob = require('./onboarding');
+const adm = require('./admin');
 
 const CALL_END_TYPES = new Set(['realtime.call.ended', 'realtime.call.completed', 'realtime.call.failed']);
 
@@ -81,6 +82,7 @@ function createApp(d) {
       onEnd: (summary, transcript) => {
         calls.delete(callId);
         try { appendJsonl(d.callLog, { at: new Date().toISOString(), from: fp(caller), ...summary }); } catch (e) { log('call.log_error', { err: e.message }); }
+        try { if (d.callRecords) d.callRecords.add(adm.callRecord(summary, caller, new Date().toISOString())); } catch (e) { log('call.record_error', { err: e.message }); }
         d.notify(tenant, { kind: 'call_summary', caller, ...summary, transcript });
       } });
     calls.set(callId, session);
@@ -200,11 +202,72 @@ function createApp(d) {
     if (req.method === 'POST') {
       const tok = new URLSearchParams(await readBody(req, 8192)).get('t') || u.searchParams.get('t') || '';
       const o = nl.verify(tok, action); if (!o) return page(400, nlp.page('Link expired or invalid', '<p>This link is invalid or has expired.</p>'));
-      nl.record(o, unsub ? 'unsubscribed' : 'confirmed'); log(unsub ? 'newsletter.unsubscribed' : 'newsletter.confirmed', { tenant: o.t, to: fp(o.e) });
+      nl.record(o, unsub ? 'unsubscribed' : 'confirmed', unsub ? {} : { ip: clientIp(req), ua: req.headers['user-agent'] || '' }); log(unsub ? 'newsletter.unsubscribed' : 'newsletter.confirmed', { tenant: o.t, to: fp(o.e) });
       return page(200, unsub ? nlp.page('You are unsubscribed', "<p>You will not receive RF Safe's newsletter. Thank you.</p>") : nlp.page('Thank you!', "<p>You are subscribed to RF Safe's monthly newsletter. Every issue has an unsubscribe link.</p>"));
     }
     return json(res, 405, { error: 'method_not_allowed' });
   }
+
+  // ---- Admin dashboard (session cookie via one-time email link; Bearer token still works for CSVs) ----
+  function clientIp(req) { const x = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim(); return x || (req.socket && req.socket.remoteAddress) || ''; }
+  const SEC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" };
+  const SC = 'HttpOnly; Secure; SameSite=Strict; Path=/admin';
+  function adminUiSend(res, code, body, extra = {}, cookies = []) { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', ...SEC_HEADERS, ...extra, ...(cookies.length ? { 'set-cookie': cookies } : {}) }); res.end(body); }
+  function sameOrigin(req) {
+    const o = req.headers.origin; if (!o) return true; // older browsers omit Origin; the CSRF token still applies
+    try { return new URL(o).host === req.headers.host || (d.publicBaseUrl && new URL(o).host === new URL(d.publicBaseUrl).host); } catch { return false; }
+  }
+  // Pre-session CSRF: double-submit cookie. Session CSRF: HMAC bound to the session id.
+  function preCsrf(req) { const c = adm.parseCookies(req.headers.cookie).pa_csrf; return c && /^[A-Za-z0-9_-]{20,}$/.test(c) ? { tok: c, set: [] } : (() => { const t = require('crypto').randomBytes(24).toString('base64url'); return { tok: t, set: [`pa_csrf=${t}; ${SC}; Max-Age=3600`] }; })(); }
+  async function adminUi(req, res, u) {
+    const auth = d.adminAuth; if (!auth) return json(res, 503, { error: 'admin_unavailable' });
+    const cookies = adm.parseCookies(req.headers.cookie);
+    const sess = auth.session(cookies.pa_admin);
+    const p = u.pathname;
+    const form = async () => (req.method === 'POST' ? Object.fromEntries(new URLSearchParams(await readBody(req, 8192))) : {});
+    if (p === '/admin/login') {
+      if (req.method === 'GET') { const c = preCsrf(req); return adminUiSend(res, 200, adm.loginPage(c.tok), {}, c.set); }
+      if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
+      const f = await form();
+      if (!sameOrigin(req) || !cookies.pa_csrf || !f.csrf || !safeEq(f.csrf, cookies.pa_csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Please reload the sign-in page and try again.'));
+      const tok = auth.issueLink();
+      if (!tok) { log('admin.login_rate_limited', {}); return adminUiSend(res, 429, adm.msgPage('Too many sign-in links', 'Three links were already sent in the last 15 minutes. Use one of those or try again later.')); }
+      const link = (d.publicBaseUrl || '').replace(/\/$/, '') + '/admin/auth?t=' + tok;
+      const text = `Someone asked to sign in to the CallBots admin dashboard.\n\nSign in (works once, expires in 15 minutes):\n${link}\n\nIf this was not you, ignore this email.`;
+      const html = `<p>Someone asked to sign in to the CallBots admin dashboard.</p><p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#0b5;color:#fff;text-decoration:none;border-radius:6px">Open the sign-in page</a></p><p>The link works once and expires in 15 minutes. If this was not you, ignore this email.</p>`;
+      let r; try { r = await d.emailFor(null).send({ to: auth.email, subject: 'CallBots admin sign-in link', text, html }); } catch (e) { r = { ok: false, reason: e.message }; }
+      log('admin.login_link', { ok: !!(r && r.ok), reason: r && !r.ok ? r.reason : undefined });
+      return adminUiSend(res, r && r.ok ? 200 : 502, r && r.ok ? adm.msgPage('Check the admin inbox', 'A sign-in link was sent to the admin email address. It works once and expires in 15 minutes.') : adm.msgPage('Could not send', 'The sign-in email could not be sent. Try again shortly.'));
+    }
+    if (p === '/admin/auth') {
+      if (req.method === 'GET') { const tok = u.searchParams.get('t') || ''; if (!auth.checkLink(tok)) return adminUiSend(res, 400, adm.msgPage('Link expired or used', 'This sign-in link is invalid, used, or expired. Request a new one.')); const c = preCsrf(req); return adminUiSend(res, 200, adm.authPage(c.tok, tok), {}, c.set); }
+      if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
+      const f = await form();
+      if (!sameOrigin(req) || !cookies.pa_csrf || !f.csrf || !safeEq(f.csrf, cookies.pa_csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Open the link from the email again and press Sign in.'));
+      if (!auth.consumeLink(f.t)) { log('admin.login_failed', {}); return adminUiSend(res, 400, adm.msgPage('Link expired or used', 'This sign-in link is invalid, used, or expired. Request a new one.')); }
+      log('admin.login', { ip: fp(clientIp(req)) });
+      return adminUiSend(res, 303, '', { location: '/admin' }, [`pa_admin=${auth.newSession()}; ${SC}; Max-Age=${adm.SESSION_MS / 1000}`, `pa_csrf=; ${SC}; Max-Age=0`]);
+    }
+    if (p === '/admin/logout') {
+      if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
+      const f = await form();
+      if (!sess || !sameOrigin(req) || !f.csrf || !safeEq(f.csrf, auth.csrfFor(sess.sid))) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the dashboard and try again.'));
+      auth.revoke(sess.sid); log('admin.logout', {});
+      return adminUiSend(res, 303, '', { location: '/admin/login' }, [`pa_admin=; ${SC}; Max-Age=0`]);
+    }
+    // Data views: session cookie, or Bearer admin token for scripts.
+    if (!sess && !isAdmin(req)) return p === '/admin' && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+    if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
+    const q = { from: /^\d{4}-\d{2}-\d{2}$/.test(u.searchParams.get('from') || '') ? u.searchParams.get('from') : '', to: /^\d{4}-\d{2}-\d{2}$/.test(u.searchParams.get('to') || '') ? u.searchParams.get('to') : '', number: (u.searchParams.get('number') || '').replace(/[^\d+]/g, '').slice(0, 16) };
+    const nlRows = d.newsletterFile ? adm.newsletterRows(d.newsletterFile) : [];
+    const calls = adm.filterCalls(d.callRecords ? d.callRecords.read() : [], q);
+    const csv = (name, body) => { res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${name}"`, ...SEC_HEADERS }); res.end(body); };
+    if (p === '/admin/newsletter.csv') return csv('newsletter.csv', adm.toCsv(adm.NL_COLS, nlRows));
+    if (p === '/admin/calls.csv') return csv('calls.csv', adm.toCsv(adm.CALL_COLS, adm.callCsvRows(calls)));
+    const nowMs = now().getTime ? now().getTime() : Date.now();
+    return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs }));
+  }
+  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv']);
 
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
@@ -217,7 +280,9 @@ function createApp(d) {
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
       if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
       if (req.method === 'GET' && u.pathname === '/health') return json(res, 200, { ok: true, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
-      if (req.method === 'GET' && (u.pathname === '/admin' || u.pathname === '/admin/status')) return adminStatus(req, res);
+      if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
+      if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
+      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname)) return await adminUi(req, res, u);
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms/status') return await twilioStatus(req, res);

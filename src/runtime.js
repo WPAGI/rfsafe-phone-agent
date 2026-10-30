@@ -75,6 +75,9 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   return {
     mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: log || makeLogger(env.PA_LOG_FILE, secretValues(env)),
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
+    callRecords: new (require('./admin').CallRecords)({ file: path.join(dataDir, 'call-records.jsonl') }),
+    newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
+    adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
     websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'),
     newsletter: (() => { const { Newsletter, deriveSecret } = require('./newsletter'); return new Newsletter({ secret: deriveSecret(env), file: path.join(dataDir, 'newsletter.jsonl'), baseUrl: env.PUBLIC_BASE_URL || 'https://callbots.org' }); })(),
