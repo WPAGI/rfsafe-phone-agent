@@ -1,4 +1,5 @@
-# Render Blueprint (NOT applied; nothing is deployed). Starter plan = $7/mo always-on, 1 GB disk = $0.25/mo.
+# Blueprint for the service already deployed at rfsafe-phone-agent.onrender.com.
+# PA_MODE stays demo until the steps in GO-LIVE.md. Syncing this file does not buy a number or call Twilio or xAI.
 services:
   - type: web
     name: rfsafe-phone-agent
@@ -14,7 +15,7 @@ services:
       sizeGB: 1
     envVars:
       - key: PA_MODE
-        value: live
+        value: demo
       - key: NODE_VERSION
         value: "22"
       - key: DATA_DIR
@@ -31,7 +32,15 @@ services:
         sync: false
       - key: XAI_API_KEY
         sync: false
+      - key: XAI_TEXT_MODEL
+        value: grok-4.3
       - key: RFSAFE_XAI_WEBHOOK_SECRET
         sync: false
       - key: RFSAFE_TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: RFSAFE_PHONE_NUMBER
+        sync: false
+      - key: RFSAFE_SHOPIFY_STOREFRONT_TOKEN
         sync: false

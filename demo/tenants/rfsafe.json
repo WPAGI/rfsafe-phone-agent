@@ -11,6 +11,10 @@
   "keyterms": ["QuantaCase", "RF Safe", "SAR"],
   "kb": { "dirs": ["../kb/rfsafe"] },
   "shopify": { "shop": "quantacase.com", "mode": "public", "public_domain": "quantacase.com" },
+  "website": { "pages": [
+    { "title": "RF Safe", "url": "https://rfsafe.org/", "text": "EXAMPLE DATA. RF Safe publishes phone SAR comparisons. The phone agent answers support questions from this site and never takes payment." },
+    { "title": "QuantaCase", "url": "https://quantacase.com/", "text": "EXAMPLE DATA. QuantaCase phone cases from Quanta X Technology. Order only on this website." }
+  ] },
   "sms_enabled": true,
   "approval_mode": false,
   "instant_link_reply": true,

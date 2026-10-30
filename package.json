@@ -1,6 +1,6 @@
 {
   "name": "rfsafe-phone-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-tenant AI phone agent tool server: xAI Grok Voice (Direct SIP) + Twilio. Zero runtime dependencies.",
   "private": true,
   "license": "UNLICENSED",
@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node bin/server.js",
     "demo": "node demo/run-demo.js",
-    "test": "node --test test/",
+    "test": "node --test ./test/*.test.js",
     "build": "bash scripts/build-zip.sh"
   }
 }

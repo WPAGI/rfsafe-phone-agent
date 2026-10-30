@@ -1,4 +1,6 @@
-# RF Safe phone agent: v0.1.0 (pilot build, NOT deployed)
+# RF Safe phone agent: v0.2.0
+
+Demo mode is what runs on Render until `GO-LIVE.md`. Do not set `PA_MODE=live` until that checklist is done.
 
 This is an AI phone agent for RF Safe / QuantaCase. **Grok Voice (Direct SIP)** answers calls on a **new Twilio number**. Its tools run on **our own tool server**:
 - read-only Shopify product lookup;
@@ -13,7 +15,7 @@ The server is multi-tenant, and each business connects through click-to-connect 
 ## Quick start (no accounts, no network)
 ```bash
 node --version      # needs >= 22
-npm test            # 27 tests, node:test, zero dependencies
+npm test            # node:test, zero dependencies
 npm run demo        # full mocked call + SMS walkthrough with EXAMPLE DATA
 npm run build       # dist/rfsafe-phone-agent-v0.1.0.zip + .sha256 (secret-scanned)
 ```
@@ -21,7 +23,9 @@ npm run build       # dist/rfsafe-phone-agent-v0.1.0.zip + .sha256 (secret-scann
 ## Layout
 | Path | What |
 |---|---|
-| `src/app.js` | HTTP routes: xAI webhook, Twilio SMS/voicemail, admin, onboarding |
+| `src/app.js` | HTTP routes: `/`, `/health`, `/admin`, xAI webhook, Twilio SMS, SMS status, voice fallback, admin, onboarding |
+| `GO-LIVE.md` | Steps and env vars for the day the Twilio number is paid for |
+| `scripts/provision-number.js` | Dry-run (or `--apply`) xAI number registration and Twilio SIP trunk |
 | `src/xai.js` | webhook verify, session config and guardrail instructions, realtime bridge, call control |
 | `src/tools.js` | the 7 agent tools plus the approvals queue |
 | `src/linkguard.js` | **SMS guard**: URL allowlist, payment/card/length checks |

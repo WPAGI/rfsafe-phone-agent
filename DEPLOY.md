@@ -1,5 +1,7 @@
 # Deploy: DO NOT RUN until John approves each paid step (see "Approvals")
 
+The exact go-live sequence, env vars, A2P 10DLC notes, and E911 notes are in `GO-LIVE.md`. Use that checklist. This file is the cost background.
+
 Nothing here has been done. Every step that creates an account, buys something, or registers anything needs John's OK first.
 
 ## Approvals John must OK (with cost)

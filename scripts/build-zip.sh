@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 VER=$(node -p 'require("./package.json").version'); NAME="rfsafe-phone-agent-v$VER"
 STAGE=$(mktemp -d)/"$NAME"; mkdir -p "$STAGE" dist
 cp -r bin src demo deploy scripts test "$STAGE"/
-cp package.json README.md DESIGN.md DEPLOY.md RESEARCH.md WIKI_PAGE.md CHANGELOG.md .gitignore "$STAGE"/
+cp package.json README.md DESIGN.md DEPLOY.md RESEARCH.md WIKI_PAGE.md CHANGELOG.md GO-LIVE.md render.yaml .gitignore "$STAGE"/
 find "$STAGE" \( -name '.env' -o -name '.env.*' -o -name 'data' -o -name '*.pem' -o -name '*.key' -o -name 'secrets.enc.json' -o -name 'consent.jsonl' -o -name 'owner-outbox.jsonl' \) -prune -print -exec rm -rf {} +
 node scripts/scan-secrets.js "$STAGE"
 rm -f "dist/$NAME.zip"
@@ -22,6 +22,6 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
 PYZ
 ( cd dist && sha256sum "$NAME.zip" > "$NAME.zip.sha256" )
 CHECK=$(mktemp -d); unzip -q "dist/$NAME.zip" -d "$CHECK"; node scripts/scan-secrets.js "$CHECK/$NAME"
-( cd "$CHECK/$NAME" && node --test test/ >/dev/null && echo "tests pass from unpacked zip" )
+( cd "$CHECK/$NAME" && node --test ./test/*.test.js >/dev/null && echo "tests pass from unpacked zip" )
 echo "built dist/$NAME.zip, $(unzip -l "dist/$NAME.zip" | tail -1 | awk '{print $2}') files"; cat "dist/$NAME.zip.sha256"
 rm -rf "$CHECK" "$(dirname "$STAGE")"

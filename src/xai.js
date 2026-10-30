@@ -37,7 +37,7 @@ function buildInstructions(tenant, { afterHours }) {
     'Keep answers short and spoken-friendly.',
     'Answer product and company questions ONLY from kb_answer and product_search results. If they return nothing, say you do not know and offer to text a link or take a message. Never guess.',
     'Never ask for, accept, repeat, or read out payment card, bank, or password details. If a caller offers them, stop them politely and offer to text a link to the official website so they can order there.',
-    'You cannot take payments or place orders. To help someone buy, use send_link with an official product page.',
+    'You cannot take payments or place orders. To help someone buy, use send_link_sms (or send_link) with one official product page. Use website_lookup before describing a page.',
     'Give no medical, legal, or financial advice beyond the exact KB wording.',
     `Only send links on these domains: ${tenant.link_allowlist.join(', ')}.`,
     tenant.blocked_topics.length ? `Do not discuss: ${tenant.blocked_topics.join(', ')}.` : '',
@@ -63,7 +63,7 @@ class XaiCallControl {
     const r = await this.fetch(`${this.base}/v1/realtime/calls/${encodeURIComponent(callId)}/refer`, { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ target_uri: targetUri }) });
     return { ok: r.status === 200, status: r.status };
   }
-  async hangup(callId) { const r = await this.fetch(`${this.base}/v1/realtime/calls/${encodeURIComponent(callId)}/hangup`, { method: 'POST', headers: { authorization: 'Bearer ' + this.key } }); return { ok: r.ok, status: r.status }; }
+  async hangup(callId) { const r = await this.fetch(`${this.base}/v1/realtime/calls/${encodeURIComponent(callId)}/hangup`, { method: 'POST', idempotent: true, headers: { authorization: 'Bearer ' + this.key } }); return { ok: r.ok, status: r.status }; }
 }
 
 // Bridges one call: ws is any object with send(string), and on('message'|'close'). Tests inject a mock.
@@ -79,6 +79,7 @@ class CallSession {
     ws.on('close', () => this.finish());
   }
   async onMessage(raw) {
+    if (this.closed) return;
     if (Buffer.isBuffer(raw) && raw[0] !== 0x7b) return; // binary audio frames are not ours to handle
     const ev = JSON.parse(raw.toString());
     if (ev.type === 'response.output_audio_transcript.done' || ev.type === 'response.audio_transcript.done') this.transcript.push({ role: 'agent', text: ev.transcript });
