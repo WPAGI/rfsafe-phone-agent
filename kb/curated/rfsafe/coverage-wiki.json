@@ -1,0 +1,18 @@
+[
+  { "q": "What is Section 704 of the Telecommunications Act?", "expect": "704" },
+  { "q": "What is Public Law 90-602?", "expect": "90-602" },
+  { "q": "What is S4 Mito Spin?", "expect": "S4" },
+  { "q": "What is low fidelity biology?", "expect": "low.fidelity" },
+  { "q": "What is sell m theory?", "expect": "cellm" },
+  { "q": "What is lie fi?", "expect": "li-?fi" },
+  { "q": "cell phones and children's brains", "expect": "child" },
+  { "q": "what is SAR and how do phones compare", "expect": "\\bSAR\\b" },
+  { "q": "What did the NTP study find?", "expect": "NTP" },
+  { "q": "Ramazzini study", "expect": "Ramazzini" },
+  { "q": "cell phones and sperm", "expect": "sperm" },
+  { "q": "oxidative stress from RF", "expect": "oxidative" },
+  { "q": "blood brain barrier", "expect": "blood.brain" },
+  { "q": "biological reserve thesis", "expect": "reserve" },
+  { "q": "Is 5G safe?", "expect": "5G" },
+  { "q": "ICNIRP", "expect": "ICNIRP" }
+]

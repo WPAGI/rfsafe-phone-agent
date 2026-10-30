@@ -11,3 +11,6 @@ Short, reviewed answers the phone bot can use. They ship with the code and load 
 Every question the bot could not answer is logged to `kb-gaps.jsonl` on the data disk. Download it from the admin dashboard: "Unanswered questions (CSV)" (`/admin/kb-gaps.csv`). Turn recurring ones into cards, or hand them to Research Bot first.
 
 Check coverage any time: `node scripts/kb-coverage.js rfsafe demo/kb/rfsafe-live`
+
+## Full Second Brain export
+See `docs/KB_FORMAT.md` (format v1, `scripts/kb-sync.js`, upload step).
