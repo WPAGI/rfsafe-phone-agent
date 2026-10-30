@@ -24,7 +24,7 @@ function buildProvisionPlan({ env }) {
       { name: 'twilio.find_number', method: 'GET', url: 'https://api.twilio.com/2010-04-01/Accounts/' + sid + '/IncomingPhoneNumbers.json?PhoneNumber=' + encodeURIComponent(number) },
       { name: 'twilio.attach_number', method: 'POST', url: 'https://trunking.twilio.com/v1/Trunks/{TrunkSid}/PhoneNumbers', form: { PhoneNumberSid: '{PhoneNumberSid}' } },
       { name: 'twilio.sms_webhooks', method: 'POST', url: 'https://api.twilio.com/2010-04-01/Accounts/' + sid + '/IncomingPhoneNumbers/{PhoneNumberSid}.json', form: { SmsUrl: base + '/twilio/sms', SmsMethod: 'POST', StatusCallback: base + '/twilio/sms/status', StatusCallbackMethod: 'POST' } },
-      { name: 'xai.register_number', method: 'POST', url: 'https://api.x.ai/v2/phone-numbers', body: { phone_number: number, origin: 'byo_trunk', webhook_url: base + '/xai/webhook' } },
+      { name: 'xai.register_number', method: 'POST', url: 'https://api.x.ai/v2/phone-numbers', body: { phone_number: number, origin: 'byo_trunk', name: 'CallBots ' + number, webhook: { name: 'callbots-' + number, url: base + '/xai/webhook' } } },
     ],
   };
 }
@@ -55,10 +55,10 @@ async function applyProvisionPlan({ env, fetchImpl, log = () => {} }) {
   if (!smsRes.ok) throw new Error('twilio sms webhook failed: ' + smsRes.status);
   const xai = plan.steps[5];
   const xaiRes = await fetchImpl(xai.url, { method: 'POST', headers: { authorization: 'Bearer ' + env.XAI_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify(xai.body) });
-  const xaiBody = await xaiRes.json();
-  if (!xaiRes.ok) throw new Error('xai register failed: ' + xaiRes.status);
+  let xaiBody = {}; let xaiText = ''; try { xaiBody = await xaiRes.json(); } catch (e) { xaiText = String(e.message); }
+  if (!xaiRes.ok) throw new Error('xai register failed: ' + xaiRes.status + ' ' + (xaiText || JSON.stringify(xaiBody)).slice(0, 200));
   log('provision.applied', { trunk: trunk.sid, number_sid: pn.sid, webhook_secret: 'returned_once_not_logged' });
-  return { ok: true, trunk_sid: trunk.sid, phone_number_sid: pn.sid, webhook_secret: xaiBody.webhook_secret || xaiBody.secret || null };
+  return { ok: true, trunk_sid: trunk.sid, phone_number_sid: pn.sid, webhook_secret: (xaiBody.webhook && xaiBody.webhook.dispatch_signing_secret) || xaiBody.webhook_secret || xaiBody.secret || null };
 }
 
 module.exports = { buildProvisionPlan, applyProvisionPlan, authToken, phoneNumber, accountSid };

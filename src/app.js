@@ -23,7 +23,7 @@ function createApp(d) {
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
   const now = () => (d.now ? d.now() : new Date());
-  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch });
+  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
@@ -137,6 +137,16 @@ function createApp(d) {
       return json(res, 201, { tenant: created.id, status: ob.onboardingStatus(created) });
     }
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
+    if (req.method === 'PATCH' && !m[2]) {
+      // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics'];
+      const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
+      const next = { ...t, ...body };
+      const errs = require('./tenants').validateTenant(next); if (errs.length) return json(res, 400, { error: 'invalid', detail: errs });
+      if (typeof next.extra_instructions === 'string' && next.extra_instructions.length > 12000) return json(res, 400, { error: 'extra_instructions_too_long' });
+      Object.assign(t, body); d.tenants.save(t); d.kbReset && d.kbReset(t.id); log('tenant.updated', { tenant: t.id, fields: Object.keys(body) });
+      return json(res, 200, { tenant: t.id, updated: Object.keys(body), status: ob.onboardingStatus(t) });
+    }
     if (m[2] === 'approvals') return json(res, 200, { approvals: approvals.list(t.id) });
     return json(res, 200, { tenant: t.id, status: ob.onboardingStatus(t) });
   }

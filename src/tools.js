@@ -24,6 +24,7 @@ const DEFS = {
   send_link_sms: { description: 'Text the caller one https link on an official domain, plus a short note. Link-only. Rate-limited per call and per caller. Never use for payment details.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
   transfer_to_human: { description: 'Transfer the call to a person, during business hours only.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
   take_message: { description: 'Take a message for the owner (name, callback number, message).', parameters: { type: 'object', properties: { name: { type: 'string' }, callback: { type: 'string' }, message: { type: 'string' } }, required: ['message'] } },
+  sar_lookup: { description: 'Look up a phone model\'s FCC-reported SAR values (head, body, hotspot; cellular-only and with Wi-Fi on) from RF Safe\'s public SAR database. Speak the numbers briefly; never read the URLs aloud.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'brand and model, e.g. iPhone 17 Pro Max' } }, required: ['phone'] } },
   end_call: { description: 'End the call politely after saying goodbye.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
   order_status: { description: 'Check the status of an order by order number. Only works if the caller is calling from the phone number on the order.', parameters: { type: 'object', properties: { order_number: { type: 'string' } }, required: ['order_number'] } },
 };
@@ -34,6 +35,7 @@ class Tools {
   definitions() {
     const names = ['kb_answer', 'website_lookup', 'send_link', 'send_link_sms', 'take_message', 'end_call', 'transfer_to_human'];
     if (this.tenant.shopify) names.splice(2, 0, 'product_search');
+    if (this.tenant.sar_lookup && this.d.sarFor) names.splice(1, 0, 'sar_lookup');
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
     return names.map((n) => ({ type: 'function', name: n, ...DEFS[n] }));
   }
@@ -49,6 +51,7 @@ class Tools {
       switch (name) {
         case 'kb_answer': return { ok: true, ...this.d.kbFor(t).answer(String(args.question || '').slice(0, 500)) };
         case 'website_lookup': return await this.websiteLookup(args);
+        case 'sar_lookup': { const r = await this.d.sarFor(t).lookup(String(args.phone || '').slice(0, 120)); if (!r.found) return { ok: true, found: false, close_matches: r.close || [], say: 'I could not find that exact model in our SAR database. Ask for the exact model name, or offer to text the SAR lookup page.' }; for (const k of ['sar_page', 'kids_visual', 'ranking']) if (!checkUrl(r[k], t.link_allowlist).ok) delete r[k]; return { ok: true, ...r }; }
         case 'product_search': {
           const items = await this.d.shopifyFor(t).searchProducts(args.query, 5);
           return { ok: true, products: items.filter((p) => require('./linkguard').checkUrl(p.url, t.link_allowlist).ok) };

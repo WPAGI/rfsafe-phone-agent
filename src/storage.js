@@ -61,7 +61,8 @@ function resolveStorage({ mode, env = process.env, root, log = () => {} }) {
   if (path.resolve(tenantsDir) !== path.resolve(seedTenants)) {
     seeded = seedIfEmpty(tenantsDir, seedTenants);
     const kbDest = path.resolve(tenantsDir, '..', 'kb');
-    if (seeded || !fs.existsSync(kbDest)) copyMissing(seedKb, kbDest);
+    // KB seed files are copied on every start, but only where missing, so new shipped KB pages reach the disk and edits on disk are kept.
+    const added = copyMissing(seedKb, kbDest); if (added) log('kb.seeded', { files: added });
     if (seeded) log('tenants.seeded', { from: 'demo/tenants' });
   }
   return { dataDir, tenantsDir, seeded, fellBack };
