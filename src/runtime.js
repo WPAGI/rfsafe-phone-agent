@@ -53,6 +53,10 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   };
   const shopifyFor = (t) => { if (!shopCache.has(t.id)) { const fetchImpl = mode === 'live' ? liveFetch : mocks.mockShopifyFetch(); shopCache.set(t.id, new ShopifyClient({ shop: t.shopify.shop, mode: t.shopify.mode, publicDomain: t.shopify.public_domain, storefrontToken: resolveSecret(t, 'shopify_storefront_token', { env, store: secrets }), admin: adminFor(t, fetchImpl), fetchImpl })); } return shopCache.get(t.id); };
   const smsFor = (t) => { if (!smsCache.has(t.id)) smsCache.set(t.id, mode === 'live' ? new TwilioRest({ accountSid: t.twilio?.account_sid, authToken: resolveSecret(t, 'twilio_auth_token', { env, store: secrets }), fetchImpl: liveFetch }) : new MockTwilio()); return smsCache.get(t.id); };
+  const { ResendEmail, MockEmail } = require('./email');
+  const mockEmail = new MockEmail();
+  const liveEmail = mode === 'live' ? new ResendEmail({ apiKey: env.RESEND_API_KEY, fetchImpl: liveFetch }) : null;
+  const emailFor = () => (mode === 'live' ? liveEmail : mockEmail);
   const mockCC = new mocks.MockCallControl();
   const callControlFor = () => (mode === 'live' ? new XaiCallControl({ apiKey: env.XAI_API_KEY, fetchImpl: liveFetch }) : mockCC);
   const openRealtime = async (t, callId) => {
@@ -72,7 +76,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: log || makeLogger(env.PA_LOG_FILE, secretValues(env)),
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
-    websiteFetch: mode === 'live' ? liveFetch : null, kbReset,
+    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'),
     sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
     brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.3', fetchImpl: liveFetch }) : new MockBrain(),
     publicBaseUrl: env.PUBLIC_BASE_URL || 'http://localhost:8787', adminToken: env.PA_ADMIN_TOKEN || (mode === 'demo' ? 'demo-admin-token-EXAMPLE' : null),

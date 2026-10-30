@@ -20,6 +20,15 @@ const SMS_SECTION = `<h2 id="sms">SMS / Text Messaging</h2>
   <li><strong>Mobile opt-in data and consent will not be shared with third parties or affiliates for marketing purposes.</strong> Text messaging originator opt-in data and consent are not shared with any third parties, except service providers that deliver the messages for us.</li>
 </ul>`;
 
+const EMAIL_SECTION = `<h2 id="email">Email</h2>
+<p>If you ask on a call, the assistant can email you the links you requested, such as a product page on quantacase.com or an article on rfsafe.org.</p>
+<ul>
+  <li><strong>How you consent:</strong> you say your email address on the call, the assistant spells it back, and it sends only after you say yes. One address per call.</li>
+  <li><strong>What we send:</strong> only the links you asked for, from rfsafe@callbots.org with the subject "Your RF Safe links", at most three emails per call. These are one-time messages; we do not add you to a mailing list or send marketing.</li>
+  <li><strong>What we keep:</strong> a masked form of your address (for example j***@g***.com), a one-way fingerprint of it, and which links were sent, so we can honor limits and answer questions. Emails are delivered by our email provider (Resend).</li>
+  <li>Replies go to our support team. To ask us not to email you, or to delete these records, email ${MAILTO}.</li>
+</ul>`;
+
 function shell({ title, description, path, body }) {
   const url = 'https://callbots.org' + path;
   return `<!doctype html>
@@ -70,6 +79,7 @@ function renderPrivacy() {
   <li><strong>Call and message content:</strong> what you say on a call or send by text. Calls are answered by an AI assistant and may be recorded and transcribed. You are told this at the start of each call.</li>
   <li><strong>Information you give us:</strong> for example a name, callback number, or message you ask us to pass on, or an order number and the email or phone on an order you ask about.</li>
   <li><strong>Consent records:</strong> whether you agreed to receive texts, and any STOP or START replies.</li>
+  <li><strong>Email address:</strong> only if you ask the assistant to email you links; stored masked, as described in the Email section below.</li>
   <li><strong>Technical information:</strong> standard server logs when you visit this website or when our service handles a call or text.</li>
 </ul>
 <p>We do not ask for, and the assistant will not accept, payment card or bank details by phone or text.</p>
@@ -81,8 +91,9 @@ function renderPrivacy() {
   <li>To honor your texting choices, keep the service secure, prevent abuse, and meet legal obligations.</li>
 </ul>
 <h2>How we share information</h2>
-<p>We do not sell your personal information. We share it only with service providers that help us run the service, for example providers of AI voice processing, telephone and text message delivery, website hosting, and our online store platform, and only as needed for them to provide those services to us. We may also disclose information if required by law or to protect rights, safety, and property.</p>
+<p>We do not sell your personal information. We share it only with service providers that help us run the service, for example providers of AI voice processing, telephone, text message and email delivery, website hosting, and our online store platform, and only as needed for them to provide those services to us. We may also disclose information if required by law or to protect rights, safety, and property.</p>
 ${SMS_SECTION}
+${EMAIL_SECTION}
 <h2>Retention and security</h2>
 <p>We keep information only as long as needed for the purposes above, including to resolve disputes and meet legal requirements. We use reasonable safeguards to protect it; for example, our system logs record phone numbers in a shortened, non-readable form. No method of transmission or storage is completely secure.</p>
 <h2>Your choices</h2>

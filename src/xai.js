@@ -55,11 +55,17 @@ function numberFromSipValue(v) {
 }
 const last4 = (n) => (n ? String(n).replace(/\D/g, '').slice(-4) : null);
 
+function emailLines(tenant) {
+  if (!tenant.email_enabled) return [];
+  return [`Email links: you can email the caller the official links they ask for${tenant.sms_enabled ? ' (useful if they prefer email to a text, or caller ID is blocked)' : '. Texting is not available yet, so when a caller wants a link, offer to email it instead'}. Ask for their email address, then spell it back letter by letter and ask "Is that right?". Only after a spoken yes, call set_email_address, then send_email with only the links they asked for (quantacase.com and rfsafe.org pages). No marketing or extra links. One address per call, up to 3 emails. After sending, tell them it comes from rfsafe@callbots.org and to check their spam or junk folder. Never read the full address back again after confirming it.`];
+}
+
 function callerLines(tenant, callerLast4) {
   const out = [];
   if (callerLast4) out.push(`Caller ID: the caller's number ends in ${callerLast4}. Never say or spell the full number; refer to it only as "ending in ${callerLast4}". Do not ask the caller for their number.`);
   else out.push('Caller ID is blocked or unavailable for this call.');
-  if (!tenant.sms_enabled) { out.push('Texting from this line is not switched on yet: do not offer to text. Point callers to the official website or take a message.'); return out; }
+  if (!tenant.sms_enabled) { out.push(tenant.email_enabled ? 'Texting from this line is not switched on yet: do not offer to text. Offer to email the link instead, or point callers to the official website or take a message.' : 'Texting from this line is not switched on yet: do not offer to text. Point callers to the official website or take a message.'); out.push(...emailLines(tenant)); return out; }
+  out.push(...emailLines(tenant));
   if (callerLast4) out.push(`Texts can only go to the number the caller is calling from. Before the first text, ask: "Is the number you're calling from, ending in ${callerLast4}, okay to text?" If they say yes, call set_text_number with use_caller_id true, then use send_link_sms. If they want a different number, explain that for privacy we can only text the number they are calling from; offer to read the site name aloud or take a message.`);
   else out.push('Caller ID is blocked, so you cannot text this caller. If they want a link, say texts can only go to the number they are calling from, and since caller ID is hidden you cannot text; offer to say the site name aloud, take a message, or suggest they call back without blocking caller ID.');
   return out;

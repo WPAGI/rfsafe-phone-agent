@@ -5,7 +5,9 @@ const { checkOutboundSms, checkUrl, looksLikeCard } = require('./linkguard');
 const { sendCustomerSms } = require('./twilio');
 const { SmsRateLimit } = require('./ratelimit');
 const { fetchAllowlistedPage } = require('./web');
-const { fp } = require('./util');
+const { fp, appendJsonl } = require('./util');
+const { buildEmail, checkLinks, maskEmail, validEmail, SUBJECT } = require('./email');
+const EMAILS_PER_CALL = 3;
 
 function inHours(hours, now = new Date()) {
   if (!hours) return true;
@@ -23,6 +25,8 @@ const DEFS = {
   send_link: { description: 'Text the caller one link to an official page (product page or article) with a short note. Only official domains are allowed. Never use for payment details. Same rules as send_link_sms.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
   set_text_number: { description: 'Voice calls: after the caller says yes to "Is the number you\'re calling from, ending in XXXX, okay to text?", record that consent. Texts can only go to the number they are calling from; a different number is not possible. Never read out the full number.', parameters: { type: 'object', properties: { use_caller_id: { type: 'boolean', description: 'true once the caller said yes' } }, required: ['use_caller_id'] } },
   send_link_sms: { description: 'Text the caller one https link on an official domain, plus a short note. On calls it goes to the number confirmed with set_text_number. Link-only. Rate-limited per call and per caller. Never use for payment details.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
+  set_email_address: { description: 'Voice calls, email links: after the caller says their email address, spell it back letter by letter and ask "Is that right?". Call this ONLY after the caller gives a spoken yes. One address per call; it cannot be changed later on the call.', parameters: { type: 'object', properties: { email: { type: 'string', description: 'the address exactly as confirmed' }, caller_said_yes: { type: 'boolean', description: 'true only after the caller said yes to the spelled-back address' } }, required: ['email', 'caller_said_yes'] } },
+  send_email: { description: 'Email the caller only the official links (quantacase.com, rfsafe.org) they asked for, to the address confirmed with set_email_address. Subject "Your RF Safe links". No marketing, no extra links. Up to 3 emails per call, up to 5 links each. After sending, tell the caller it is on its way and to check their spam or junk folder.', parameters: { type: 'object', properties: { urls: { type: 'array', items: { type: 'string' }, description: 'https links the caller asked for' }, note: { type: 'string', description: 'optional one-line note, e.g. which product' } }, required: ['urls'] } },
   transfer_to_human: { description: 'Transfer the call to a person, during business hours only.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
   take_message: { description: 'Take a message for the owner (name, callback number, message).', parameters: { type: 'object', properties: { name: { type: 'string' }, callback: { type: 'string' }, message: { type: 'string' } }, required: ['message'] } },
   sar_lookup: { description: 'Look up a phone model\'s FCC-reported SAR values (head, body, hotspot; cellular-only and with Wi-Fi on) from RF Safe\'s public SAR database. Speak the numbers briefly; never read the URLs aloud.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'brand and model, e.g. iPhone 17 Pro Max' } }, required: ['phone'] } },
@@ -39,6 +43,7 @@ class Tools {
     if (this.tenant.sar_lookup && this.d.sarFor) names.splice(1, 0, 'sar_lookup');
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
     if (this.tenant.sms_enabled) names.splice(names.indexOf('send_link'), 0, 'set_text_number');
+    if (this.tenant.email_enabled && this.d.emailFor) names.splice(names.indexOf('take_message'), 0, 'set_email_address', 'send_email');
     return names.map((n) => ({ type: 'function', name: n, ...DEFS[n] }));
   }
   // ctx: { channel: 'voice'|'sms', callId?, caller }
@@ -60,6 +65,8 @@ class Tools {
         }
         case 'send_link_sms': return await this.sendLink(args, ctx);
         case 'set_text_number': return this.setTextNumber(args, ctx);
+        case 'set_email_address': return this.setEmailAddress(args, ctx);
+        case 'send_email': return await this.sendEmail(args, ctx);
         case 'transfer_to_human': {
           if (ctx.channel !== 'voice') return { ok: false, error: 'voice_only' };
           if (!t.transfer_target) return { ok: false, error: 'no_transfer_target', say: 'I can take a message instead.' };
@@ -133,6 +140,39 @@ class Tools {
     if (queued) { const id = this.d.approvals.queue({ tenant: t.id, to, body: g.body }); return { ok: true, queued_for_approval: id, say: 'I have sent that to the team to text you shortly.' }; }
     const r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to, body: g.body, log });
     return r.ok ? { ok: true, sent: true, to_last4: last4(to) } : { ok: false, error: r.reason };
+  }
+  emailLog(ev) { if (this.d.emailLogFile) { try { appendJsonl(this.d.emailLogFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
+  setEmailAddress(args, ctx) {
+    const t = this.tenant; const log = this.d.log || (() => {});
+    if (ctx.channel !== 'voice' || !ctx.callId) return { ok: false, error: 'voice_only' };
+    if (args.caller_said_yes !== true) return { ok: false, error: 'need_confirmation', say: 'Spell the address back letter by letter and ask "Is that right?" Call again only after they say yes.' };
+    const email = String(args.email || '').trim().toLowerCase();
+    if (!validEmail(email)) return { ok: false, error: 'invalid_email', say: 'That does not look like a full email address. Ask the caller to say it again.' };
+    const map = (this._emailTo ||= new Map()); const cur = map.get(t.id + '|' + ctx.callId);
+    if (cur && cur !== email) return { ok: false, error: 'one_address_per_call', say: 'I can only email one address per call, so I will keep using the one we confirmed.' };
+    map.set(t.id + '|' + ctx.callId, email);
+    const masked = maskEmail(email);
+    log('email.address_confirmed', { tenant: t.id, call: ctx.callId, to: masked, from: fp(ctx.caller) });
+    this.emailLog({ kind: 'consent_verbal_call', tenant: t.id, call: ctx.callId, to_masked: masked, to_fp: fp(email), caller_fp: ctx.caller ? fp(ctx.caller) : null });
+    return { ok: true, confirmed: true, email_masked: masked };
+  }
+  async sendEmail(args, ctx) {
+    const t = this.tenant; const log = this.d.log || (() => {});
+    if (ctx.channel !== 'voice' || !ctx.callId) return { ok: false, error: 'voice_only' };
+    const key = t.id + '|' + ctx.callId; const to = (this._emailTo || new Map()).get(key);
+    if (!to) return { ok: false, error: 'confirm_email_first', say: 'Ask for their email address, spell it back, and call set_email_address after they say yes.' };
+    const counts = (this._emailCount ||= new Map()); const n = counts.get(key) || 0;
+    if (n >= EMAILS_PER_CALL) return { ok: false, error: 'email_limit_reached', say: 'I have already sent the emails I can send on this call. I can say the site name aloud or take a message.' };
+    const g = checkLinks(args.urls ?? args.url, t.link_allowlist);
+    if (!g.ok) { log('guard.link_blocked', { tenant: t.id, reason: g.reason, channel: 'email' }); return { ok: false, error: g.reason, say: 'I can only email links to our official websites.' }; }
+    const note = String(args.note || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    const { text, html } = buildEmail({ links: g.links, note });
+    counts.set(key, n + 1); // count attempts, so a failing provider cannot be retried without limit
+    const r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject: SUBJECT, text, html });
+    const masked = maskEmail(to);
+    log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, reason: r.ok ? undefined : r.reason });
+    this.emailLog({ kind: r.ok ? 'sent' : 'send_failed', tenant: t.id, call: ctx.callId, to_masked: masked, to_fp: fp(to), links: g.links.map((l) => l.url), provider_id: r.id || null, reason: r.ok ? undefined : r.reason });
+    return r.ok ? { ok: true, sent: true, to_masked: masked, say: 'Done, it is on its way from rfsafe@callbots.org. If you do not see it in a minute or two, please check your spam or junk folder.' } : { ok: false, error: r.reason, say: 'The email did not go through. I can say the site name aloud or take a message.' };
   }
   textNumberFor(ctx) { return ctx.callId ? (this._textTo || new Map()).get(ctx.callId) || null : null; }
   setTextNumber(args, ctx) {
