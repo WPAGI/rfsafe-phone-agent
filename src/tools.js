@@ -6,6 +6,7 @@ const { sendCustomerSms } = require('./twilio');
 const { SmsRateLimit } = require('./ratelimit');
 const { fetchAllowlistedPage } = require('./web');
 const { fp } = require('./util');
+const { normNumber } = require('./tenants');
 
 function inHours(hours, now = new Date()) {
   if (!hours) return true;
@@ -21,7 +22,8 @@ const DEFS = {
   product_search: { description: 'Search the live product catalog (read-only). Returns title, price, availability, and product page URL.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
   website_lookup: { description: 'Look up a page on the official website. Returns a title, a short excerpt, and an allowlisted URL. Use this before describing what a page says.', parameters: { type: 'object', properties: { query: { type: 'string' }, url: { type: 'string' } } } },
   send_link: { description: 'Text the caller one link to an official page (product page or article) with a short note. Only official domains are allowed. Never use for payment details. Same rules as send_link_sms.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
-  send_link_sms: { description: 'Text the caller one https link on an official domain, plus a short note. Link-only. Rate-limited per call and per caller. Never use for payment details.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
+  set_text_number: { description: 'Voice calls: record the number the caller agreed to receive texts at, after they say yes. use_caller_id true = the number they are calling from (after asking "Is the number you\'re calling from, ending in XXXX, okay to text?"). Or pass number if they gave a different one. Never read out the full number.', parameters: { type: 'object', properties: { use_caller_id: { type: 'boolean' }, number: { type: 'string', description: 'only if the caller gave a different mobile number' } } } },
+  send_link_sms: { description: 'Text the caller one https link on an official domain, plus a short note. On calls it goes to the number confirmed with set_text_number. Link-only. Rate-limited per call and per caller. Never use for payment details.', parameters: { type: 'object', properties: { url: { type: 'string' }, note: { type: 'string' } }, required: ['url'] } },
   transfer_to_human: { description: 'Transfer the call to a person, during business hours only.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
   take_message: { description: 'Take a message for the owner (name, callback number, message).', parameters: { type: 'object', properties: { name: { type: 'string' }, callback: { type: 'string' }, message: { type: 'string' } }, required: ['message'] } },
   sar_lookup: { description: 'Look up a phone model\'s FCC-reported SAR values (head, body, hotspot; cellular-only and with Wi-Fi on) from RF Safe\'s public SAR database. Speak the numbers briefly; never read the URLs aloud.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'brand and model, e.g. iPhone 17 Pro Max' } }, required: ['phone'] } },
@@ -37,6 +39,7 @@ class Tools {
     if (this.tenant.shopify) names.splice(2, 0, 'product_search');
     if (this.tenant.sar_lookup && this.d.sarFor) names.splice(1, 0, 'sar_lookup');
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
+    if (this.tenant.sms_enabled) names.splice(names.indexOf('send_link'), 0, 'set_text_number');
     return names.map((n) => ({ type: 'function', name: n, ...DEFS[n] }));
   }
   // ctx: { channel: 'voice'|'sms', callId?, caller }
@@ -57,6 +60,7 @@ class Tools {
           return { ok: true, products: items.filter((p) => require('./linkguard').checkUrl(p.url, t.link_allowlist).ok) };
         }
         case 'send_link_sms': return await this.sendLink(args, ctx);
+        case 'set_text_number': return this.setTextNumber(args, ctx);
         case 'transfer_to_human': {
           if (ctx.channel !== 'voice') return { ok: false, error: 'voice_only' };
           if (!t.transfer_target) return { ok: false, error: 'no_transfer_target', say: 'I can take a message instead.' };
@@ -116,18 +120,38 @@ class Tools {
   async sendLink(args, ctx) {
     const t = this.tenant; const log = this.d.log || (() => {});
     if (!t.sms_enabled) return { ok: false, error: 'texting_not_yet_enabled', say: `Texting from this number is not switched on yet. Please visit ${t.link_allowlist[0]}, or I can take a message.` };
+    // voice: only to the number the caller confirmed on this call; SMS: reply to the sender
+    const to = ctx.channel === 'voice' ? this.textNumberFor(ctx) : ctx.caller;
+    if (!to) return { ok: false, error: 'confirm_number_first', say: ctx.caller ? `Ask: "Is the number you're calling from, ending in ${last4(ctx.caller)}, okay to text?" and call set_text_number if they say yes.` : 'Caller ID is blocked. Ask for the mobile number to text, read back the last 4 digits, then call set_text_number.' };
     const g = checkOutboundSms({ url: args.url, note: args.note }, t.link_allowlist);
     if (!g.ok) { log('guard.link_blocked', { tenant: t.id, reason: g.reason }); return { ok: false, error: g.reason, say: 'I can only send links to our official website.' }; }
     const queued = t.approval_mode && !t.instant_link_reply;
-    if (!queued && !this.d.consent.canText(t.id, ctx.caller)) return { ok: false, error: 'no_consent_or_opted_out' };
+    if (!queued && !this.d.consent.canText(t.id, to)) return { ok: false, error: 'no_consent_or_opted_out' };
     const lim = this.d.rateLimit || (this._lim ||= new SmsRateLimit());
-    const gate = lim.allow({ tenant: t.id, caller: ctx.caller, callId: ctx.callId });
+    const gate = lim.allow({ tenant: t.id, caller: to, callId: ctx.callId });
     if (!gate.ok) return { ok: false, error: gate.reason, say: 'I have already texted the links I can send on this call. I can read a link aloud or take a message.' };
-    if (queued) { const id = this.d.approvals.queue({ tenant: t.id, to: ctx.caller, body: g.body }); return { ok: true, queued_for_approval: id, say: 'I have sent that to the team to text you shortly.' }; }
-    const r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to: ctx.caller, body: g.body, log });
-    return r.ok ? { ok: true, sent: true } : { ok: false, error: r.reason };
+    if (queued) { const id = this.d.approvals.queue({ tenant: t.id, to, body: g.body }); return { ok: true, queued_for_approval: id, say: 'I have sent that to the team to text you shortly.' }; }
+    const r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to, body: g.body, log });
+    return r.ok ? { ok: true, sent: true, to_last4: last4(to) } : { ok: false, error: r.reason };
+  }
+  textNumberFor(ctx) { return ctx.callId ? (this._textTo || new Map()).get(ctx.callId) || null : null; }
+  setTextNumber(args, ctx) {
+    const t = this.tenant; const log = this.d.log || (() => {});
+    if (ctx.channel !== 'voice' || !ctx.callId) return { ok: false, error: 'voice_only' };
+    if (!t.sms_enabled) return { ok: false, error: 'texting_not_yet_enabled', say: `Texting from this number is not switched on yet. Please visit ${t.link_allowlist[0]}, or I can take a message.` };
+    let to = null;
+    if (args.number) { to = normNumber(String(args.number).slice(0, 40)); if (!/^\+1\d{10}$/.test(to)) return { ok: false, error: 'bad_number', say: 'Ask for a 10-digit US mobile number.' }; }
+    else if (args.use_caller_id === true) { if (!ctx.caller) return { ok: false, error: 'no_caller_id', say: 'Caller ID is blocked. Ask for the mobile number to text.' }; to = ctx.caller; }
+    else return { ok: false, error: 'need_confirmation' };
+    if (this.d.consent.isOptedOut && this.d.consent.isOptedOut(t.id, to)) return { ok: false, error: 'opted_out', say: 'That number has opted out of texts. They can text START to opt back in.' };
+    this.d.consent.record(t.id, to, 'verbal_call');
+    (this._textTo ||= new Map()).set(ctx.callId, to);
+    log('sms.number_confirmed', { tenant: t.id, call: ctx.callId, source: args.number ? 'spoken' : 'caller_id', to: fp(to) });
+    return { ok: true, confirmed: true, number_last4: last4(to) };
   }
 }
+
+const last4 = (n) => String(n || '').replace(/\D/g, '').slice(-4);
 
 class Approvals {
   constructor() { this.items = new Map(); this.n = 0; }

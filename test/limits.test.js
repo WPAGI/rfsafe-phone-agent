@@ -17,7 +17,7 @@ function mk(over = {}) {
 const voice = { channel: 'voice', callId: 'c1', caller: '+15555550142' };
 
 test('send_link_sms is link-only and stops at the per-call cap', async () => {
-  const m = mk();
+  const m = mk(); await m.tools.run('set_text_number', { use_caller_id: true }, voice);
   const url = { url: 'https://quantacase.com/products/example' };
   for (let i = 0; i < 3; i++) assert.strictEqual((await m.tools.run('send_link_sms', url, voice)).sent, true);
   const blocked = await m.tools.run('send_link', url, voice);
@@ -47,6 +47,7 @@ test('hourly cap counts across calls', async () => {
   const lim = m.tools.d.rateLimit;
   lim.perCall = 100; lim.perHour = 2; lim.perDay = 10;
   const url = { url: 'https://rfsafe.org/a' };
+  for (const c of ['c1', 'c2', 'c3']) await m.tools.run('set_text_number', { use_caller_id: true }, { ...voice, callId: c });
   assert.ok((await m.tools.run('send_link_sms', url, voice)).sent);
   assert.ok((await m.tools.run('send_link_sms', url, { ...voice, callId: 'c2' })).sent);
   assert.strictEqual((await m.tools.run('send_link_sms', url, { ...voice, callId: 'c3' })).error, 'hourly_cap');
