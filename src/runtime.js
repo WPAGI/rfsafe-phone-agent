@@ -30,7 +30,7 @@ function secretValues(env) {
 }
 
 function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
-  const tenants = new TenantRegistry(tenantsDir);
+  const tenants = new TenantRegistry(tenantsDir, { skipExample: mode === 'live' });
   const readiness = () => collectChecks({ env, tenants: tenants.list(), dataDir, dataWritable: isWritable(dataDir), mode });
   if (mode === 'live') assertLiveReady(readiness());
   fs.mkdirSync(dataDir, { recursive: true });

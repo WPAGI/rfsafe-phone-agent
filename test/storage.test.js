@@ -34,7 +34,7 @@ test('live mode names every missing requirement', () => {
     assert.match(err.message, /PA_MASTER_KEY/);
     assert.match(err.message, /XAI_API_KEY/);
     assert.match(err.message, /DATA_DIR/);
-    assert.match(err.message, /xai_webhook_secret/);
+    assert.match(err.message, /TENANTS_DIR: no tenant files loaded/); // EXAMPLE tenants are skipped in live mode
     return true;
   });
 });

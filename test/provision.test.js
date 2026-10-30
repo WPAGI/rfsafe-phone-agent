@@ -15,7 +15,7 @@ test('provision plan targets xAI SIP and Twilio webhooks and omits credentials',
   assert.deepStrictEqual(plan.missing, []);
   const byName = Object.fromEntries(plan.steps.map((s) => [s.name, s]));
   assert.strictEqual(byName['xai.register_number'].body.origin, 'byo_trunk');
-  assert.strictEqual(byName['xai.register_number'].body.webhook_url, 'https://rfsafe-phone-agent.onrender.com/xai/webhook');
+  assert.strictEqual(byName['xai.register_number'].body.webhook.url, 'https://rfsafe-phone-agent.onrender.com/xai/webhook');
   assert.strictEqual(byName['twilio.origination'].form.SipUrl, 'sip:+15555550100@sip.voice.x.ai;transport=tls');
   assert.strictEqual(byName['twilio.create_trunk'].form.DisasterRecoveryUrl, 'https://rfsafe-phone-agent.onrender.com/twilio/voice');
   assert.strictEqual(byName['twilio.create_trunk'].form.TransferMode, 'enable-all');
@@ -48,7 +48,7 @@ test('apply uses the injected client and does not log the webhook secret', async
 });
 
 test('the provision command is a dry-run unless asked', () => {
-  const ran = spawnSync(process.execPath, ['scripts/provision-number.js'], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+  const ran = spawnSync(process.execPath, ['scripts/provision-number.js'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', env: { PATH: process.env.PATH } });
   assert.strictEqual(ran.status, 0);
   assert.match(ran.stdout, /dry-run: no API calls were made/);
   assert.match(ran.stdout, /RFSAFE_PHONE_NUMBER/);

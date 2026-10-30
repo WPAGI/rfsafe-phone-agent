@@ -32,8 +32,9 @@ const DEFAULTS = {
 };
 
 class TenantRegistry {
-  constructor(dir) { this.dir = dir; this.byId = new Map(); this.byNumber = new Map(); if (dir) this.loadDir(dir); }
-  loadDir(dir) { for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) this.add(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))); }
+  constructor(dir, { skipExample = false } = {}) { this.dir = dir; this.skipExample = skipExample; this.byId = new Map(); this.byNumber = new Map(); if (dir) this.loadDir(dir); }
+  // In live mode, EXAMPLE tenant files (seeded demo data with 555 numbers) are ignored so they never route calls or block readiness.
+  loadDir(dir) { for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) { const raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (this.skipExample && raw._note && /EXAMPLE/.test(raw._note)) continue; this.add(raw); } }
   add(raw) {
     const t = { ...DEFAULTS, ...raw };
     const errs = validateTenant(t);
