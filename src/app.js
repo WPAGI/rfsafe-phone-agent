@@ -139,8 +139,10 @@ function createApp(d) {
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
     if (req.method === 'PATCH' && !m[2]) {
       // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
-      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics'];
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled'];
       const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
+      if ('order_lookup_enabled' in body && typeof body.order_lookup_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['order_lookup_enabled must be boolean'] });
+      if ('shopify' in body && !validShopifyPatch(body.shopify)) return json(res, 400, { error: 'invalid', detail: ['shopify: {shop, mode: public|storefront, public_domain?, admin_shop?: *.myshopify.com} only'] });
       const next = { ...t, ...body };
       const errs = require('./tenants').validateTenant(next); if (errs.length) return json(res, 400, { error: 'invalid', detail: errs });
       if (typeof next.extra_instructions === 'string' && next.extra_instructions.length > 12000) return json(res, 400, { error: 'extra_instructions_too_long' });
@@ -207,3 +209,15 @@ function createApp(d) {
 }
 
 module.exports = { createApp };
+
+// shopify via PATCH: domains and mode only. Credentials stay in env/secret store, never in the request.
+function validShopifyPatch(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  if (Object.keys(v).some((k) => !['shop', 'mode', 'public_domain', 'admin_shop'].includes(k))) return false;
+  const dom = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+  if (!dom.test(v.shop || '') || !['public', 'storefront'].includes(v.mode)) return false;
+  if (v.public_domain != null && !dom.test(v.public_domain)) return false;
+  if (v.admin_shop != null && !/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(v.admin_shop)) return false;
+  return true;
+}
+

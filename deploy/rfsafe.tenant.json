@@ -46,7 +46,8 @@
   "shopify": {
     "shop": "quantacase.com",
     "mode": "public",
-    "public_domain": "quantacase.com"
+    "public_domain": "quantacase.com",
+    "admin_shop": "rf-safe-quantacase.myshopify.com"
   },
   "sms_enabled": false,
   "approval_mode": true,

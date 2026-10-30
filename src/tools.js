@@ -26,7 +26,7 @@ const DEFS = {
   take_message: { description: 'Take a message for the owner (name, callback number, message).', parameters: { type: 'object', properties: { name: { type: 'string' }, callback: { type: 'string' }, message: { type: 'string' } }, required: ['message'] } },
   sar_lookup: { description: 'Look up a phone model\'s FCC-reported SAR values (head, body, hotspot; cellular-only and with Wi-Fi on) from RF Safe\'s public SAR database. Speak the numbers briefly; never read the URLs aloud.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'brand and model, e.g. iPhone 17 Pro Max' } }, required: ['phone'] } },
   end_call: { description: 'End the call politely after saying goodbye.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
-  order_status: { description: 'Check the status of an order by order number. Only works if the caller is calling from the phone number on the order.', parameters: { type: 'object', properties: { order_number: { type: 'string' } }, required: ['order_number'] } },
+  order_status: { description: 'Check a QuantaCase/store order. Ask for the order number AND the email address or phone number used on the order before calling; caller ID also counts as a phone. Share only what comes back (status, items, carrier, delivery estimate, city/state). Never read out a street address or payment details, never take payments, and if it fails just say you could not verify that order and offer to take a message.', parameters: { type: 'object', properties: { order_number: { type: 'string', description: 'digits, e.g. 1146' }, email: { type: 'string', description: 'email on the order, if the caller gave one' }, phone: { type: 'string', description: 'phone on the order, if different from caller ID' } }, required: ['order_number'] } },
 };
 
 class Tools {
@@ -75,7 +75,17 @@ class Tools {
           setTimeout(() => this.d.callControl.hangup(ctx.callId).catch(() => {}), 4000).unref?.();
           return { ok: true, ending: true };
         }
-        case 'order_status': return await this.d.shopifyFor(t).orderStatus({ orderName: args.order_number, callerPhone: ctx.caller });
+        case 'order_status': {
+          // at most 3 failed checks per call (or per caller on SMS): stops order-number/email guessing
+          const key = t.id + '|' + (ctx.callId || ctx.caller || '');
+          const fails = (this._orderFails ||= new Map());
+          if ((fails.get(key) || 0) >= 3) return { ok: false, error: 'too_many_attempts', say: 'I can\'t check more orders on this call. I can take a message and the team will follow up.' };
+          const r = await this.d.shopifyFor(t).orderStatus({ orderName: String(args.order_number || '').slice(0, 20), email: String(args.email || '').slice(0, 120), phone: String(args.phone || '').slice(0, 30), callerPhone: ctx.caller });
+          if (!r.ok && r.reason === 'not_found_or_not_verified') fails.set(key, (fails.get(key) || 0) + 1);
+          log('order.lookup', { tenant: t.id, ok: !!r.ok, reason: r.reason || null });
+          if (!r.ok) return { ok: false, error: r.reason, say: r.reason === 'need_email_or_phone' ? 'Ask for the email or phone number used on the order.' : r.reason === 'bad_order_number' ? 'Ask for the order number again; it is the number in the order confirmation email.' : r.reason === 'order_lookup_not_connected' ? 'Order lookup is not available right now. Offer to take a message.' : 'Say you could not verify that order with those details, and offer to try the other contact detail or take a message.' };
+          return r;
+        }
       }
     } catch (e) { log('tool.error', { tenant: t.id, tool: name, err: e.message }); return { ok: false, error: 'tool_unavailable' }; }
   }
