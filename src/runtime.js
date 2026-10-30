@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { TenantRegistry, SecretStore, resolveSecret } = require('./tenants');
 const { KB } = require('./kb');
-const { ShopifyClient } = require('./shopify');
+const { ShopifyClient, ShopifyAdmin } = require('./shopify');
 const { Consent, MockTwilio, TwilioRest } = require('./twilio');
 const { XaiCallControl } = require('./xai');
 const { MockBrain, XaiTextBrain } = require('./sms');
@@ -38,10 +38,20 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   const secrets = new SecretStore(path.join(dataDir, 'secrets.enc.json'), env.PA_MASTER_KEY || (mode === 'demo' ? Buffer.alloc(32, 7).toString('base64') : null));
   const consent = new Consent(path.join(dataDir, 'consent.jsonl'));
   const kbCache = new Map(); const shopCache = new Map(); const smsCache = new Map();
-  const kbReset = (id) => kbCache.delete(id);
+  const kbReset = (id) => { kbCache.delete(id); shopCache.delete(id); };
   const kbFor = (t) => { if (!kbCache.has(t.id)) kbCache.set(t.id, new KB({ dirs: (t.kb?.dirs || []).map((p) => path.resolve(tenantsDir, p)), allowlist: t.link_allowlist })); return kbCache.get(t.id); };
   const liveFetch = createFetch({ timeoutMs: 8000, retries: 2, backoffMs: 50 });
-  const shopifyFor = (t) => { if (!shopCache.has(t.id)) shopCache.set(t.id, new ShopifyClient({ shop: t.shopify.shop, mode: t.shopify.mode, publicDomain: t.shopify.public_domain, storefrontToken: resolveSecret(t, 'shopify_storefront_token', { env, store: secrets }), adminToken: t.order_lookup_enabled ? resolveSecret(t, 'shopify_admin_token', { env, store: secrets }) : null, fetchImpl: mode === 'live' ? liveFetch : mocks.mockShopifyFetch() })); return shopCache.get(t.id); };
+  // Admin credentials: tenant secret refs shopify_client_id / shopify_client_secret, or the deploy-wide
+  // SHOPIFY_ADMIN_* env vars, which only bind to the tenant whose shopify.admin_shop equals SHOPIFY_ADMIN_SHOP.
+  const adminFor = (t, fetchImpl) => {
+    if (!t.order_lookup_enabled || !t.shopify?.admin_shop) return null;
+    const own = env.SHOPIFY_ADMIN_SHOP && env.SHOPIFY_ADMIN_SHOP === t.shopify.admin_shop;
+    const clientId = resolveSecret(t, 'shopify_client_id', { env, store: secrets }) || (own ? env.SHOPIFY_ADMIN_CLIENT_ID : null);
+    const clientSecret = resolveSecret(t, 'shopify_client_secret', { env, store: secrets }) || (own ? env.SHOPIFY_ADMIN_CLIENT_SECRET : null);
+    if (!clientId || !clientSecret) return null;
+    return new ShopifyAdmin({ shop: t.shopify.admin_shop, clientId, clientSecret, fetchImpl });
+  };
+  const shopifyFor = (t) => { if (!shopCache.has(t.id)) { const fetchImpl = mode === 'live' ? liveFetch : mocks.mockShopifyFetch(); shopCache.set(t.id, new ShopifyClient({ shop: t.shopify.shop, mode: t.shopify.mode, publicDomain: t.shopify.public_domain, storefrontToken: resolveSecret(t, 'shopify_storefront_token', { env, store: secrets }), admin: adminFor(t, fetchImpl), fetchImpl })); } return shopCache.get(t.id); };
   const smsFor = (t) => { if (!smsCache.has(t.id)) smsCache.set(t.id, mode === 'live' ? new TwilioRest({ accountSid: t.twilio?.account_sid, authToken: resolveSecret(t, 'twilio_auth_token', { env, store: secrets }), fetchImpl: liveFetch }) : new MockTwilio()); return smsCache.get(t.id); };
   const mockCC = new mocks.MockCallControl();
   const callControlFor = () => (mode === 'live' ? new XaiCallControl({ apiKey: env.XAI_API_KEY, fetchImpl: liveFetch }) : mockCC);

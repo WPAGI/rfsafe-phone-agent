@@ -12,13 +12,8 @@ test('shopify client is read-only', async () => {
   assert.ok(f.calls.every((x) => x.method === 'GET'));
   assert.throws(() => new ShopifyClient({ shop: 'evil.com/../x' }));
 });
-test('order status needs admin token and matching caller phone; returns no PII', async () => {
-  const fetchImpl = async () => ({ ok: true, json: async () => ({ orders: [{ name: '#1001', phone: '+1 (727) 555-0142', fulfillment_status: 'fulfilled', fulfillments: [{ tracking_company: 'USPS' }], email: 'x@y.z' }] }) });
-  assert.strictEqual((await new ShopifyClient({ shop: 'a.myshopify.com', fetchImpl }).orderStatus({ orderName: '1001', callerPhone: '+17275550142' })).reason, 'order_lookup_not_connected');
-  const c = new ShopifyClient({ shop: 'a.myshopify.com', adminToken: 'x', fetchImpl });
-  assert.strictEqual((await c.orderStatus({ orderName: '1001', callerPhone: '+17275550000' })).reason, 'not_found_or_not_verified');
-  const ok = await c.orderStatus({ orderName: '1001', callerPhone: '+17275550142' });
-  assert.deepStrictEqual(Object.keys(ok).sort(), ['cancelled', 'fulfillment_status', 'ok', 'order', 'tracking_company']);
+test('order status is off without admin credentials (full coverage in order-lookup.test.js)', async () => {
+  assert.strictEqual((await new ShopifyClient({ shop: 'a.myshopify.com' }).orderStatus({ orderName: '1001', callerPhone: '+17275550142' })).reason, 'order_lookup_not_connected');
 });
 test('KB answers with allowlisted sources only and admits when it has nothing', () => {
   const kb = new KB({ dirs: [path.join(__dirname, '../demo/kb/rfsafe')], allowlist: ['rfsafe.org', 'quantacase.com'] });

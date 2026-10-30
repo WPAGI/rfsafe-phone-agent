@@ -63,3 +63,13 @@ When the name is ready, add the domain in Render and point DNS at `rfsafe-phone-
 - Twilio: clear the trunk origination URI, or set the number to forward to John. Calls stop reaching the AI.
 - xAI: delete the phone-number registration. Suspend the Render service to stop all traffic.
 - Disk files (`/var/data/consent.jsonl`, `secrets.enc.json`, `calls.jsonl`, `owner-outbox.jsonl`) survive a rollback. `owner-outbox.jsonl` is the only place a callback number is stored, mode 0600, so John can return a voicemail. It is not written to the log stream.
+
+## Shopify order lookup (QuantaCase)
+- Dev Dashboard app "CallBots" on rf-safe-quantacase.myshopify.com, scopes read_orders, read_customers, read_products, read_fulfillments.
+- Render env: `SHOPIFY_ADMIN_SHOP`, `SHOPIFY_ADMIN_CLIENT_ID`, `SHOPIFY_ADMIN_CLIENT_SECRET`. The server mints an Admin token with the
+  client_credentials grant (`POST /admin/oauth/access_token`), caches it, refreshes 10 min before the 24h expiry, and retries once on 401.
+  Admin GraphQL API version 2026-10. Queries only; mutations are refused in code.
+- The env credentials bind only to the tenant whose `shopify.admin_shop` equals `SHOPIFY_ADMIN_SHOP`.
+- Turn on after deploy: `PATCH /admin/tenants/rfsafe` with `deploy/rfsafe.order-lookup.patch.json`.
+- Caller check: order number plus the email or phone on the order (caller ID counts). Max 3 failed checks per call.
+  Returns status, items, carrier, last 4 of tracking, delivery estimate, city/state. Never the street address, payment, or prices.

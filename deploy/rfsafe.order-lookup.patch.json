@@ -1,0 +1,9 @@
+{
+  "shopify": {
+    "shop": "quantacase.com",
+    "mode": "public",
+    "public_domain": "quantacase.com",
+    "admin_shop": "rf-safe-quantacase.myshopify.com"
+  },
+  "order_lookup_enabled": true
+}
