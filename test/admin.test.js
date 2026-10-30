@@ -126,3 +126,30 @@ test('newsletter confirm records ip and user agent; privacy mentions call logs',
     assert.match(priv, /Call logs for quality review/); assert.match(priv, /180 days/);
   } finally { await a.close(); }
 });
+
+test('regression: real browser POST (Origin header, Sec-Fetch-*) to /admin/login sends the link and shows the countdown page', async () => {
+  const a = await startApp();
+  try {
+    const origin = new URL(a.deps.publicBaseUrl || a.base).origin;
+    const g = await fetch(a.base + '/admin/login'); const html = await g.text(); const c = cookieOf(g, 'pa_csrf');
+    assert.doesNotMatch(g.headers.get('referrer-policy') || '', /^no-referrer$/);
+    const browser = { origin, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', 'x-forwarded-proto': 'https', 'user-agent': 'Mozilla/5.0 Chrome/130' };
+    const r = await post(a.base, '/admin/login', { csrf: csrfIn(html) }, 'pa_csrf=' + c, browser);
+    assert.strictEqual(r.status, 200); const body = await r.text();
+    assert.match(body, /Sign-in link sent/); assert.match(body, /support@quantaxtechnology\.com/); assert.match(body, /15:00/); assert.match(body, /id="resend" disabled/);
+    const nonce = (body.match(/<script nonce="([^"]+)"/) || [])[1]; assert.ok(nonce); assert.match(r.headers.get('content-security-policy'), new RegExp(`script-src 'nonce-${nonce.replace(/[+/=]/g, '\\$&')}'`));
+    // Brave / no-referrer pages send Origin: null; the CSRF token still protects it.
+    const r2 = await post(a.base, '/admin/login', { csrf: csrfIn(html) }, 'pa_csrf=' + c, { ...browser, origin: 'null' });
+    assert.strictEqual(r2.status, 200);
+    const sent = a.deps.emailFor(null).sent; assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[0].subject, 'Your callbots.org admin sign-in link'); assert.strictEqual(sent[0].to, 'support@quantaxtechnology.com');
+    // still blocked: cross-site, foreign origin, or Origin null without a valid token
+    assert.strictEqual((await post(a.base, '/admin/login', { csrf: csrfIn(html) }, 'pa_csrf=' + c, { ...browser, 'sec-fetch-site': 'cross-site' })).status, 403);
+    assert.strictEqual((await post(a.base, '/admin/login', { csrf: csrfIn(html) }, 'pa_csrf=' + c, { ...browser, origin: 'https://evil.example' })).status, 403);
+    assert.strictEqual((await post(a.base, '/admin/login', { csrf: 'x'.repeat(32) }, 'pa_csrf=' + c, { ...browser, origin: 'null' })).status, 403);
+  } finally { await a.close(); }
+});
+
+test('admin emails are sent from RF Safe <rfsafe@callbots.org>', () => {
+  assert.match(fs.readFileSync(require.resolve('../src/email'), 'utf8'), /const FROM = 'RF Safe <rfsafe@callbots\.org>'/);
+});

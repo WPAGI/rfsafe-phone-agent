@@ -192,7 +192,7 @@ function createApp(d) {
   // Newsletter double opt-in. GET shows a button only (link scanners never confirm); POST records.
   async function newsletterRoute(req, res, u) {
     const nlp = require('./newsletter'); const nl = d.newsletter;
-    const page = (code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'no-referrer' }); res.end(body); };
+    const page = (code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'same-origin' }); res.end(body); };
     const unsub = u.pathname.endsWith('/unsubscribe'); const action = unsub ? 'unsub' : 'sub';
     if (!nl) return page(503, nlp.page('Not available', '<p>The newsletter is not available right now.</p>'));
     if (req.method === 'GET') {
@@ -210,12 +210,20 @@ function createApp(d) {
 
   // ---- Admin dashboard (session cookie via one-time email link; Bearer token still works for CSVs) ----
   function clientIp(req) { const x = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim(); return x || (req.socket && req.socket.remoteAddress) || ''; }
-  const SEC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" };
+  const SEC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'same-origin', 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" };
   const SC = 'HttpOnly; Secure; SameSite=Strict; Path=/admin';
   function adminUiSend(res, code, body, extra = {}, cookies = []) { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', ...SEC_HEADERS, ...extra, ...(cookies.length ? { 'set-cookie': cookies } : {}) }); res.end(body); }
+  // Origin check (the CSRF token is always required as well). Accept an Origin matching this host or PUBLIC_BASE_URL.
+  // A missing Origin, or "null" (sent by Chrome/Brave when the page's Referrer-Policy is no-referrer, or by privacy
+  // settings), is accepted because the SameSite=Strict double-submit CSRF cookie+token must still match;
+  // an explicit cross-site Sec-Fetch-Site is always rejected.
   function sameOrigin(req) {
-    const o = req.headers.origin; if (!o) return true; // older browsers omit Origin; the CSRF token still applies
-    try { return new URL(o).host === req.headers.host || (d.publicBaseUrl && new URL(o).host === new URL(d.publicBaseUrl).host); } catch { return false; }
+    if (String(req.headers['sec-fetch-site'] || '') === 'cross-site') return false;
+    const o = req.headers.origin; if (!o || o === 'null') return true;
+    let oh; try { oh = new URL(o); } catch { return false; }
+    const fwdProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    if (d.publicBaseUrl) { try { if (oh.origin === new URL(d.publicBaseUrl).origin) return true; } catch {} }
+    return oh.host === req.headers.host && (!fwdProto || oh.protocol === fwdProto + ':');
   }
   // Pre-session CSRF: double-submit cookie. Session CSRF: HMAC bound to the session id.
   function preCsrf(req) { const c = adm.parseCookies(req.headers.cookie).pa_csrf; return c && /^[A-Za-z0-9_-]{20,}$/.test(c) ? { tok: c, set: [] } : (() => { const t = require('crypto').randomBytes(24).toString('base64url'); return { tok: t, set: [`pa_csrf=${t}; ${SC}; Max-Age=3600`] }; })(); }
@@ -235,8 +243,9 @@ function createApp(d) {
       const link = (d.publicBaseUrl || '').replace(/\/$/, '') + '/admin/auth?t=' + tok;
       const text = `Someone asked to sign in to the CallBots admin dashboard.\n\nSign in (works once, expires in 15 minutes):\n${link}\n\nIf this was not you, ignore this email.`;
       const html = `<p>Someone asked to sign in to the CallBots admin dashboard.</p><p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#0b5;color:#fff;text-decoration:none;border-radius:6px">Open the sign-in page</a></p><p>The link works once and expires in 15 minutes. If this was not you, ignore this email.</p>`;
-      let r; try { r = await d.emailFor(null).send({ to: auth.email, subject: 'CallBots admin sign-in link', text, html }); } catch (e) { r = { ok: false, reason: e.message }; }
+      let r; try { r = await d.emailFor(null).send({ to: auth.email, subject: 'Your callbots.org admin sign-in link', text, html }); } catch (e) { r = { ok: false, reason: e.message }; }
       log('admin.login_link', { ok: !!(r && r.ok), reason: r && !r.ok ? r.reason : undefined });
+      if (r && r.ok) { const nonce = require('crypto').randomBytes(16).toString('base64'); return adminUiSend(res, 200, adm.sentPage(cookies.pa_csrf, nonce, auth.email), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` }); }
       return adminUiSend(res, r && r.ok ? 200 : 502, r && r.ok ? adm.msgPage('Check the admin inbox', 'A sign-in link was sent to the admin email address. It works once and expires in 15 minutes.') : adm.msgPage('Could not send', 'The sign-in email could not be sent. Try again shortly.'));
     }
     if (p === '/admin/auth') {
