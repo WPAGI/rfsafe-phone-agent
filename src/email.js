@@ -14,7 +14,8 @@ function maskEmail(e) {
   return (u[0] || '') + '***@' + (host[0] || '') + '***' + tld;
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const FOOTER_TXT = 'You asked for this on a call with the RF Safe line (AI assistant). This is a one-time email, not a mailing list.\nRF Safe is a trademark of Quanta X Technology LLC.\nPrivacy: https://callbots.org/privacy';
+const AI_NOTE = "This reply was written by RF Safe's AI assistant. AI can make mistakes.";
+const FOOTER_TXT = 'You asked for this on a call with the RF Safe line (AI assistant). This is a one-time email, not a mailing list.\nRF Safe is a trademark of Quanta X Technology LLC.\nPrivacy: https://callbots.org/privacy\n' + AI_NOTE;
 // Summary: plain text from the KB. Keep allowlisted https URLs, strip every other URL, cap length.
 function cleanSummary(raw, allowlist) {
   let t = String(raw || '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
@@ -25,12 +26,17 @@ function cleanSummary(raw, allowlist) {
 }
 function cleanTopic(raw) { return String(raw || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/[\r\n\t]+/g, ' ').replace(/[^\p{L}\p{N} ,.'&()\/-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, TOPIC_MAX).trim(); }
 function subjectFor(topic, hasSummary) { const tp = cleanTopic(topic); return tp ? (hasSummary ? 'Your RF Safe info: ' : 'Your RF Safe links: ') + tp : (hasSummary ? 'Your RF Safe info' : SUBJECT); }
-function buildEmail({ links, note, summary }) {
+function buildEmail({ links, note, summary, name, newsletter }) {
   const lines = links.map((l) => (l.title ? l.title + ': ' : '') + l.url);
   const paras = summary ? summary.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean) : [];
+  const greet = `Hi ${name || 'there'}, thank you for requesting information from RF Safe.`;
   const intro = summary ? 'Here is the information you asked for on your call with the RF Safe line:' : 'Here are the links you asked for:';
-  const text = [intro, '', ...(summary ? [summary, '', 'Sources:'] : []), ...lines, ...(note ? ['', note] : []), '', '--', FOOTER_TXT].join('\n');
-  const html = `<p>${esc(intro)}</p>${paras.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}${summary ? '<p><strong>Sources:</strong></p>' : ''}<ul>${links.map((l) => `<li>${l.title ? esc(l.title) + ': ' : ''}<a href="${esc(l.url)}">${esc(l.url)}</a></li>`).join('')}</ul>${note ? `<p>${esc(note)}</p>` : ''}<hr><p style="font-size:12px;color:#666">You asked for this on a call with the RF Safe line (AI assistant). This is a one-time email, not a mailing list.<br>RF Safe is a trademark of Quanta X Technology LLC.<br><a href="https://callbots.org/privacy">Privacy</a></p>`;
+  const nlTxt = newsletter ? ['', 'Newsletter: you asked to receive RF Safe\'s monthly newsletter. Please confirm (nothing is sent until you do; the link works for 30 days):', 'Confirm my newsletter subscription: ' + newsletter.confirmUrl] : [];
+  const footTxt = newsletter ? FOOTER_TXT.replace('This is a one-time email, not a mailing list.', 'You are not on any mailing list unless you confirm above.') .replace('\n' + AI_NOTE, '\nUnsubscribe: ' + newsletter.unsubscribeUrl + '\n' + AI_NOTE) : FOOTER_TXT;
+  const text = [greet, '', intro, '', ...(summary ? [summary, '', 'Sources:'] : []), ...lines, ...(note ? ['', note] : []), ...nlTxt, '', '--', footTxt].join('\n');
+  const nlHtml = newsletter ? `<p>You asked to receive RF Safe's monthly newsletter. Please confirm; nothing is sent until you do (the link works for 30 days).</p><p><a href="${esc(newsletter.confirmUrl)}" style="display:inline-block;padding:10px 16px;background:#0b5;color:#fff;text-decoration:none;border-radius:6px">Confirm my newsletter subscription</a></p>` : '';
+  const footHtml = (newsletter ? 'You asked for this on a call with the RF Safe line (AI assistant). You are not on any mailing list unless you confirm above.' : 'You asked for this on a call with the RF Safe line (AI assistant). This is a one-time email, not a mailing list.') + '<br>RF Safe is a trademark of Quanta X Technology LLC.<br><a href="https://callbots.org/privacy">Privacy</a>' + (newsletter ? ` &middot; <a href="${esc(newsletter.unsubscribeUrl)}">Unsubscribe</a>` : '');
+  const html = `<p>${esc(greet)}</p><p>${esc(intro)}</p>${paras.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}${summary ? '<p><strong>Sources:</strong></p>' : ''}<ul>${links.map((l) => `<li>${l.title ? esc(l.title) + ': ' : ''}<a href="${esc(l.url)}">${esc(l.url)}</a></li>`).join('')}</ul>${note ? `<p>${esc(note)}</p>` : ''}${nlHtml}<hr><p style="font-size:12px;color:#666">${footHtml}</p><p style="font-size:11px;color:#999">${esc(AI_NOTE)}</p>`;
   return { text, html };
 }
 // Check links: https, allowlisted (quantacase.com / rfsafe.org), max 5, no card-like text.
@@ -52,4 +58,4 @@ class ResendEmail {
   }
 }
 class MockEmail { constructor() { this.sent = []; } async send(m) { this.sent.push(m); return { ok: true, id: 'mock_' + this.sent.length }; } }
-module.exports = { ResendEmail, MockEmail, buildEmail, cleanSummary, cleanTopic, subjectFor, SUMMARY_MAX, checkLinks, maskEmail, validEmail, FROM, SUBJECT };
+module.exports = { ResendEmail, MockEmail, buildEmail, cleanSummary, cleanTopic, subjectFor, SUMMARY_MAX, checkLinks, maskEmail, validEmail, FROM, SUBJECT, AI_NOTE };
