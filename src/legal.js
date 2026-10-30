@@ -20,12 +20,21 @@ const SMS_SECTION = `<h2 id="sms">SMS / Text Messaging</h2>
   <li><strong>Mobile opt-in data and consent will not be shared with third parties or affiliates for marketing purposes.</strong> Text messaging originator opt-in data and consent are not shared with any third parties, except service providers that deliver the messages for us.</li>
 </ul>`;
 
+const NEWSLETTER_SECTION = `<h2 id="newsletter">Monthly newsletter (double opt-in)</h2>
+<ul>
+  <li><strong>How you join:</strong> near the end of a call, the assistant may ask once whether you would like RF Safe's monthly newsletter. If you say yes, the email we send includes a "Confirm my newsletter subscription" link. You are subscribed only after you open that link and press the confirm button. If you do nothing, you are not subscribed. The link expires after 30 days.</li>
+  <li><strong>What we keep:</strong> for confirmed subscribers, your email address, the first name you gave, the business line, the time you confirmed, and that you joined by phone.</li>
+  <li><strong>Unsubscribe:</strong> every newsletter email has an unsubscribe link, or email ${MAILTO}. We stop within 10 business days.</li>
+  <li>Newsletters come from Quanta X Technology LLC, 8134 122nd St N, Seminole, FL 33772. We do not sell or share subscriber lists.</li>
+</ul>`;
+
 const EMAIL_SECTION = `<h2 id="email">Email</h2>
 <p>If you ask on a call, the assistant can email you the links you requested, such as a product page on quantacase.com or an article on rfsafe.org.</p>
 <ul>
   <li><strong>How you consent:</strong> you say your email address on the call, the assistant spells it back, and it sends only after you say yes. One address per call.</li>
-  <li><strong>What we send:</strong> only the links you asked for, from rfsafe@callbots.org with the subject "Your RF Safe links", at most three emails per call. These are one-time messages; we do not add you to a mailing list or send marketing.</li>
+  <li><strong>What we send:</strong> only the links you asked for, from rfsafe@callbots.org with the subject "Your RF Safe links", at most three emails per call. These are one-time messages; we do not add you to a mailing list or send marketing unless you confirm the newsletter (below).</li>
   <li><strong>What we keep:</strong> a masked form of your address (for example j***@g***.com), a one-way fingerprint of it, and which links were sent, so we can honor limits and answer questions. Emails are delivered by our email provider (Resend).</li>
+  <li>The email opens with the first name you give the assistant, if any.</li>
   <li>Replies go to our support team. To ask us not to email you, or to delete these records, email ${MAILTO}.</li>
 </ul>`;
 
@@ -94,6 +103,7 @@ function renderPrivacy() {
 <p>We do not sell your personal information. We share it only with service providers that help us run the service, for example providers of AI voice processing, telephone, text message and email delivery, website hosting, and our online store platform, and only as needed for them to provide those services to us. We may also disclose information if required by law or to protect rights, safety, and property.</p>
 ${SMS_SECTION}
 ${EMAIL_SECTION}
+${NEWSLETTER_SECTION}
 <h2>Retention and security</h2>
 <p>We keep information only as long as needed for the purposes above, including to resolve disputes and meet legal requirements. We use reasonable safeguards to protect it; for example, our system logs record phone numbers in a shortened, non-readable form. No method of transmission or storage is completely secure.</p>
 <h2>Your choices</h2>

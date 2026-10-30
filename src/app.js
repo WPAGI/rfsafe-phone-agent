@@ -23,7 +23,7 @@ function createApp(d) {
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
   const now = () => (d.now ? d.now() : new Date());
-  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile });
+  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
@@ -187,6 +187,25 @@ function createApp(d) {
     return json(res, 404, { error: 'not_found' });
   }
 
+  // Newsletter double opt-in. GET shows a button only (link scanners never confirm); POST records.
+  async function newsletterRoute(req, res, u) {
+    const nlp = require('./newsletter'); const nl = d.newsletter;
+    const page = (code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'no-referrer' }); res.end(body); };
+    const unsub = u.pathname.endsWith('/unsubscribe'); const action = unsub ? 'unsub' : 'sub';
+    if (!nl) return page(503, nlp.page('Not available', '<p>The newsletter is not available right now.</p>'));
+    if (req.method === 'GET') {
+      const tok = u.searchParams.get('t') || ''; if (!nl.verify(tok, action)) return page(400, nlp.page('Link expired or invalid', '<p>This link is invalid or has expired. Ask for a new one on your next call, or email support@quantaxtechnology.com.</p>'));
+      return page(200, unsub ? nlp.formPage({ title: 'Unsubscribe', text: "Press the button to stop receiving RF Safe's monthly newsletter.", button: 'Unsubscribe me', action: '/newsletter/unsubscribe', tok }) : nlp.formPage({ title: 'Confirm your subscription', text: "Press the button to confirm you want RF Safe's monthly newsletter. You can unsubscribe at any time.", button: 'Confirm my newsletter subscription', action: '/newsletter/confirm', tok }));
+    }
+    if (req.method === 'POST') {
+      const tok = new URLSearchParams(await readBody(req, 8192)).get('t') || u.searchParams.get('t') || '';
+      const o = nl.verify(tok, action); if (!o) return page(400, nlp.page('Link expired or invalid', '<p>This link is invalid or has expired.</p>'));
+      nl.record(o, unsub ? 'unsubscribed' : 'confirmed'); log(unsub ? 'newsletter.unsubscribed' : 'newsletter.confirmed', { tenant: o.t, to: fp(o.e) });
+      return page(200, unsub ? nlp.page('You are unsubscribed', "<p>You will not receive RF Safe's newsletter. Thank you.</p>") : nlp.page('Thank you!', "<p>You are subscribed to RF Safe's monthly newsletter. Every issue has an unsubscribe link.</p>"));
+    }
+    return json(res, 405, { error: 'method_not_allowed' });
+  }
+
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
     try {
@@ -204,6 +223,8 @@ function createApp(d) {
       if (req.method === 'POST' && u.pathname === '/twilio/sms/status') return await twilioStatus(req, res);
       if (req.method === 'POST' && (u.pathname === '/twilio/voice' || u.pathname === '/twilio/voicemail')) return await voice(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/voice/recording') return await recording(req, res);
+      if (u.pathname === '/newsletter/confirm' || u.pathname === '/newsletter/unsubscribe') return await newsletterRoute(req, res, u);
+      if (req.method === 'GET' && u.pathname === '/admin/newsletter/subscribers') { if (!isAdmin(req)) return json(res, 401, { error: 'unauthorized' }); const subs = d.newsletter ? d.newsletter.subscribers() : []; return json(res, 200, { count: subs.length, subscribers: subs }); }
       if (u.pathname.startsWith('/admin/')) return await admin(req, res, u);
       if (u.pathname.startsWith('/connect/')) return await connect(req, res, u);
       return json(res, 404, { error: 'not_found' });
