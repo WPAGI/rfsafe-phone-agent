@@ -32,8 +32,10 @@ test('send_email: needs spoken yes, one address, allowlisted links, 3 per call, 
   assert.ok(s.sent); assert.match(s.say, /spam/);
   const e = m.mail.sent[0]; assert.strictEqual(e.to, 'jane@gmail.com'); assert.strictEqual(e.subject, 'Your RF Safe links'); assert.strictEqual(e.replyTo, 'support@rfsafe.com');
   assert.match(e.text, /Quanta X Technology LLC/); assert.match(e.text, /callbots\.org\/privacy/); assert.ok(!e.text.includes('evil.com'));
-  await m.tools.run('send_email', { urls }, voice); await m.tools.run('send_email', { urls }, voice);
-  assert.strictEqual((await m.tools.run('send_email', { urls }, voice)).error, 'email_limit_reached');
+  const dup = await m.tools.run('send_email', { urls }, voice);
+  assert.strictEqual(dup.error, 'duplicate_email'); assert.strictEqual(m.mail.sent.length, 1);
+  await m.tools.run('send_email', { urls, summary: 'Part two.' }, voice); await m.tools.run('send_email', { urls, summary: 'Part three.' }, voice);
+  assert.strictEqual((await m.tools.run('send_email', { urls, summary: 'Part four.' }, voice)).error, 'email_limit_reached');
   assert.strictEqual(m.mail.sent.length, 3);
   assert.ok(!JSON.stringify(m.logs).includes('jane@gmail.com'));
   assert.strictEqual((await m.tools.run('send_email', { urls }, { channel: 'voice', callId: 'c2', caller: null })).error, 'confirm_email_first');
@@ -76,4 +78,12 @@ test('send_email with KB summary: topic subject, allowlisted URLs kept, others s
 test('instructions: email info must come from kb_answer, no invented studies', () => {
   const ins = buildInstructions({ name: 'RF Safe', link_allowlist: ['rfsafe.org'], blocked_topics: [], sms_enabled: false, email_enabled: true }, {});
   assert.match(ins, /kb_answer/); assert.match(ins, /Never invent studies/); assert.match(ins, /1-5/);
+});
+
+test('email instructions batch into one email and ask for anything else first', () => {
+  const { DEFS } = require('../src/tools');
+  const d = (DEFS && DEFS.send_email && DEFS.send_email.description) || require('fs').readFileSync(require('path').join(__dirname, '../src/tools.js'), 'utf8');
+  assert.match(d, /ONE email/); assert.match(d, /I\\?'ll send it right now/);
+  const x = require('fs').readFileSync(require('path').join(__dirname, '../src/xai.js'), 'utf8');
+  assert.match(x, /anything else you would like me to include/); assert.match(x, /Never send the same content twice/);
 });
