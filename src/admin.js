@@ -116,7 +116,7 @@ function dashboard({ csrf, nl, calls, q, now }) {
 <p><a href="/admin/newsletter.csv">Download CSV</a> <small>(includes consent method, confirm time, IP and browser when recorded)</small></p>
 <table><tr><th>Name</th><th>Email</th><th>Tenant</th><th>Confirmed (UTC)</th><th>Source</th><th>Confirm IP</th><th>Unsubscribed</th></tr>${nlRows || '<tr><td colspan="7">No subscribers yet.</td></tr>'}</table>
 <h2>Call log</h2><form method="get" action="/admin">From <input type="date" name="from" value="${esc(q.from || '')}"> To <input type="date" name="to" value="${esc(q.to || '')}"> Number <input name="number" value="${esc(q.number || '')}" placeholder="digits, e.g. 727555"> <button type="submit">Filter</button> <a href="/admin">Clear</a></form>
-<p>${calls.length} call(s). <a href="/admin/calls.csv${qs ? '?' + esc(qs) : ''}">Download CSV</a> <small>Call records are kept ${CALL_RETENTION_DAYS} days. Times are UTC.</small></p>
+<p>${calls.length} call(s). <a href="/admin/calls.csv${qs ? '?' + esc(qs) : ''}">Download CSV</a> · <a href="/admin/kb-gaps.csv">Unanswered questions (CSV)</a> <small>Call records are kept ${CALL_RETENTION_DAYS} days. Times are UTC.</small></p>
 <table><tr><th>Time (UTC)</th><th>Caller</th><th>Duration</th><th>Asked about</th><th>Tools</th><th>Emails sent</th><th>Newsletter opt-in</th></tr>${callRows || '<tr><td colspan="7">No calls recorded yet.</td></tr>'}</table>`);
 }
 

@@ -7,13 +7,17 @@ const path = require('path');
 const { hostAllowed } = require('./linkguard');
 
 const STOP = new Set('a an and are as at be by can do does for from has have how i if in is it its me my of on or our that the this to was what when where which who why will with you your'.split(' '));
-const tok = (s) => String(s).toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
+// Spoken / spelled variants collapse to one token so 'Li-Fi', 'LiFi', 'lie fi', 'light fidelity' all match.
+const SYN = [[/\b(?:li[\s-]?fi|lie[\s-]?fi|lye[\s-]?fi|light[\s-]fidelity)\b/gi, ' lifi '], [/\bwi[\s-]?fi\b/gi, ' wifi '], [/\bchildren\b|\bkids?\b/gi, ' child '], [/\bnon[\s-]thermal\b/gi, ' nonthermal ']];
+const norm = (s) => SYN.reduce((a, [re, r]) => a.replace(re, r), String(s));
+const tok = (s) => norm(s).toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
 
 function parse(text, file) {
+  let aliases = '';
   let title = path.basename(file, '.md'); let source = null; let body = text;
   const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (m) { body = text.slice(m[0].length); for (const line of m[1].split('\n')) { const [k, ...v] = line.split(':'); const val = v.join(':').trim().replace(/^["']|["']$/g, ''); if (k.trim() === 'title') title = val; if (k.trim() === 'source') source = val; } }
-  return { title, source, body };
+  if (m) { body = text.slice(m[0].length); for (const line of m[1].split('\n')) { const [k, ...v] = line.split(':'); const val = v.join(':').trim().replace(/^["']|["']$/g, ''); if (k.trim() === 'title') title = val; if (k.trim() === 'source') source = val; if (k.trim() === 'aliases') aliases = val; } }
+  return { title, source, aliases, body };
 }
 
 class KB {
@@ -29,7 +33,7 @@ class KB {
     // split into ~600-char passages on paragraph boundaries
     const paras = doc.body.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
     let buf = '';
-    const flush = () => { if (!buf) return; const terms = tok(doc.title + ' ' + buf); const tf = new Map(); for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1); for (const t of tf.keys()) this.df.set(t, (this.df.get(t) || 0) + 1); this.docs.push({ title: doc.title, source: doc.source, text: buf, tf, len: terms.length }); buf = ''; };
+    const flush = () => { if (!buf) return; const terms = tok(doc.title + ' ' + (doc.aliases || '') + ' ' + buf); const tf = new Map(); for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1); for (const t of tf.keys()) this.df.set(t, (this.df.get(t) || 0) + 1); this.docs.push({ title: doc.title, source: doc.source, text: buf, tf, len: terms.length }); buf = ''; };
     for (const p of paras) { if ((buf + '\n' + p).length > 600) flush(); buf = buf ? buf + '\n' + p : p; }
     flush();
   }
@@ -51,4 +55,4 @@ class KB {
   }
 }
 
-module.exports = { KB, tok };
+module.exports = { KB, tok, norm };

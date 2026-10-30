@@ -1,0 +1,12 @@
+[
+  { "q": "What's the radiation level (SAR) of my phone, and how does it compare to another model?", "expect": "\\bSAR\\b" },
+  { "q": "What are non-thermal effects, and why do FCC limits only account for heating?", "expect": "non-?thermal" },
+  { "q": "What does the research show on RF and DNA damage, tumor promotion, or oxidative stress?", "expect": "DNA|tumou?r|oxidative" },
+  { "q": "What is Li-Fi, and how could light-based internet cut wireless exposure?", "expect": "Li-Fi" },
+  { "q": "Tell me about lie fi", "expect": "Li-Fi" },
+  { "q": "How do anti-radiation phone cases and shielded apparel actually work?", "expect": "case|onesie|apparel" },
+  { "q": "Where does RF Safe stand on the FCC's 1996 exposure limits?", "expect": "1996" },
+  { "q": "What are non-thermal hazards?", "expect": "non-?thermal" },
+  { "q": "Compare the SAR of the iPhone 17 and the Galaxy S26", "expect": "\\bSAR\\b" },
+  { "q": "Send me links to the research on cell phones and children", "expect": "child|kids" }
+]

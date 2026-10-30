@@ -39,7 +39,9 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   const consent = new Consent(path.join(dataDir, 'consent.jsonl'));
   const kbCache = new Map(); const shopCache = new Map(); const smsCache = new Map();
   const kbReset = (id) => { kbCache.delete(id); shopCache.delete(id); };
-  const kbFor = (t) => { if (!kbCache.has(t.id)) kbCache.set(t.id, new KB({ dirs: (t.kb?.dirs || []).map((p) => path.resolve(tenantsDir, p)), allowlist: t.link_allowlist })); return kbCache.get(t.id); };
+  // Curated topic cards ship with the code: kb/curated/<tenant>/*.md (see kb/curated/README.md). Added automatically, no tenant PATCH needed.
+  const curatedDirFor = (id) => { const dir = path.join(__dirname, '..', 'kb', 'curated', String(id).replace(/[^a-z0-9_-]/gi, '')); return fs.existsSync(dir) ? [dir] : []; };
+  const kbFor = (t) => { if (!kbCache.has(t.id)) kbCache.set(t.id, new KB({ dirs: [...(t.kb?.dirs || []).map((p) => path.resolve(tenantsDir, p)), ...curatedDirFor(t.id)], allowlist: t.link_allowlist })); return kbCache.get(t.id); };
   const liveFetch = createFetch({ timeoutMs: 8000, retries: 2, backoffMs: 50 });
   // Admin credentials: tenant secret refs shopify_client_id / shopify_client_secret, or the deploy-wide
   // SHOPIFY_ADMIN_* env vars, which only bind to the tenant whose shopify.admin_shop equals SHOPIFY_ADMIN_SHOP.
@@ -79,7 +81,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
     adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
-    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'),
+    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'),
     newsletter: (() => { const { Newsletter, deriveSecret } = require('./newsletter'); return new Newsletter({ secret: deriveSecret(env), file: path.join(dataDir, 'newsletter.jsonl'), baseUrl: env.PUBLIC_BASE_URL || 'https://callbots.org' }); })(),
     sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
     brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.3', fetchImpl: liveFetch }) : new MockBrain(),
