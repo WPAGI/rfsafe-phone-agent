@@ -158,15 +158,7 @@ function createApp(d) {
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
       let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'invalid_json' }); }
       if (typeof body.enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['enabled must be boolean'] });
-      if (!body.enabled) { t.sms_enabled = false; d.tenants.save(t); log('tenant.sms', { tenant: t.id, enabled: false }); return json(res, 200, { tenant: t.id, sms_enabled: false, email_enabled: !!t.email_enabled }); }
-      const msid = body.messaging_service_sid || (t.twilio && t.twilio.messaging_service_sid);
-      if (!Array.isArray(t.numbers) || !/^\+1\d{10}$/.test(t.numbers[0] || '')) return json(res, 409, { error: 'no_number', detail: 'tenant has no E.164 number set' });
-      if (!/^MG[0-9a-f]{32}$/.test(msid || '')) return json(res, 400, { error: 'invalid', detail: ['messaging_service_sid must be MG + 32 hex'] });
-      let pool; try { pool = await d.smsFor(t).senderPool(msid); } catch (e) { return json(res, 502, { error: 'pool_check_failed', detail: String(e.message).slice(0, 100) }); }
-      if (!pool.includes(t.numbers[0])) return json(res, 409, { error: 'number_not_in_sender_pool' });
-      t.twilio = { ...(t.twilio || {}), messaging_service_sid: msid }; t.sms_enabled = true; d.tenants.save(t);
-      log('tenant.sms', { tenant: t.id, enabled: true });
-      return json(res, 200, { tenant: t.id, sms_enabled: true, email_enabled: !!t.email_enabled, messaging_service_sid: msid });
+      const r = await setSms(t, body.enabled, body.messaging_service_sid); return json(res, r.code, r.body);
     }
     if (m[2] === 'kb-bundle') {
       // Admin token only. Uploads the full Second Brain KB export; John approves each upload like a deploy.
@@ -231,6 +223,24 @@ function createApp(d) {
     return json(res, 405, { error: 'method_not_allowed' });
   }
 
+  // Shared texting on/off (API and dashboard). Turning on requires the tenant's E.164 number in the A2P
+  // Messaging Service sender pool. Email is untouched. Never called at tenant creation.
+  async function setSms(t, enabled, msidIn) {
+    if (!enabled) { t.sms_enabled = false; d.tenants.save(t); log('tenant.sms', { tenant: t.id, enabled: false }); return { code: 200, body: { tenant: t.id, sms_enabled: false, email_enabled: !!t.email_enabled } }; }
+    const msid = msidIn || (t.twilio && t.twilio.messaging_service_sid);
+    if (!Array.isArray(t.numbers) || !/^\+1\d{10}$/.test(t.numbers[0] || '')) return { code: 409, body: { error: 'no_number', detail: 'tenant has no E.164 number set' } };
+    if (!/^MG[0-9a-f]{32}$/.test(msid || '')) return { code: 400, body: { error: 'invalid', detail: ['messaging_service_sid must be MG + 32 hex'] } };
+    let pool; try { pool = await d.smsFor(t).senderPool(msid); } catch (e) { return { code: 502, body: { error: 'pool_check_failed', detail: String(e.message).slice(0, 100) } }; }
+    if (!pool.includes(t.numbers[0])) return { code: 409, body: { error: 'number_not_in_sender_pool' } };
+    t.twilio = { ...(t.twilio || {}), messaging_service_sid: msid }; t.sms_enabled = true; d.tenants.save(t);
+    log('tenant.sms', { tenant: t.id, enabled: true });
+    return { code: 200, body: { tenant: t.id, sms_enabled: true, email_enabled: !!t.email_enabled, messaging_service_sid: msid } };
+  }
+  const CH_ERR = { no_number: 'This line has no phone number set, so texting cannot be turned on.', invalid: 'No approved texting (A2P) Messaging Service is set for this line, so texting cannot be turned on.', pool_check_failed: 'Could not reach Twilio to confirm the number is approved for texting. Texting was not changed; try again shortly.', number_not_in_sender_pool: 'Twilio says this number is not in the approved texting group, so texting stays off.' };
+  const channelLog = [];
+  function logChannel(ev) { const e = { at: new Date(now().getTime ? now().getTime() : Date.now()).toISOString(), ...ev }; channelLog.push(e); if (channelLog.length > 200) channelLog.shift(); if (d.channelLogFile) { try { require('fs').appendFileSync(d.channelLogFile, JSON.stringify(e) + '\n'); } catch { /* ignore */ } } }
+  function readChannelLog() { return d.channelLogFile ? readGaps(d.channelLogFile) : channelLog.slice(); }
+
   // ---- Admin dashboard (session cookie via one-time email link; Bearer token still works for CSVs) ----
   function clientIp(req) { const x = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim(); return x || (req.socket && req.socket.remoteAddress) || ''; }
   const SEC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'same-origin', 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" };
@@ -287,6 +297,18 @@ function createApp(d) {
       auth.revoke(sess.sid); log('admin.logout', {});
       return adminUiSend(res, 303, '', { location: '/admin/login' }, [`pa_admin=; ${SC}; Max-Age=0`]);
     }
+    if (p === '/admin/channels') {
+      if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
+      const f = await form();
+      if (!sess || !sameOrigin(req) || !f.csrf || !safeEq(f.csrf, auth.csrfFor(sess.sid))) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the dashboard and try again.'));
+      const t = d.tenants.get(String(f.tenant || '')); const ch = f.channel; const on = f.enabled === 'on' ? true : f.enabled === 'off' ? false : null;
+      const back = (msg) => adminUiSend(res, 303, '', { location: '/admin' + (msg ? '?err=' + encodeURIComponent(msg) : '') });
+      if (!t || !['sms', 'email'].includes(ch) || on === null) return back('Unknown line or setting. Reload the dashboard and try again.');
+      if (ch === 'email') { t.email_enabled = on; d.tenants.save(t); log('tenant.email', { tenant: t.id, enabled: on }); logChannel({ tenant: t.id, channel: 'email', enabled: on, ok: true }); return back(); }
+      let r; try { r = await setSms(t, on); } catch (e) { r = { code: 500, body: { error: 'save_failed' } }; }
+      if (r.code !== 200) { const msg = CH_ERR[r.body.error] || 'Texting could not be changed. Try again shortly.'; logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: false, error: r.body.error }); return back(msg); }
+      logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: true }); return back();
+    }
     // Data views: session cookie, or Bearer admin token for scripts.
     if (!sess && !isAdmin(req)) return p === '/admin' && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
@@ -298,9 +320,9 @@ function createApp(d) {
     if (p === '/admin/kb-gaps.csv') return csv('kb-gaps.csv', adm.toCsv(['at', 'tenant', 'channel', 'reason', 'question'], readGaps(d.kbGapFile)));
     if (p === '/admin/calls.csv') return csv('calls.csv', adm.toCsv(adm.CALL_COLS, adm.callCsvRows(calls)));
     const nowMs = now().getTime ? now().getTime() : Date.now();
-    return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs }));
+    return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }));
   }
-  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv']);
+  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels']);
 
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');

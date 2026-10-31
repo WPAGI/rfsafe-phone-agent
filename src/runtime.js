@@ -83,7 +83,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
     adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
-    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),
+    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), channelLogFile: path.join(dataDir, 'channel-changes.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),
     newsletter: (() => { const { Newsletter, deriveSecret } = require('./newsletter'); return new Newsletter({ secret: deriveSecret(env), file: path.join(dataDir, 'newsletter.jsonl'), baseUrl: env.PUBLIC_BASE_URL || 'https://callbots.org' }); })(),
     sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
     brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.3', fetchImpl: liveFetch }) : new MockBrain(),
