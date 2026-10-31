@@ -131,7 +131,7 @@ function createApp(d) {
 
   async function admin(req, res, u) {
     if (!isAdmin(req)) return json(res, 401, { error: 'unauthorized' });
-    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config|kb-bundle))?)?$/);
+    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config|kb-bundle|sms))?)?$/);
     if (!m) return json(res, 404, { error: 'not_found' });
     if (req.method === 'POST' && !m[1]) {
       const t = JSON.parse(await readBody(req)); t.numbers = t.numbers || []; t.sms_enabled = false; // texting only after A2P approval
@@ -151,6 +151,22 @@ function createApp(d) {
       if (typeof next.extra_instructions === 'string' && next.extra_instructions.length > 12000) return json(res, 400, { error: 'extra_instructions_too_long' });
       Object.assign(t, body); d.tenants.save(t); d.kbReset && d.kbReset(t.id); log('tenant.updated', { tenant: t.id, fields: Object.keys(body) });
       return json(res, 200, { tenant: t.id, updated: Object.keys(body), status: ob.onboardingStatus(t) });
+    }
+    if (m[2] === 'sms') {
+      // Admin token only. Texting on/off, separate from content PATCH. Turning on requires the tenant's number
+      // and an A2P Messaging Service whose sender pool contains that number. Email is untouched.
+      if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
+      let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'invalid_json' }); }
+      if (typeof body.enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['enabled must be boolean'] });
+      if (!body.enabled) { t.sms_enabled = false; d.tenants.save(t); log('tenant.sms', { tenant: t.id, enabled: false }); return json(res, 200, { tenant: t.id, sms_enabled: false, email_enabled: !!t.email_enabled }); }
+      const msid = body.messaging_service_sid || (t.twilio && t.twilio.messaging_service_sid);
+      if (!Array.isArray(t.numbers) || !/^\+1\d{10}$/.test(t.numbers[0] || '')) return json(res, 409, { error: 'no_number', detail: 'tenant has no E.164 number set' });
+      if (!/^MG[0-9a-f]{32}$/.test(msid || '')) return json(res, 400, { error: 'invalid', detail: ['messaging_service_sid must be MG + 32 hex'] });
+      let pool; try { pool = await d.smsFor(t).senderPool(msid); } catch (e) { return json(res, 502, { error: 'pool_check_failed', detail: String(e.message).slice(0, 100) }); }
+      if (!pool.includes(t.numbers[0])) return json(res, 409, { error: 'number_not_in_sender_pool' });
+      t.twilio = { ...(t.twilio || {}), messaging_service_sid: msid }; t.sms_enabled = true; d.tenants.save(t);
+      log('tenant.sms', { tenant: t.id, enabled: true });
+      return json(res, 200, { tenant: t.id, sms_enabled: true, email_enabled: !!t.email_enabled, messaging_service_sid: msid });
     }
     if (m[2] === 'kb-bundle') {
       // Admin token only. Uploads the full Second Brain KB export; John approves each upload like a deploy.

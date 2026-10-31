@@ -54,7 +54,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     return new ShopifyAdmin({ shop: t.shopify.admin_shop, clientId, clientSecret, fetchImpl });
   };
   const shopifyFor = (t) => { if (!shopCache.has(t.id)) { const fetchImpl = mode === 'live' ? liveFetch : mocks.mockShopifyFetch(); shopCache.set(t.id, new ShopifyClient({ shop: t.shopify.shop, mode: t.shopify.mode, publicDomain: t.shopify.public_domain, storefrontToken: resolveSecret(t, 'shopify_storefront_token', { env, store: secrets }), admin: adminFor(t, fetchImpl), fetchImpl })); } return shopCache.get(t.id); };
-  const smsFor = (t) => { if (!smsCache.has(t.id)) smsCache.set(t.id, mode === 'live' ? new TwilioRest({ accountSid: t.twilio?.account_sid, authToken: resolveSecret(t, 'twilio_auth_token', { env, store: secrets }), fetchImpl: liveFetch }) : new MockTwilio()); return smsCache.get(t.id); };
+  const smsFor = (t) => { if (!smsCache.has(t.id)) smsCache.set(t.id, mode === 'live' ? new TwilioRest({ accountSid: t.twilio?.account_sid || env.TWILIO_ACCOUNT_SID || env.RFSAFE_TWILIO_ACCOUNT_SID, authToken: resolveSecret(t, 'twilio_auth_token', { env, store: secrets }), fetchImpl: liveFetch }) : new MockTwilio()); return smsCache.get(t.id); };
   const { ResendEmail, MockEmail } = require('./email');
   const mockEmail = new MockEmail();
   const liveEmail = mode === 'live' ? new ResendEmail({ apiKey: env.RESEND_API_KEY, fetchImpl: liveFetch }) : null;

@@ -33,21 +33,28 @@ class Consent {
 // Real transport (used only when TWILIO_LIVE=1 and credentials exist). Tests/demo use MockTwilio.
 class TwilioRest {
   constructor({ accountSid, authToken, fetchImpl = globalThis.fetch }) { this.sid = accountSid; this.tok = authToken; this.fetch = fetchImpl; }
-  async sendSms({ from, to, body, statusCallback }) {
-    const form = new URLSearchParams({ From: from, To: to, Body: body }); if (statusCallback) form.set('StatusCallback', statusCallback);
+  async sendSms({ from, to, body, statusCallback, messagingServiceSid }) {
+    // A2P 10DLC: send through the Messaging Service (registered campaign) when one is set; otherwise From.
+    const form = new URLSearchParams(messagingServiceSid ? { MessagingServiceSid: messagingServiceSid, To: to, Body: body } : { From: from, To: to, Body: body }); if (statusCallback) form.set('StatusCallback', statusCallback);
     const r = await this.fetch(`https://api.twilio.com/2010-04-01/Accounts/${this.sid}/Messages.json`, { method: 'POST', headers: { authorization: 'Basic ' + Buffer.from(this.sid + ':' + this.tok).toString('base64'), 'content-type': 'application/x-www-form-urlencoded' }, body: form });
     const j = await r.json(); if (!r.ok) throw new Error('twilio ' + r.status + ' ' + (j.code || '')); return { sid: j.sid };
+  }
+  // Read-only: E.164 numbers in a Messaging Service's sender pool.
+  async senderPool(messagingServiceSid) {
+    const r = await this.fetch(`https://messaging.twilio.com/v1/Services/${encodeURIComponent(messagingServiceSid)}/PhoneNumbers?PageSize=100`, { headers: { authorization: 'Basic ' + Buffer.from(this.sid + ':' + this.tok).toString('base64') } });
+    const j = await r.json(); if (!r.ok) throw new Error('twilio ' + r.status + ' ' + (j.code || '')); return (j.phone_numbers || []).map((p) => p.phone_number);
   }
 }
 class MockTwilio {
   constructor() { this.sent = []; }
   async sendSms(m) { this.sent.push(m); return { sid: 'SM_mock_' + this.sent.length }; }
+  async senderPool() { return this.pool || []; }
 }
 
 // The one function that sends any SMS to a customer. Gate order: consent -> link guard (caller) -> send.
 async function sendCustomerSms({ tenant, transport, consent, to, body, log }) {
   if (!consent.canText(tenant.id, to)) { log && log('sms.blocked', { tenant: tenant.id, to: fp(to), reason: 'no_consent_or_opted_out' }); return { ok: false, reason: 'no_consent_or_opted_out' }; }
-  const r = await transport.sendSms({ from: tenant.numbers[0], to, body });
+  const r = await transport.sendSms({ from: tenant.numbers[0], to, body, messagingServiceSid: tenant.twilio && tenant.twilio.messaging_service_sid });
   log && log('sms.sent', { tenant: tenant.id, to: fp(to), sid: r.sid, chars: body.length });
   return { ok: true, sid: r.sid };
 }
