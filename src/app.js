@@ -7,7 +7,8 @@ const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTwilio, twiml } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
-const { handleInboundSms } = require('./sms');
+const { handleInboundSms, buildSmsInstructions, SmsMemory } = require('./sms');
+const { knownCallerFor, returningCallerFor } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
 const { DEMO_ADMIN } = require('./readiness');
@@ -24,6 +25,9 @@ function createApp(d) {
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
   const now = () => (d.now ? d.now() : new Date());
+  // Inbound texts: per-sender memory, and one Tools instance per tenant so a multi-text email flow keeps its state.
+  const smsMemory = d.smsMemory || new SmsMemory({ now: () => +now() }); const smsTools = new WeakMap();
+  const smsToolsFor = (t) => { if (!smsTools.has(t)) smsTools.set(t, toolsFor(t)); return smsTools.get(t); };
   const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -117,7 +121,9 @@ function createApp(d) {
     const { params, tenant, ok } = await readTwilio(req);
     if (!ok) { log('twilio.webhook_rejected', { route: 'sms' }); res.writeHead(403); return res.end(); }
     const from = normNumber(params.From);
-    const reply = await handleInboundSms({ tenant, from, body: params.Body, consent: d.consent, toolsFor: (t) => toolsFor(t), brain: d.brain, instructions: buildInstructions(tenant, { afterHours: false }), log, newsletter: d.newsletter });
+    const instructions = buildSmsInstructions(tenant, { known: knownCallerFor(tenant, from), returning: returningCallerFor(tenant, from, d.newsletter) });
+    const archive = d.sentMessages ? (r) => d.sentMessages.add(r) : null;
+    const reply = await handleInboundSms({ tenant, from, body: params.Body, consent: d.consent, toolsFor: smsToolsFor, brain: d.brain, instructions, log, newsletter: d.newsletter, memory: smsMemory, archive, now: () => +now() });
     log('sms.replied', { tenant: tenant.id, from: fp(from), chars: reply.length });
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(reply));
   }
