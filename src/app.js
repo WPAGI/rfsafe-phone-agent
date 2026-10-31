@@ -291,6 +291,8 @@ function createApp(d) {
   }
   // Pre-session CSRF: double-submit cookie. Session CSRF: HMAC bound to the session id.
   function preCsrf(req) { const c = adm.parseCookies(req.headers.cookie).pa_csrf; return c && /^[A-Za-z0-9_-]{20,}$/.test(c) ? { tok: c, set: [] } : (() => { const t = require('crypto').randomBytes(24).toString('base64url'); return { tok: t, set: [`pa_csrf=${t}; ${SC}; Max-Age=3600`] }; })(); }
+  // Never log query strings or token-like values.
+  function redactSecrets(v) { return String(v == null ? '' : v).replace(/([?&#;\s]|^)(t|tok|token|pin|code|secret|key|sig|signature|password)=[^&#\s"']*/gi, '$1$2=[redacted]'); }
   async function adminUi(req, res, u) {
     const auth = d.adminAuth; if (!auth) return json(res, 503, { error: 'admin_unavailable' });
     const cookies = adm.parseCookies(req.headers.cookie);
@@ -304,7 +306,7 @@ function createApp(d) {
       if (!sameOrigin(req) || !cookies.pa_csrf || !f.csrf || !safeEq(f.csrf, cookies.pa_csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Please reload the sign-in page and try again.'));
       const tok = auth.issueLink();
       if (!tok) { log('admin.login_rate_limited', {}); return adminUiSend(res, 429, adm.msgPage('Too many sign-in links', 'Three links were already sent in the last 15 minutes. Use one of those or try again later.')); }
-      const link = (d.publicBaseUrl || '').replace(/\/$/, '') + '/admin/auth?t=' + tok;
+      const link = (d.publicBaseUrl || '').replace(/\/$/, '') + '/admin/auth#t=' + tok;
       const text = `Someone asked to sign in to the CallBots admin dashboard.\n\nSign in (works once, expires in 15 minutes):\n${link}\n\nIf this was not you, ignore this email.`;
       const html = `<p>Someone asked to sign in to the CallBots admin dashboard.</p><p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#0b5;color:#fff;text-decoration:none;border-radius:6px">Open the sign-in page</a></p><p>The link works once and expires in 15 minutes. If this was not you, ignore this email.</p>`;
       let r; try { r = await d.emailFor(null).send({ to: auth.email, subject: 'Your callbots.org admin sign-in link', text, html }); } catch (e) { r = { ok: false, reason: e.message }; }
@@ -313,7 +315,8 @@ function createApp(d) {
       return adminUiSend(res, r && r.ok ? 200 : 502, r && r.ok ? adm.msgPage('Check the admin inbox', 'A sign-in link was sent to the admin email address. It works once and expires in 15 minutes.') : adm.msgPage('Could not send', 'The sign-in email could not be sent. Try again shortly.'));
     }
     if (p === '/admin/auth') {
-      if (req.method === 'GET') { const tok = u.searchParams.get('t') || ''; if (!auth.checkLink(tok)) return adminUiSend(res, 400, adm.msgPage('Link expired or used', 'This sign-in link is invalid, used, or expired. Request a new one.')); const c = preCsrf(req); return adminUiSend(res, 200, adm.authPage(c.tok, tok), {}, c.set); }
+      // Token travels in the URL fragment (#t=), which browsers never send, so it can't land in edge/access logs. A legacy ?t= link is never verified or consumed here.
+      if (req.method === 'GET') { if (u.search) return adminUiSend(res, 400, adm.msgPage('Link expired or used', 'This sign-in link is no longer valid. Request a new one.')); const c = preCsrf(req); const nonce = require('crypto').randomBytes(16).toString('base64'); return adminUiSend(res, 200, adm.authPage(c.tok, nonce), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` }, c.set); }
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
       const f = await form();
       if (!sameOrigin(req) || !cookies.pa_csrf || !f.csrf || !safeEq(f.csrf, cookies.pa_csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Open the link from the email again and press Sign in.'));
@@ -456,7 +459,7 @@ function createApp(d) {
       if (u.pathname.startsWith('/admin/')) return await admin(req, res, u);
       if (u.pathname.startsWith('/connect/')) return await connect(req, res, u);
       return json(res, 404, { error: 'not_found' });
-    } catch (e) { log('http.error', { path: u.pathname, err: e.message }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
+    } catch (e) { log('http.error', { path: u.pathname, err: redactSecrets(e.message) }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
   };
   return { handler, approvals, calls, owner };
 }
