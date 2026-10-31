@@ -21,7 +21,7 @@ const CALL_END_TYPES = new Set(['realtime.call.ended', 'realtime.call.completed'
 function createApp(d) {
   // d: { tenants, secrets, env, consent, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, brain,
   //      notify, log, publicBaseUrl, adminToken, stateSecret, shopifyApp:{clientId,secret}, exchange, now }
-  const owner = createOwner(d, { log: d.log || (() => {}) });
+  const owner = createOwner(d, { log: d.log || (() => {}), tokenSecretFor: (t) => resolveSecret(t, 'xai_webhook_secret', { env: d.env, store: d.secrets }) });
   const log = owner.wrapLog(d.log || (() => {}));
   const notify = d.notify ? owner.wrapNotify(d.notify) : d.notify;
   const verifier = new WebhookVerifier({ now: d.clock });
@@ -79,6 +79,23 @@ function createApp(d) {
       return json(res, 200, { ok: true });
     }
     if (ev.type !== 'realtime.call.incoming') return json(res, 200, { ignored: ev.type });
+    // Outbound owner briefing bridged to Grok: only with a valid one-time token; otherwise normal inbound.
+    const oc = owner.claimGrokCall(tenant, ev.data || {});
+    if (oc && oc.ok) {
+      json(res, 200, { accepted: true });
+      const ws = await d.openRealtime(tenant, callId);
+      const g = owner.grokSession(tenant, oc, toolsFor(tenant, d.callControlFor(tenant)));
+      const session = new CallSession({ ws, tenant, callId, caller: g.caller, tools: g.tools, log, ownerMode: g,
+        onEnd: (summary, transcript) => {
+          calls.delete(callId);
+          const tr = owner.redactPins(transcript);
+          try { appendJsonl(d.callLog, { at: new Date().toISOString(), from: fp(g.caller), ...summary }); } catch (e) { log('call.log_error', { err: e.message }); }
+          try { if (d.callRecords) d.callRecords.add({ ...adm.callRecord(summary, g.caller, new Date().toISOString(), tr), direction: 'outbound_owner' }); } catch (e) { log('call.record_error', { err: e.message }); }
+        } });
+      calls.set(callId, session);
+      log('call.started', { tenant: tenant.id, call: callId, from: fp(g.caller), owner_briefing: true });
+      return;
+    }
     const caller = callerIdFromSip(ev.data); // null when blocked/anonymous
     if (caller) d.consent.record(tenant.id, caller, 'inbound'); // calling first = opt-in to replies with requested links
     json(res, 200, { accepted: true });

@@ -98,7 +98,9 @@ The briefing gives counts and topics only: calls, incoming texts, texts and emai
 | error_threshold / error_window_minutes | 5 / 15 | |
 | on_demand / transfer_fallback | true / true | |
 | transfer_bridge_uri | unset | tel:+E164 or sip: |
-| voice | "Polly.Joanna" | Twilio `<Say>` voice for owner calls |
+| voice | "grok" | "grok" bridges answered owner calls into Grok Voice; "twilio" uses Twilio text-to-speech. A Twilio voice name here (old setting) also means "twilio". |
+| twilio_voice | "Polly.Joanna" | `<Say>` voice for the voicemail line, the Twilio mode and the Grok fallback |
+| grok_sip_domain | "sip.voice.x.ai" | xAI SIP host for the Grok bridge |
 
 PIN: `POST /admin/tenants/rfsafe/owner-pin {"pin":"<4-8 digits>"}` (admin token). It is stored as a scrypt hash in `DATA_DIR/owner-pins.json` (0600), never in the tenant file or the config output. `DELETE` clears it.
 Status and preview: `GET /admin/tenants/rfsafe/owner-briefing`. Test call: `POST .../owner-briefing {"action":"call_now"}`, which dials owner numbers only and needs both the flag and a PIN.
@@ -108,6 +110,17 @@ Status and preview: `GET /admin/tenants/rfsafe/owner-briefing`. Test call: `POST
 - `PUBLIC_BASE_URL` must be the public https URL, because Twilio posts to `/twilio/owner/answer|pin|status` and each request is signature-checked against that tenant's auth token.
 - Copies by text go through the tenant's A2P Messaging Service (Customer Care campaign). They are internal notices to the owners' own numbers. Leave `copy_sms` off if that is not acceptable for the campaign.
 - Transfer bridge (optional): point a Twilio SIP domain or spare number's voice URL at `POST /twilio/owner/transfer?t=rfsafe`, then set `transfer_bridge_uri` to it. Twilio dials `transfer_target` for 20 seconds, and if nobody answers it records a message and alerts the owners. Without the bridge, only an outright failed REFER is caught, because the xAI REFER API does not report whether the person answered.
+
+### Grok Voice owner calls (`voice: "grok"`, the default)
+How it works: Twilio places the outbound call with answering-machine detection. **Voicemail** gets only the generic "please call the main line back" `<Say>`, with no Grok session. **A person** gets `<Dial answerOnBridge><Sip>sip:+17276775572@sip.voice.x.ai;transport=tls;rfs_owner_token=…?X-RFSafe-Owner-Token=…</Sip></Dial>`. The token is HMAC-SHA256 signed with a key derived from the tenant's xAI webhook secret (no new secret), valid 120 seconds, and single-use. xAI then sends the usual signed `realtime.call.incoming` webhook. If the webhook carries a valid token for an owner number, the bot opens an owner-briefing session: Grok greets the owner by name, asks for the PIN (same PIN store and lockout), reads the briefing, and answers follow-ups from the `owner_briefing` tool. The only other tool is `end_call`, and the session is capped at 10 minutes. A missing, forged, expired, replayed or wrong-number token is logged as `owner.grok_token_rejected`, and the call is handled as a normal inbound call. If the SIP leg fails or is refused, `/twilio/owner/grok-result` falls back to the Twilio PIN prompt on the same call.
+
+Setup to check before go-live (unconfirmed until a live test):
+- **xAI:** the number +17276775572 must accept SIP INVITEs from Twilio's SIP signaling IPs. If the xAI phone-number config has an `allowed_addresses` / source-IP allowlist, add Twilio's outbound SIP ranges for the region (see Twilio's "IP addresses for SIP" doc). Otherwise the INVITE is rejected and the call falls back to Twilio TTS.
+- **xAI header passthrough:** confirm that xAI includes custom `X-` headers in `data.sip_headers`. If it drops them, the token in the Request-URI (`rfs_owner_token=`) is read from the `To` header instead. If neither arrives, every Grok bridge is treated as an inbound call to the main line. That is safe, but the briefing will not start: switch to `voice: "twilio"` until it is fixed.
+- **Twilio:** `<Dial><Sip>` to an external SIP URI needs no SIP domain, but the account must allow SIP calls (Voice geo permissions for the US) and TLS transport. Each bridged call is billed as an outbound call plus a SIP leg.
+- **Token replay protection** is in memory, so a restart inside the 120-second window could allow one replay. The briefing is still PIN-gated.
+
+Live test (after deploy and approval): set the PIN, set `{"owner_briefing":{"enabled":true}}`, then `POST .../owner-briefing {"action":"call_now","to":"<owner number>"}`. Check: (1) the call answers in Grok's voice and asks for the PIN, (2) a wrong PIN shares nothing, (3) the right PIN reads the briefing and a follow-up like "how many texts?" is answered, (4) `owner-audit.jsonl` shows `grok_bridge`, `grok_session`, `pin_ok` and `briefing_read`, (5) letting it go to voicemail leaves only the generic line, (6) if the logs show `grok_token_rejected` or `grok_bridge_failed`, check the xAI and Twilio items above.
 
 ### Enable
 1. Deploy (John approves). The scheduler starts but stays idle.

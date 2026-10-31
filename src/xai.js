@@ -151,9 +151,20 @@ function returningCallerFor(tenant, caller, newsletter) {
 
 // Bridges one call: ws is any object with send(string), and on('message'|'close'). Tests inject a mock.
 class CallSession {
-  constructor({ ws, tenant, callId, caller, tools, afterHours, log, onEnd, maxSeconds, newsletter }) {
+  constructor({ ws, tenant, callId, caller, tools, afterHours, log, onEnd, maxSeconds, newsletter, ownerMode = null }) {
     Object.assign(this, { ws, tenant, callId, caller, tools, log, onEnd }); this.channel = 'voice';
     this.transcript = []; this.events = []; this.pending = []; this.started = Date.now(); this.closed = false;
+    if (ownerMode) {
+      // Outbound owner briefing bridged to Grok: own instructions, greeting and tool list; no customer flow.
+      this.ownerMode = true;
+      this.ws.send(JSON.stringify({ type: 'session.update', session: { voice: tenant.voice, instructions: ownerMode.instructions, turn_detection: { type: 'server_vad' }, audio: { input: { transcription: { keyterms: tenant.keyterms || [] } } }, tools: tools.definitions() } }));
+      this.ws.send(JSON.stringify(forceMessage(ownerMode.greeting)));
+      this.ws.send(JSON.stringify({ type: 'response.create' }));
+      this.timer = setTimeout(() => this.tools.ctxCall(this).run('end_call', { reason: 'max_call_length' }), Math.min(maxSeconds || tenant.max_call_seconds, 600) * 1000); this.timer.unref?.();
+      ws.on('message', (m) => this.onMessage(m).catch((e) => log('call.error', { call: callId, err: e.message })));
+      ws.on('close', () => this.finish());
+      return;
+    }
     const known = knownCallerFor(tenant, caller);
     // Subscriber lookup runs for every caller with valid caller ID, including known callers and owners.
     this.returning = returningCallerFor(tenant, caller, newsletter);
@@ -188,7 +199,7 @@ class CallSession {
   }
   finish() {
     if (this.closed) return; this.closed = true; clearTimeout(this.timer);
-    const summary = { call: this.callId, tenant: this.tenant.id, started_at: new Date(this.started).toISOString(), seconds: Math.round((Date.now() - this.started) / 1000), tools: this.events, turns: this.transcript.length, ...(this.returning ? { returning_caller: true } : {}) };
+    const summary = { call: this.callId, tenant: this.tenant.id, started_at: new Date(this.started).toISOString(), seconds: Math.round((Date.now() - this.started) / 1000), tools: this.events, turns: this.transcript.length, ...(this.ownerMode ? { direction: 'outbound_owner_grok' } : {}), ...(this.returning ? { returning_caller: true } : {}) };
     this.log('call.ended', summary); this.onEnd && this.onEnd(summary, this.transcript);
   }
 }
