@@ -24,7 +24,7 @@ function createApp(d) {
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
   const now = () => (d.now ? d.now() : new Date());
-  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
+  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
@@ -313,7 +313,7 @@ function createApp(d) {
       logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: true }); return back();
     }
     // Data views: session cookie, or Bearer admin token for scripts.
-    if (!sess && !isAdmin(req)) return p === '/admin' && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+    if (!sess && !isAdmin(req)) return (p === '/admin' || p === '/admin/messages') && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
     const q = { from: /^\d{4}-\d{2}-\d{2}$/.test(u.searchParams.get('from') || '') ? u.searchParams.get('from') : '', to: /^\d{4}-\d{2}-\d{2}$/.test(u.searchParams.get('to') || '') ? u.searchParams.get('to') : '', number: (u.searchParams.get('number') || '').replace(/[^\d+]/g, '').slice(0, 16) };
     const nlRows = d.newsletterFile ? adm.newsletterRows(d.newsletterFile) : [];
@@ -321,11 +321,19 @@ function createApp(d) {
     const csv = (name, body) => { res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${name}"`, ...SEC_HEADERS }); res.end(body); };
     if (p === '/admin/newsletter.csv') return csv('newsletter.csv', adm.toCsv(adm.NL_COLS, nlRows));
     if (p === '/admin/kb-gaps.csv') return csv('kb-gaps.csv', adm.toCsv(['at', 'tenant', 'channel', 'reason', 'question'], readGaps(d.kbGapFile)));
+    if (p === '/admin/messages' || p === '/admin/messages.csv') {
+      const M = require('./messages'); const type = u.searchParams.get('type') === 'email' ? 'email' : 'sms';
+      const sm = d.sentMessages; const rows = sm ? sm.list(type) : [];
+      if (p === '/admin/messages.csv') return csv(type === 'email' ? 'sent-emails.csv' : 'sent-texts.csv', adm.toCsv(M.MSG_COLS, M.csvRows(rows)));
+      const id = (u.searchParams.get('id') || '').slice(0, 80);
+      if (id) { const r = rows.find((x) => x.id === id); return r ? adminUiSend(res, 200, M.detailPage({ shell: adm.shell, r })) : adminUiSend(res, 404, adm.shell('Not found', '<h1>Message not found</h1><p><a href="/admin/messages?type=' + type + '">Back</a></p>')); }
+      return adminUiSend(res, 200, M.listPage({ shell: adm.shell, channel: type, rows, page: parseInt(u.searchParams.get('page') || '1', 10) || 1 }));
+    }
     if (p === '/admin/calls.csv') return csv('calls.csv', adm.toCsv(adm.CALL_COLS, adm.callCsvRows(calls)));
     const nowMs = now().getTime ? now().getTime() : Date.now();
     return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }));
   }
-  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels']);
+  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv']);
 
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
