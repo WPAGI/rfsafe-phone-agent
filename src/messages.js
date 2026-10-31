@@ -25,6 +25,7 @@ class SentMessages {
       links: r.links || extractLinks(r.text, r.html), provider_id: r.provider_id || null,
       status: r.status || (r.error ? 'failed' : 'sent'), error: r.error ? String(r.error).slice(0, 200) : null,
       caller_fp: r.caller ? fp(r.caller) : null,
+      ...(r.inbound != null ? { inbound: cap(r.inbound) } : {}),
     };
     try { appendJsonl(this.file, rec); } catch { return null; }
     if (this.now() - this.lastPrune > 86400000) { try { this.prune(); } catch { /* ignore */ } }
@@ -89,7 +90,7 @@ function detailPage({ shell, r }) {
 <table>${kv('Time (ET)', esc(etTime(r.at)))}${kv('Time (UTC)', esc(r.at))}${kv('Status', statusCell(r))}${kv('Recipient', esc(r.to || ''))}${ch === 'email' ? kv('Subject', esc(r.subject || '')) : ''}${kv('Line', esc(r.tenant || ''))}${kv('Call id', esc(r.call || ''))}${kv('Caller fingerprint', esc(r.caller_fp || ''))}${kv('Provider message id', esc(r.provider_id || ''))}</table>
 <h2>Links (${(r.links || []).length})</h2>${links ? `<ul>${links}</ul>` : '<p>None.</p>'}${body}`);
 }
-const MSG_COLS = ['at', 'at_et', 'channel', 'status', 'error', 'tenant', 'call', 'to', 'subject', 'text', 'html', 'links', 'provider_id', 'caller_fp', 'legacy'];
+const MSG_COLS = ['at', 'at_et', 'channel', 'status', 'error', 'tenant', 'call', 'to', 'subject', 'text', 'html', 'links', 'provider_id', 'caller_fp', 'legacy', 'inbound'];
 const csvRows = (rows) => rows.map((r) => ({ ...r, at_et: etTime(r.at), links: (r.links || []).join(' '), legacy: r.legacy ? 'yes' : '' }));
 
 module.exports = { SentMessages, extractLinks, listPage, detailPage, etTime, MSG_COLS, csvRows, MSG_RETENTION_DAYS, PAGE_SIZE };

@@ -160,7 +160,7 @@ class Tools {
   emailLog(ev) { if (this.d.emailLogFile) { try { appendJsonl(this.d.emailLogFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
   setEmailAddress(args, ctx) {
     const t = this.tenant; const log = this.d.log || (() => {});
-    if (ctx.channel !== 'voice' || !ctx.callId) return { ok: false, error: 'voice_only' };
+    if (!['voice', 'sms'].includes(ctx.channel) || !ctx.callId) return { ok: false, error: 'voice_only' };
     if (args.caller_said_yes !== true) return { ok: false, error: 'need_confirmation', say: 'Spell the address back letter by letter and ask "Is that right?" Call again only after they say yes.' };
     let onFile = false; let email = String(args.email || '').trim().toLowerCase();
     if (args.email_on_file === true) {
@@ -182,7 +182,7 @@ class Tools {
   }
   async sendEmail(args, ctx) {
     const t = this.tenant; const log = this.d.log || (() => {});
-    if (ctx.channel !== 'voice' || !ctx.callId) return { ok: false, error: 'voice_only' };
+    if (!['voice', 'sms'].includes(ctx.channel) || !ctx.callId) return { ok: false, error: 'voice_only' };
     const key = t.id + '|' + ctx.callId; const to = (this._emailTo || new Map()).get(key);
     if (!to) return { ok: false, error: 'confirm_email_first', say: 'Ask for their email address, spell it back, and call set_email_address after they say yes.' };
     const sig = require('crypto').createHash('sha256').update(JSON.stringify([String(args.summary || '').trim(), [].concat(args.urls ?? args.url ?? []).map(String).sort()])).digest('hex');
