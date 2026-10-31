@@ -176,7 +176,8 @@ class Tools {
     log('email.address_confirmed', { tenant: t.id, call: ctx.callId, to: masked, from: fp(ctx.caller) });
     this.emailLog({ kind: onFile ? 'consent_verbal_call_on_file' : 'consent_verbal_call', tenant: t.id, call: ctx.callId, to_masked: masked, to_fp: fp(email), caller_fp: ctx.caller ? fp(ctx.caller) : null });
     let sub = false; try { sub = !!(this.d.newsletter && this.d.newsletter.isSubscriber(t.id, email)); } catch { sub = false; }
-    if (onFile) return { ok: true, confirmed: true, email_on_file: true, already_subscriber: sub, say: 'Using their email on file. Never say or spell the address or the part before the @; call it only "your email on file".' + (sub ? ' They are already a confirmed RF Safe newsletter subscriber: do NOT ask about the newsletter.' : '') };
+    let fn = null; if (onFile) { try { const rc = this.d.newsletter.returningCaller(t.id, ctx.caller); fn = rc && rc.firstName; } catch { fn = null; } if (fn) (this._onFileName ||= new Map()).set(t.id + '|' + ctx.callId, fn); }
+    if (onFile) return { ok: true, confirmed: true, email_on_file: true, already_subscriber: sub, ...(fn ? { sender_name: fn } : {}), say: (fn ? `Address the email to ${fn} (pass recipient_name ${fn}); do not ask for their name. ` : '') + 'Using their email on file. Never say or spell the address or the part before the @; call it only "your email on file".' + (sub ? ' They are already a confirmed RF Safe newsletter subscriber: do NOT ask about the newsletter.' : '') };
     return sub ? { ok: true, confirmed: true, email_masked: masked, already_subscriber: true, say: 'This caller is already a confirmed RF Safe newsletter subscriber. Do NOT ask about the newsletter. Say something warm like "Great, I\'ll make sure that gets to you." You may thank them once for being an RF Safe subscriber. Do not mention any list lookup.' } : { ok: true, confirmed: true, email_masked: masked, already_subscriber: false };
   }
   async sendEmail(args, ctx) {
@@ -194,7 +195,7 @@ class Tools {
     const note = String(args.note || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/\s+/g, ' ').trim().slice(0, 140);
     const summary = cleanSummary(args.summary, t.link_allowlist);
     if (summary && looksLikeCard(summary)) return { ok: false, error: 'blocked_content', say: 'I cannot email that. I can send just the links instead.' };
-    const name = cleanName(args.recipient_name);
+    const name = cleanName(args.recipient_name) || (this._onFileName || new Map()).get(key) || '';
     let isSub = false; try { isSub = !!(this.d.newsletter && this.d.newsletter.isSubscriber(t.id, to)); } catch { isSub = false; }
     const nl = isSub ? { subscriber: true, unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : args.newsletter_optin === true && this.d.newsletter ? { confirmUrl: this.d.newsletter.confirmUrl({ email: to, name, tenant: t.id }), unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : null;
     if (nl && ctx.caller && this.d.newsletter && !(isSub && this.d.newsletter.emailOnFile && this.d.newsletter.emailOnFile(t.id, ctx.caller) === to)) { try { this.d.newsletter.linkPhone({ tenant: t.id, email: to, phone: ctx.caller, call: ctx.callId }); } catch { /* ignore */ } }

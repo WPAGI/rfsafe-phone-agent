@@ -47,7 +47,7 @@ test('email on file: model sees only the domain, never the address', () => {
 test('email_on_file resolves server-side and sends to the stored address; results never reveal it', async () => {
   const m = mk();
   const a = await m.tools.run('set_email_address', { email_on_file: true, caller_said_yes: true }, voice());
-  assert.strictEqual(a.ok, true); assert.strictEqual(a.email_on_file, true); assert.doesNotMatch(JSON.stringify(a), /john|quantax/i);
+  assert.strictEqual(a.ok, true); assert.strictEqual(a.email_on_file, true); assert.strictEqual(a.sender_name, 'John'); assert.doesNotMatch(JSON.stringify(a), /john@|quantax/i);
   const r = await m.tools.run('send_email', { urls: ['https://rfsafe.org/a'] }, voice());
   assert.strictEqual(r.ok, true); assert.doesNotMatch(JSON.stringify(r), /john|quantax/i);
   assert.strictEqual(m.mail.sent[m.mail.sent.length - 1].to, 'john@quantaxtechnology.com');
