@@ -169,6 +169,7 @@ class CallSession {
     // Subscriber lookup runs for every caller with valid caller ID, including known callers and owners.
     this.returning = returningCallerFor(tenant, caller, newsletter);
     const returning = this.returning;
+    this.knownTransfer = !!(known && known.isTransferTarget);
     const defs = tools.definitions().filter((d) => !(known && known.isTransferTarget && d.name === 'transfer_to_human'));
     this.ws.send(JSON.stringify(sessionUpdate(tenant, defs, { afterHours, callerLast4: last4(caller), known, returning })));
     this.ws.send(JSON.stringify(forceMessage(known ? (returning && returning.firstName ? `Hi ${returning.firstName}, how can I help you?` : known.greeting || `Hi ${known.name}, how can I help you?`) : returning ? welcomeBack(returning) : tenant.disclosure.replace('{name}', tenant.name))));
@@ -188,6 +189,8 @@ class CallSession {
       this.pending.push((async () => {
         const out = await this.tools.ctxCall(this).run(ev.name, args);
         this.events.push(toolDetail(ev.name, args, out));
+        // Owner sessions: tools unlocked by a verified PIN are sent to Grok only after verification.
+        if (out && Array.isArray(out.tools_now_available) && !this.closed) this.ws.send(JSON.stringify({ type: 'session.update', session: { tools: this.tools.definitions().filter((d) => !(this.knownTransfer && d.name === 'transfer_to_human')) } }));
         this.ws.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: ev.call_id, output: JSON.stringify(out) } }));
       })());
     }
