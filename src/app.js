@@ -117,7 +117,7 @@ function createApp(d) {
     const { params, tenant, ok } = await readTwilio(req);
     if (!ok) { log('twilio.webhook_rejected', { route: 'sms' }); res.writeHead(403); return res.end(); }
     const from = normNumber(params.From);
-    const reply = await handleInboundSms({ tenant, from, body: params.Body, consent: d.consent, toolsFor: (t) => toolsFor(t), brain: d.brain, instructions: buildInstructions(tenant, { afterHours: false }), log });
+    const reply = await handleInboundSms({ tenant, from, body: params.Body, consent: d.consent, toolsFor: (t) => toolsFor(t), brain: d.brain, instructions: buildInstructions(tenant, { afterHours: false }), log, newsletter: d.newsletter });
     log('sms.replied', { tenant: tenant.id, from: fp(from), chars: reply.length });
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(reply));
   }

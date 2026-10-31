@@ -77,14 +77,14 @@ test('sign-in flow: session cookie, dashboard, CSVs, logout', async () => {
     const ck = 'pa_admin=' + sess;
     const dash = await (await fetch(a.base + '/admin', { headers: { cookie: ck } })).text();
     assert.match(dash, /Newsletter/); assert.match(dash, /jo@example.com/); assert.match(dash, /\+17275551234/); assert.match(dash, /j\*\*\*@e\*\*\*.com: FCC limits/);
-    assert.match(dash, /<b>1<\/b>confirmed \(active\)/); assert.match(dash, /<b>1<\/b>unsubscribed/); assert.match(dash, /<b>1<\/b>new, last 7 days/);
+    assert.match(dash, /<b>1<\/b>email confirmed \(active\)/); assert.match(dash, /<b>1<\/b>email unsubscribed/); assert.match(dash, /<b>1<\/b>new, last 7 days/);
     const filtered = await (await fetch(a.base + '/admin?number=8135550000', { headers: { cookie: ck } })).text();
     assert.doesNotMatch(filtered, /7275551234/); assert.match(filtered, /8135550000/);
     const byDate = await (await fetch(a.base + '/admin/calls.csv?from=2026-10-25', { headers: { cookie: ck } })).text();
     assert.match(byDate, /^at,ended_at,tenant,caller,seconds,summary,kb_queries,tools,emails,texts,newsletter_optin/); assert.match(byDate, /\+17275551234/); assert.doesNotMatch(byDate, /8135550000/);
     const nl = await fetch(a.base + '/admin/newsletter.csv', { headers: { cookie: ck } }); const body = await nl.text();
     assert.match(nl.headers.get('content-type'), /text\/csv/);
-    assert.strictEqual(body.split('\r\n')[0], 'name,email,tenant,confirmed_at,source,consent_method,confirm_ip,user_agent,unsubscribed_at');
+    assert.strictEqual(body.split('\r\n')[0], 'name,email,tenant,confirmed_at,source,consent_method,confirm_ip,user_agent,unsubscribed_at,phone,email_optin,sms_optin,sms_requested_at,sms_call,sms_consent_wording,sms_confirmed_at,sms_confirm_reply,sms_stopped_at');
     assert.match(body, /Jo,jo@example.com,rfsafe,2026-10-28T10:00:00.000Z,phone,phone verbal yes \+ email double opt-in click,203.0.113.9,UA1,/);
     assert.match(body, /'=Al,al@example.com.*2026-10-01T10:00:00.000Z/); // formula-injection guard
     // bearer still works for API/CSV
