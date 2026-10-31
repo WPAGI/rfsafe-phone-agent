@@ -54,7 +54,15 @@ class Newsletter {
     if (!linked.length && !this.isSmsSubscriber(tenant, phone)) return null;
     const named = linked.reverse().find((s) => cleanName(s.name));
     const first = named ? cleanName(named.name).split(' ')[0] : '';
-    return { firstName: first || null };
+    const onFile = this.emailOnFile(tenant, phone); const domain = onFile ? onFile.split('@')[1] : null;
+    return { firstName: first || null, emailDomain: domain, emailDomainSpoken: domain ? spokenDomain(domain) : null };
+  }
+  // Server-side only: the confirmed newsletter email linked to this caller-ID number (most recent link). Never give this to the model.
+  emailOnFile(tenant, phone) {
+    if (typeof phone !== 'string' || !/^\+[1-9]\d{7,14}$/.test(phone)) return null;
+    const subs = new Set(this.subscribers().filter((s) => s.tenant === tenant).map((s) => String(s.email || '').toLowerCase()));
+    const links = this.events().filter((r) => r.kind === 'link' && r.tenant === tenant && r.phone === phone).map((r) => String(r.email || '').toLowerCase()).filter((e) => subs.has(e));
+    return links.length ? links[links.length - 1] : null;
   }
   isSmsSubscriber(tenant, phone) { return !!phone && this.smsState(tenant, phone).status === 'subscribed'; }
   requestSms({ tenant, phone, call, email, wording }) { this.append({ kind: 'sms_pending', tenant, phone, call: call || null, email: email || null, wording, source: 'phone' }); }
@@ -77,6 +85,13 @@ class Newsletter {
     return [...m.values()].map(({ email, name, tenant, at, source }) => ({ email, name, tenant, confirmed_at: at, source }));
   }
 }
+// Domain part only, said naturally: "quantaxtechnology.com" -> "Quanta X Technology", "gmail.com" -> "Gmail".
+const DOMAIN_NAMES = { 'gmail.com': 'Gmail', 'googlemail.com': 'Gmail', 'yahoo.com': 'Yahoo', 'outlook.com': 'Outlook', 'hotmail.com': 'Hotmail', 'live.com': 'Live', 'msn.com': 'MSN', 'icloud.com': 'iCloud', 'me.com': 'iCloud', 'mac.com': 'iCloud', 'aol.com': 'AOL', 'proton.me': 'Proton', 'protonmail.com': 'Proton', 'comcast.net': 'Comcast', 'att.net': 'AT&T', 'verizon.net': 'Verizon', 'quantaxtechnology.com': 'Quanta X Technology', 'rfsafe.org': 'RF Safe', 'quantacase.com': 'QuantaCase' };
+function spokenDomain(domain) {
+  const d = String(domain || '').toLowerCase().replace(/[^a-z0-9.-]/g, '');
+  if (!d) return null;
+  return DOMAIN_NAMES[d] || d.replace(/\./g, ' dot ');
+}
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function page(title, body) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><style>body{font-family:system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 20px;color:#222}button{font-size:16px;padding:12px 20px;border:0;border-radius:6px;background:#0b5;color:#fff;cursor:pointer}small{color:#777}</style></head><body><h1>${esc(title)}</h1>${body}<p><small>RF Safe is a trademark of Quanta X Technology LLC. <a href="/privacy#newsletter">Privacy</a></small></p></body></html>`;
@@ -87,4 +102,4 @@ const NEWS_SMS_CADENCE = 'About once a month, plus breaking news.';
 const newsSmsInvite = (brand) => `Want ${brand} news by text? ${NEWS_SMS_CADENCE} Reply YES to join (${NEWS_SMS_FREQ}). Consent not required to buy. Msg & data rates may apply. Reply HELP for help, STOP to opt out.`;
 const newsSmsConfirmed = (brand) => `${brand} News: you're subscribed to RF Safe news texts. ${NEWS_SMS_CADENCE} Up to 4 msgs/mo. Msg & data rates may apply. Reply HELP for help, STOP to cancel.`;
 const NEWS_SMS_SPOKEN = 'Would you also like RF Safe news by text, about once a month plus breaking news, up to 4 messages a month? I will add a line to the text, and you are signed up only if you reply YES. Message and data rates may apply, and you can reply STOP anytime.';
-module.exports = { NEWS_SMS_FREQ, NEWS_SMS_CADENCE, newsSmsInvite, newsSmsConfirmed, NEWS_SMS_SPOKEN, Newsletter, deriveSecret, cleanName, page, formPage, TTL_MS, NAME_MAX };
+module.exports = { spokenDomain, NEWS_SMS_FREQ, NEWS_SMS_CADENCE, newsSmsInvite, newsSmsConfirmed, NEWS_SMS_SPOKEN, Newsletter, deriveSecret, cleanName, page, formPage, TTL_MS, NAME_MAX };
