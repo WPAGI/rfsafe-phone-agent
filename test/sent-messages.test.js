@@ -81,9 +81,9 @@ test('admin pages: session required, list/detail escaped, pagination, CSV, dashb
     const post = (p, f, c) => fetch(a.base + p, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: c }, body: new URLSearchParams(f).toString() });
     const g0 = await fetch(a.base + '/admin/login'); const c0 = cookieOf(g0, 'pa_csrf');
     await post('/admin/login', { csrf: csrfIn(await g0.text()) }, 'pa_csrf=' + c0);
-    const sent = a.deps.emailFor(null).sent; const link = sent[sent.length - 1].text.match(/https?:\/\/\S+\/admin\/auth\?t=\S+/)[0];
+    const sent = a.deps.emailFor(null).sent; const link = sent[sent.length - 1].text.match(/https?:\/\/\S+\/admin\/auth#t=\S+/)[0];
     const g = await fetch(link.replace(/^https?:\/\/[^/]+/, a.base)); const c = cookieOf(g, 'pa_csrf');
-    const p = await post('/admin/auth', { csrf: csrfIn(await g.text()), t: new URL(link).searchParams.get('t') }, 'pa_csrf=' + c);
+    const p = await post('/admin/auth', { csrf: csrfIn(await g.text()), t: new URL(link).hash.slice(3) }, 'pa_csrf=' + c);
     const H = { cookie: 'pa_admin=' + cookieOf(p, 'pa_admin') };
     const dash = await (await fetch(a.base + '/admin', { headers: H })).text();
     assert.match(dash, /href="\/admin\/messages\?type=sms">Review texts/); assert.match(dash, /href="\/admin\/messages\?type=email">Review emails/);

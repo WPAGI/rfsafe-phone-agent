@@ -11,9 +11,9 @@ const post = (base, path, form, cookie, extra = {}) => fetch(base + path, { meth
 async function signIn(a) {
   const g0 = await fetch(a.base + '/admin/login'); const c0 = cookieOf(g0, 'pa_csrf');
   await post(a.base, '/admin/login', { csrf: csrfIn(await g0.text()) }, 'pa_csrf=' + c0);
-  const sent = a.deps.emailFor(null).sent; const link = sent[sent.length - 1].text.match(/https?:\/\/\S+\/admin\/auth\?t=\S+/)[0];
+  const sent = a.deps.emailFor(null).sent; const link = sent[sent.length - 1].text.match(/https?:\/\/\S+\/admin\/auth#t=\S+/)[0];
   const g = await fetch(link.replace(/^https?:\/\/[^/]+/, a.base)); const c = cookieOf(g, 'pa_csrf');
-  const p = await post(a.base, '/admin/auth', { csrf: csrfIn(await g.text()), t: new URL(link).searchParams.get('t') }, 'pa_csrf=' + c);
+  const p = await post(a.base, '/admin/auth', { csrf: csrfIn(await g.text()), t: new URL(link).hash.slice(3) }, 'pa_csrf=' + c);
   const sess = 'pa_admin=' + cookieOf(p, 'pa_admin');
   const dash = await (await fetch(a.base + '/admin', { headers: { cookie: sess } })).text();
   return { sess, csrf: csrfIn(dash) };

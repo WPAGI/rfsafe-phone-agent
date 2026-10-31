@@ -17,9 +17,9 @@ async function requestLink(a, extraForm = {}) {
 }
 async function signIn(a) {
   const { r } = await requestLink(a); assert.strictEqual(r.status, 200);
-  const sent = a.deps.emailFor(null).sent; const link = sent[sent.length - 1].text.match(/https?:\/\/\S+\/admin\/auth\?t=\S+/)[0];
+  const sent = a.deps.emailFor(null).sent; const link = sent[sent.length - 1].text.match(/https?:\/\/\S+\/admin\/auth#t=\S+/)[0];
   const g = await fetch(link.replace(/^https?:\/\/[^/]+/, a.base)); const html = await g.text(); const c = cookieOf(g, 'pa_csrf');
-  const tok = new URL(link).searchParams.get('t');
+  const tok = new URL(link).hash.slice(3);
   const p = await post(a.base, '/admin/auth', { csrf: csrfIn(html), t: tok }, 'pa_csrf=' + c);
   return { p, tok, sess: cookieOf(p, 'pa_admin'), csrf: c };
 }
