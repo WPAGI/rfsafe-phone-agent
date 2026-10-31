@@ -103,7 +103,14 @@ function sentPage(csrf, nonce, email) {
 <script nonce="${esc(nonce)}">(function(){var end=Date.now()+900000,rend=Date.now()+60000,ttl=document.getElementById('ttl'),b=document.getElementById('resend'),rs=document.getElementById('rs');function p(n){return n<10?'0'+n:''+n}function tick(){var l=Math.max(0,Math.round((end-Date.now())/1000));ttl.textContent=l?Math.floor(l/60)+':'+p(l%60):'expired';var r=Math.max(0,Math.ceil((rend-Date.now())/1000));if(r){rs.textContent=r}else{b.disabled=false;b.textContent='Resend link'}if(l)setTimeout(tick,1000)}tick()})();</script>`);
 }
 function msgPage(title, text) { return shell(title, `<h1>${esc(title)}</h1><p>${esc(text)}</p><p><a href="/admin/login">Back to sign-in</a></p>`); }
-function dashboard({ csrf, nl, calls, q, now }) {
+function channelsSection(csrf, tenants = [], log = [], err = '') {
+  const tog = (t, ch, label, on) => `<form method="post" action="/admin/channels" style="display:inline-block;margin:0 18px 8px 0">${hidden(csrf)}<input type="hidden" name="tenant" value="${esc(t.id)}"><input type="hidden" name="channel" value="${ch}"><input type="hidden" name="enabled" value="${on ? 'off' : 'on'}">${esc(label)}: <strong data-ch="${ch}">${on ? 'ON' : 'OFF'}</strong> <button type="submit" style="${on ? 'background:#888' : ''}">Turn ${esc(label.toLowerCase())} ${on ? 'off' : 'on'}</button></form>`;
+  const rows = tenants.map((t) => `<div><p><b>${esc(t.name || t.id)}</b> <small>${esc((t.numbers || [])[0] || '')}</small></p>${tog(t, 'sms', 'Texting', !!t.sms_enabled)}${tog(t, 'email', 'Email', !!t.email_enabled)}${!t.sms_enabled && !t.email_enabled ? '<p role="alert" style="color:#b00"><strong>Warning:</strong> texting and email are both off, so callers cannot receive links.</p>' : ''}</div>`).join('');
+  const logRows = log.slice().reverse().slice(0, 50).map((e) => `<tr><td>${esc(e.at)}</td><td>${esc(e.tenant)}</td><td>${e.channel === 'sms' ? 'Texting' : 'Email'}</td><td>${e.enabled ? 'on' : 'off'}</td><td>${e.ok ? 'done' : esc('failed: ' + (e.error || ''))}</td></tr>`).join('');
+  return `<h2>Texting and email</h2>${err ? `<p role="alert" style="color:#b00;background:#fff0f0;padding:8px"><strong>Could not change setting:</strong> ${esc(err)}</p>` : ''}${rows || '<p>No lines configured.</p>'}<p><small>Texts only ever go to the number the caller is calling from.</small></p>
+<table><tr><th>Changed (UTC)</th><th>Line</th><th>Setting</th><th>To</th><th>Result</th></tr>${logRows || '<tr><td colspan="5">No changes yet.</td></tr>'}</table>`;
+}
+function dashboard({ csrf, nl, calls, q, now, tenants, channelLog, err }) {
   const t = now; const d7 = t - 7 * 86400000; const d30 = t - 30 * 86400000;
   const active = nl.filter((r) => !r.unsubscribed_at);
   const k = (label, n) => `<span class="k"><b>${n}</b>${esc(label)}</span>`;
@@ -112,6 +119,7 @@ function dashboard({ csrf, nl, calls, q, now }) {
   const callRows = calls.slice(0, 500).map((r) => `<tr><td>${esc(r.at)}</td><td>${esc(r.caller || 'withheld')}</td><td>${r.seconds != null ? esc(r.seconds) + 's' : ''}</td><td>${esc(r.summary || '')}</td><td>${esc((r.tools || []).join(', '))}</td><td>${(r.emails || []).map((e) => esc(`${e.to_masked || '?'}: ${e.topic || 'links'}${e.ok ? '' : ' (failed)'}`)).join('<br>')}</td><td>${r.newsletter_optin ? 'yes' : ''}</td></tr>`).join('');
   const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString();
   return shell('CallBots admin', `<form method="post" action="/admin/logout" style="float:right">${hidden(csrf)}<button type="submit" style="background:#888">Sign out</button></form><h1>CallBots admin</h1>
+${channelsSection(csrf, tenants, channelLog, err)}
 <h2>Newsletter</h2>${k('confirmed (active)', active.length)}${k('unsubscribed', nl.length - active.length)}${k('new, last 7 days', since(d7))}${k('new, last 30 days', since(d30))}
 <p><a href="/admin/newsletter.csv">Download CSV</a> <small>(includes consent method, confirm time, IP and browser when recorded)</small></p>
 <table><tr><th>Name</th><th>Email</th><th>Tenant</th><th>Confirmed (UTC)</th><th>Source</th><th>Confirm IP</th><th>Unsubscribed</th></tr>${nlRows || '<tr><td colspan="7">No subscribers yet.</td></tr>'}</table>
@@ -120,4 +128,4 @@ function dashboard({ csrf, nl, calls, q, now }) {
 <table><tr><th>Time (UTC)</th><th>Caller</th><th>Duration</th><th>Asked about</th><th>Tools</th><th>Emails sent</th><th>Newsletter opt-in</th></tr>${callRows || '<tr><td colspan="7">No calls recorded yet.</td></tr>'}</table>`);
 }
 
-module.exports = { AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, sentPage, dashboard, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };
+module.exports = { AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, sentPage, dashboard, channelsSection, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };
