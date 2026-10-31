@@ -81,7 +81,7 @@ test('sign-in flow: session cookie, dashboard, CSVs, logout', async () => {
     const filtered = await (await fetch(a.base + '/admin?number=8135550000', { headers: { cookie: ck } })).text();
     assert.doesNotMatch(filtered, /7275551234/); assert.match(filtered, /8135550000/);
     const byDate = await (await fetch(a.base + '/admin/calls.csv?from=2026-10-25', { headers: { cookie: ck } })).text();
-    assert.match(byDate, /^at,ended_at,tenant,caller,seconds,summary,kb_queries,tools,emails,newsletter_optin/); assert.match(byDate, /\+17275551234/); assert.doesNotMatch(byDate, /8135550000/);
+    assert.match(byDate, /^at,ended_at,tenant,caller,seconds,summary,kb_queries,tools,emails,texts,newsletter_optin/); assert.match(byDate, /\+17275551234/); assert.doesNotMatch(byDate, /8135550000/);
     const nl = await fetch(a.base + '/admin/newsletter.csv', { headers: { cookie: ck } }); const body = await nl.text();
     assert.match(nl.headers.get('content-type'), /text\/csv/);
     assert.strictEqual(body.split('\r\n')[0], 'name,email,tenant,confirmed_at,source,consent_method,confirm_ip,user_agent,unsubscribed_at');

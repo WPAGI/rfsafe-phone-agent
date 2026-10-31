@@ -82,7 +82,7 @@ function createApp(d) {
       onEnd: (summary, transcript) => {
         calls.delete(callId);
         try { appendJsonl(d.callLog, { at: new Date().toISOString(), from: fp(caller), ...summary }); } catch (e) { log('call.log_error', { err: e.message }); }
-        try { if (d.callRecords) d.callRecords.add(adm.callRecord(summary, caller, new Date().toISOString())); } catch (e) { log('call.record_error', { err: e.message }); }
+        try { if (d.callRecords) d.callRecords.add(adm.callRecord(summary, caller, new Date().toISOString(), transcript)); } catch (e) { log('call.record_error', { err: e.message }); }
         d.notify(tenant, { kind: 'call_summary', caller, ...summary, transcript });
       } });
     calls.set(callId, session);
