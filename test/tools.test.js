@@ -44,9 +44,15 @@ test('set_text_number: caller ID only; no other number; blocked caller ID cannot
   assert.strictEqual(m.sms.sent.length, 1);
   assert.strictEqual((await m.tools.run('set_text_number', { use_caller_id: true }, { channel: 'sms', caller: '+15555550142' })).error, 'voice_only');
 });
-test('transfer: in hours refers; after hours refuses; failure reported', async () => {
+test('transfer: always refers at any hour by default; failure reported', async () => {
   let m = mk(); assert.ok((await m.tools.run('transfer_to_human', {}, voice)).transferred); assert.strictEqual(m.cc.refers[0].uri, 'tel:+15555550199');
-  m = mk({}, { now: () => new Date('2026-10-30T02:00:00Z') }); assert.strictEqual((await m.tools.run('transfer_to_human', {}, voice)).error, 'after_hours'); assert.strictEqual(m.cc.refers.length, 0);
+  // regression: Sat Oct 31 2026 8:12 AM EDT (before open, weekend) must still transfer
+  m = mk({ hours: { tz: 'America/New_York', open: '09:00', close: '17:00', days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] } }, { now: () => new Date('2026-10-31T12:12:00Z') });
+  assert.ok((await m.tools.run('transfer_to_human', {}, voice)).transferred); assert.strictEqual(m.cc.refers.length, 1);
+  m = mk({}, { now: () => new Date('2026-10-30T02:00:00Z') }); assert.ok((await m.tools.run('transfer_to_human', {}, voice)).transferred);
+  assert.match(m.tools.definitions().find((d) => d.name === 'transfer_to_human').description, /any hour/);
+  // opt-in legacy gate
+  m = mk({ transfer_hours_only: true }, { now: () => new Date('2026-10-30T02:00:00Z') }); assert.strictEqual((await m.tools.run('transfer_to_human', {}, voice)).error, 'after_hours'); assert.strictEqual(m.cc.refers.length, 0);
   m = mk({}, { referStatus: 502 }); assert.strictEqual((await m.tools.run('transfer_to_human', {}, voice)).error, 'transfer_failed');
   assert.strictEqual((await m.tools.run('transfer_to_human', {}, { channel: 'sms', caller: '+1' })).error, 'voice_only');
 });

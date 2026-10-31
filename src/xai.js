@@ -106,7 +106,7 @@ function buildInstructions(tenant, { afterHours, callerLast4 = null, known = nul
     'Give no medical, legal, or financial advice beyond the exact KB wording.',
     `Only send links on these domains: ${tenant.link_allowlist.join(', ')}.`,
     tenant.blocked_topics.length ? `Do not discuss: ${tenant.blocked_topics.join(', ')}.` : '',
-    known && known.isTransferTarget ? '' : afterHours ? 'It is outside business hours: do not transfer; offer to text a link or take a message.' : 'If the caller asks for a person, use transfer_to_human.',
+    known && known.isTransferTarget ? '' : (afterHours && tenant.transfer_hours_only === true) ? 'It is outside business hours: do not transfer; offer to text a link or take a message.' : 'If the caller explicitly asks for a person, always use transfer_to_human, at any hour. Never say the business is closed or refuse. If the transfer fails or nobody answers, offer to take a message.',
     ...callerLines(tenant, callerLast4),
     ...knownCallerLines(known, tenant),
     ...returningCallerLines(returning, tenant, known),

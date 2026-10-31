@@ -135,7 +135,7 @@ function createOwner(d, { log: rawLog = () => {} } = {}) {
   }
 
   const OWNER_DEF = { type: 'function', name: 'owner_briefing', description: 'Owner-only daily briefing. Use ONLY when this caller asks what happened today (or for today\'s summary or briefing). First ask: "Please say your PIN." Then call this tool with the PIN exactly as they said it. Never repeat the PIN aloud. If it returns ok, read the "briefing" text aloud as written. If it fails, say only that you could not verify that, and continue as a normal call; never share call, text, email or customer information otherwise.', parameters: { type: 'object', properties: { pin: { type: 'string', description: 'the PIN digits as spoken' } }, required: ['pin'] } };
-  const EXPLICIT_TRANSFER = 'Transfer the call to a person, during business hours only. Use ONLY when the caller explicitly asks to speak with a person, a human, a manager, or staff. Never offer or start a transfer on your own initiative.';
+  const EXPLICIT_TRANSFER = 'Transfer the call to a person, at any hour. Use ONLY when the caller explicitly asks to speak with a person, a human, a manager, or staff. Never offer or start a transfer on your own initiative.';
   function wrapTools(t, caller, tools) {
     if (!C.enabled(t)) return tools;
     const s = C.settings(t); const owner = s.on_demand && C.isOwner(t, caller);
