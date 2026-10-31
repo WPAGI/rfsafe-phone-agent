@@ -27,10 +27,10 @@ function start(caller, { tenant = T, newsletter = nl() } = {}) {
 }
 
 test('returning subscriber greeted with first name only; no name -> plain welcome back', () => {
-  assert.strictEqual(start(NAMED).greet, 'Welcome back, Jane! How can I help?');
-  assert.strictEqual(start(NONAME).greet, 'Welcome back! How can I help?');
-  assert.strictEqual(start(SMSONLY).greet, 'Welcome back! How can I help?');
-  assert.strictEqual(welcomeBack(null), 'Welcome back! How can I help?');
+  assert.strictEqual(start(NAMED).greet, 'Welcome back, Jane! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?');
+  assert.strictEqual(start(NONAME).greet, 'Welcome back! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?');
+  assert.strictEqual(start(SMSONLY).greet, 'Welcome back! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?');
+  assert.strictEqual(welcomeBack(null), 'Welcome back! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?');
 });
 test('no match, unsubscribed, blocked, anonymous or invalid caller ID keeps the standard greeting', () => {
   for (const c of [STRANGER, null, '', 'anonymous', '5550001111', '+0123', 'sip:x@y']) assert.match(start(c).greet, /^Hi, you have reached RF Safe\. This call may be recorded/, String(c));

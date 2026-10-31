@@ -143,7 +143,7 @@ function knownCallerFor(tenant, caller) {
   return { name: k.name, role: k.role || null, greeting: k.greeting || null, isTransferTarget: !!target && target === caller };
 }
 
-const welcomeBack = (r) => `Welcome back${r && r.firstName ? ', ' + r.firstName : ''}! How can I help?`;
+const welcomeBack = (r) => `Welcome back${r && r.firstName ? ', ' + r.firstName : ''}! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?`;
 function returningCallerFor(tenant, caller, newsletter) {
   if (!caller || !newsletter || tenant.returning_caller_greeting === false) return null;
   try { return newsletter.returningCaller(tenant.id, caller); } catch { return null; }
