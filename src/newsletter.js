@@ -40,7 +40,7 @@ class Newsletter {
     let st = { status: 'none' };
     for (const r of this.events()) if (r.tenant === tenant && r.phone === phone) {
       if (r.kind === 'sms_pending' && st.status !== 'subscribed') st = { status: 'pending', requested_at: r.at, call: r.call, wording: r.wording };
-      else if (r.kind === 'sms_confirmed') st = { ...st, status: 'subscribed', confirmed_at: r.at, confirm_text: r.reply };
+      else if (r.kind === 'sms_confirmed') st = { ...st, status: 'subscribed', confirmed_at: r.at, confirm_text: r.reply, invited_at: r.invited_at || st.requested_at, source: r.source || 'phone' };
       else if (r.kind === 'sms_stopped' && st.status !== 'none') st = { ...st, status: 'unsubscribed', stopped_at: r.at };
     }
     return st;
@@ -51,7 +51,7 @@ class Newsletter {
   confirmSms(tenant, phone, reply) {
     const st = this.smsState(tenant, phone);
     if (st.status !== 'pending' || this.now() - Date.parse(st.requested_at) > TTL_MS) return false;
-    this.append({ kind: 'sms_confirmed', tenant, phone, reply: String(reply || '').slice(0, 40) }); return true;
+    this.append({ kind: 'sms_confirmed', tenant, phone, reply: String(reply || '').slice(0, 40), invited_at: st.requested_at, call: st.call || null, wording: st.wording || null, source: 'phone_call+sms_yes' }); return true;
   }
   stopSms(tenant, phone) { if (this.smsState(tenant, phone).status !== 'none') this.append({ kind: 'sms_stopped', tenant, phone }); }
   linkPhone({ tenant, email, phone, call }) { if (email && phone) this.append({ kind: 'link', tenant, email: String(email).toLowerCase(), phone, call: call || null }); }
@@ -71,8 +71,9 @@ function page(title, body) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><style>body{font-family:system-ui,sans-serif;max-width:560px;margin:60px auto;padding:0 20px;color:#222}button{font-size:16px;padding:12px 20px;border:0;border-radius:6px;background:#0b5;color:#fff;cursor:pointer}small{color:#777}</style></head><body><h1>${esc(title)}</h1>${body}<p><small>RF Safe is a trademark of Quanta X Technology LLC. <a href="/privacy#newsletter">Privacy</a></small></p></body></html>`;
 }
 function formPage({ title, text, button, action, tok }) { return page(title, `<p>${esc(text)}</p><form method="post" action="${action}"><input type="hidden" name="t" value="${esc(tok)}"><button type="submit">${esc(button)}</button></form>`); }
-const NEWS_SMS_FREQ = 'Up to 4 msgs/mo';
-const newsSmsInvite = (brand) => `Want ${brand} breaking RF-safety news by text? Reply YES to join (${NEWS_SMS_FREQ}). Consent not required to buy. Msg & data rates may apply. Reply HELP for help, STOP to opt out.`;
-const newsSmsConfirmed = (brand) => `${brand} News: you're subscribed to breaking RF-safety news texts. ${NEWS_SMS_FREQ}. Msg & data rates may apply. Reply HELP for help, STOP to cancel.`;
-const NEWS_SMS_SPOKEN = 'Would you also like RF Safe breaking RF-safety news by text, up to 4 messages a month? I will add a line to the text, and you are signed up only if you reply YES. Message and data rates may apply, and you can reply STOP anytime.';
-module.exports = { NEWS_SMS_FREQ, newsSmsInvite, newsSmsConfirmed, NEWS_SMS_SPOKEN, Newsletter, deriveSecret, cleanName, page, formPage, TTL_MS, NAME_MAX };
+const NEWS_SMS_FREQ = 'up to 4 msgs/mo';
+const NEWS_SMS_CADENCE = 'About once a month, plus breaking news.';
+const newsSmsInvite = (brand) => `Want ${brand} news by text? ${NEWS_SMS_CADENCE} Reply YES to join (${NEWS_SMS_FREQ}). Consent not required to buy. Msg & data rates may apply. Reply HELP for help, STOP to opt out.`;
+const newsSmsConfirmed = (brand) => `${brand} News: you're subscribed to RF Safe news texts. ${NEWS_SMS_CADENCE} Up to 4 msgs/mo. Msg & data rates may apply. Reply HELP for help, STOP to cancel.`;
+const NEWS_SMS_SPOKEN = 'Would you also like RF Safe news by text, about once a month plus breaking news, up to 4 messages a month? I will add a line to the text, and you are signed up only if you reply YES. Message and data rates may apply, and you can reply STOP anytime.';
+module.exports = { NEWS_SMS_FREQ, NEWS_SMS_CADENCE, newsSmsInvite, newsSmsConfirmed, NEWS_SMS_SPOKEN, Newsletter, deriveSecret, cleanName, page, formPage, TTL_MS, NAME_MAX };
