@@ -56,16 +56,29 @@ class CallRecords {
 }
 
 // Build a call record from a CallSession summary (tools carry per-tool detail).
-function callRecord(summary, caller, endedAt) {
+const TEXT_TOOLS = ['send_link_sms', 'send_link', 'set_text_number'];
+const TEXT_ASK = /\b(text|txt|texting|sms)\b/i;
+function callRecord(summary, caller, endedAt, transcript) {
   const tools = summary.tools || [];
   const kb = tools.filter((t) => t.tool === 'kb_answer' && t.q).map((t) => t.q);
   const emails = tools.filter((t) => t.tool === 'send_email').map((t) => ({ to_masked: t.to_masked || null, topic: t.topic || null, ok: !!t.ok }));
-  const topics = [...new Set([...kb, ...emails.map((e) => e.topic).filter(Boolean)])];
+  const sar = tools.filter((t) => t.tool === 'sar_lookup' && t.phone).map((t) => 'SAR: ' + t.phone);
+  const prod = tools.filter((t) => t.tool === 'product_search' && t.query).map((t) => 'Product: ' + t.query);
+  const textTools = tools.filter((t) => TEXT_TOOLS.includes(t.tool));
+  const textsSent = tools.filter((t) => (t.tool === 'send_link_sms' || t.tool === 'send_link') && t.ok).length;
+  const callerAskedText = Array.isArray(transcript) && transcript.some((x) => x && x.role === 'caller' && TEXT_ASK.test(String(x.text || '')));
+  let texts = null;
+  if (textsSent) texts = `sent ${textsSent}`;
+  else if (textTools.length) texts = 'failed: ' + ([...new Set(textTools.map((t) => t.error).filter(Boolean))].join(' ') || 'not sent');
+  else if (callerAskedText) texts = 'requested, none sent (no text tool used)';
+  const failed = tools.filter((t) => !t.ok && !TEXT_TOOLS.includes(t.tool)).map((t) => `${t.tool} failed${t.error ? ' (' + t.error + ')' : ''}`);
+  const topics = [...new Set([...kb, ...emails.map((e) => e.topic).filter(Boolean), ...sar, ...prod])];
+  const parts = [...topics.slice(0, 5), ...(texts ? ['Text ' + texts] : []), ...failed.slice(0, 3)];
   return {
     at: summary.started_at || endedAt, ended_at: endedAt, call: summary.call || null, tenant: summary.tenant, caller: caller || null,
-    seconds: summary.seconds ?? null, tools: [...new Set(tools.map((t) => t.tool))], kb_queries: kb, emails,
+    seconds: summary.seconds ?? null, tools: [...new Set(tools.map((t) => t.tool))], kb_queries: kb, emails, texts,
     newsletter_optin: tools.some((t) => t.tool === 'send_email' && t.ok && t.newsletter_optin === true),
-    summary: topics.length ? topics.slice(0, 5).join('; ').slice(0, 300) : null,
+    summary: parts.length ? parts.join('; ').slice(0, 300) : null,
   };
 }
 
@@ -86,7 +99,7 @@ function newsletterRows(file) {
   return [...m.values()];
 }
 const NL_COLS = ['name', 'email', 'tenant', 'confirmed_at', 'source', 'consent_method', 'confirm_ip', 'user_agent', 'unsubscribed_at'];
-const CALL_COLS = ['at', 'ended_at', 'tenant', 'caller', 'seconds', 'summary', 'kb_queries', 'tools', 'emails', 'newsletter_optin'];
+const CALL_COLS = ['at', 'ended_at', 'tenant', 'caller', 'seconds', 'summary', 'kb_queries', 'tools', 'emails', 'texts', 'newsletter_optin'];
 function callCsvRows(recs) { return recs.map((r) => ({ ...r, kb_queries: (r.kb_queries || []).join(' | '), tools: (r.tools || []).join(' '), emails: (r.emails || []).map((e) => `${e.to_masked || '?'} (${e.topic || 'links'})${e.ok ? '' : ' FAILED'}`).join(' | '), newsletter_optin: r.newsletter_optin ? 'yes' : 'no' })); }
 function filterCalls(recs, { from, to, number }) {
   const f = from ? Date.parse(from + 'T00:00:00Z') : null; const t = to ? Date.parse(to + 'T23:59:59.999Z') : null; const n = String(number || '').replace(/\D/g, '');
