@@ -24,7 +24,8 @@ catch (err) { console.error(err.message); process.exit(1); }
 
 if (deps.adminToken === DEMO_ADMIN) deps.log('admin.local_only', { detail: 'Set PA_ADMIN_TOKEN before using /admin on a public host' });
 
-const { handler } = createApp(deps);
+const { handler, owner } = createApp(deps);
+owner.start(); // owner briefing scheduler: ticks every minute, does nothing unless a tenant enables owner_briefing
 const port = Number(process.env.PORT) || 8787;
 const server = http.createServer((req, res) => {
   req.setTimeout(30000, () => { if (!res.headersSent) { res.writeHead(408); res.end(); } req.destroy(); });

@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const BAD_NAMES = [/^\.env(\..*)?$/, /^smtp\.env$/, /\.eml$/, /^sessions\.jsonl$/, /^ops\.jsonl$/, /^keys\.json$/, /\.pem$/, /\.key$/, /^nonces\.jsonl$/, /^log\.jsonl$/, /^submissions\.jsonl$/, /^config\.json$/, /^secrets\.enc\.json$/, /^consent\.jsonl$/, /^owner-outbox\.jsonl$/, /^secrets\.enc\.json$/, /^consent\.jsonl$/, /^owner-outbox\.jsonl$/, /^id_(rsa|ed25519)/];
+const BAD_NAMES = [/^\.env(\..*)?$/, /^smtp\.env$/, /\.eml$/, /^sessions\.jsonl$/, /^ops\.jsonl$/, /^keys\.json$/, /\.pem$/, /\.key$/, /^nonces\.jsonl$/, /^log\.jsonl$/, /^submissions\.jsonl$/, /^config\.json$/, /^secrets\.enc\.json$/, /^consent\.jsonl$/, /^owner-outbox\.jsonl$/, /^secrets\.enc\.json$/, /^consent\.jsonl$/, /^owner-outbox\.jsonl$/, /^owner-pins\.json$/, /^id_(rsa|ed25519)/];
 const BAD_CONTENT = [
   [/arena_sk_[A-Za-z0-9_-]{20,}/, 'arena publish secret'],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'PEM private key'],

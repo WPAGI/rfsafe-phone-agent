@@ -14,13 +14,16 @@ const { faviconIco, FAVICON_SVG } = require('./favicon');
 const { DEMO_ADMIN } = require('./readiness');
 const ob = require('./onboarding');
 const adm = require('./admin');
+const { createOwner } = require('./owner'); // owner briefing module: inert unless tenant.owner_briefing.enabled
 
 const CALL_END_TYPES = new Set(['realtime.call.ended', 'realtime.call.completed', 'realtime.call.failed']);
 
 function createApp(d) {
   // d: { tenants, secrets, env, consent, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, brain,
   //      notify, log, publicBaseUrl, adminToken, stateSecret, shopifyApp:{clientId,secret}, exchange, now }
-  const log = d.log || (() => {});
+  const owner = createOwner(d, { log: d.log || (() => {}) });
+  const log = owner.wrapLog(d.log || (() => {}));
+  const notify = d.notify ? owner.wrapNotify(d.notify) : d.notify;
   const verifier = new WebhookVerifier({ now: d.clock });
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
@@ -28,7 +31,7 @@ function createApp(d) {
   // Inbound texts: per-sender memory, and one Tools instance per tenant so a multi-text email flow keeps its state.
   const smsMemory = d.smsMemory || new SmsMemory({ now: () => +now() }); const smsTools = new WeakMap();
   const smsToolsFor = (t) => { if (!smsTools.has(t)) smsTools.set(t, toolsFor(t)); return smsTools.get(t); };
-  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify: d.notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
+  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
@@ -82,12 +85,13 @@ function createApp(d) {
     const ws = await d.openRealtime(tenant, callId);
     const afterHours = !inHours(tenant.hours, now());
     const cc = d.callControlFor(tenant);
-    const session = new CallSession({ ws, tenant, callId, caller, tools: toolsFor(tenant, cc), afterHours, log, newsletter: d.newsletter,
+    const session = new CallSession({ ws, tenant, callId, caller, tools: owner.wrapTools(tenant, caller, toolsFor(tenant, cc)), afterHours, log, newsletter: d.newsletter,
       onEnd: (summary, transcript) => {
         calls.delete(callId);
+        transcript = owner.onCallEnd(tenant, caller, summary, transcript);
         try { appendJsonl(d.callLog, { at: new Date().toISOString(), from: fp(caller), ...summary }); } catch (e) { log('call.log_error', { err: e.message }); }
         try { if (d.callRecords) d.callRecords.add(adm.callRecord(summary, caller, new Date().toISOString(), transcript)); } catch (e) { log('call.record_error', { err: e.message }); }
-        d.notify(tenant, { kind: 'call_summary', caller, ...summary, transcript });
+        notify(tenant, { kind: 'call_summary', caller, ...summary, transcript });
       } });
     calls.set(callId, session);
     log('call.started', { tenant: tenant.id, call: callId, from: caller ? fp(caller) : 'withheld', afterHours });
@@ -112,7 +116,7 @@ function createApp(d) {
     if (!ok) { log('twilio.webhook_rejected', { route: 'recording' }); res.writeHead(403); return res.end(); }
     const caller = normNumber(params.From);
     log('voicemail.saved', { tenant: tenant.id, call: params.CallSid || null, recording: params.RecordingSid || null, from: fp(caller) });
-    await d.notify(tenant, { kind: 'voicemail', from: caller, call: params.CallSid || null, recording: params.RecordingSid || null, at: new Date().toISOString() });
+    await notify(tenant, { kind: 'voicemail', from: caller, call: params.CallSid || null, recording: params.RecordingSid || null, at: new Date().toISOString() });
     res.writeHead(200, { 'content-type': 'text/xml' });
     res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thank you. Your message was saved for ${xmlEscape(tenant.name)}.</Say><Hangup/></Response>`);
   }
@@ -137,7 +141,7 @@ function createApp(d) {
 
   async function admin(req, res, u) {
     if (!isAdmin(req)) return json(res, 401, { error: 'unauthorized' });
-    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config|kb-bundle|sms))?)?$/);
+    const m = u.pathname.match(/^\/admin\/tenants(?:\/([a-z0-9-]+)(?:\/(status|approvals|config|kb-bundle|sms|owner-pin|owner-briefing))?)?$/);
     if (!m) return json(res, 404, { error: 'not_found' });
     if (req.method === 'POST' && !m[1]) {
       const t = JSON.parse(await readBody(req)); t.numbers = t.numbers || []; t.sms_enabled = false; // texting only after A2P approval
@@ -147,12 +151,13 @@ function createApp(d) {
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
     if (req.method === 'PATCH' && !m[2]) {
       // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
-      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply', 'returning_caller_greeting'];
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply', 'returning_caller_greeting', 'owner_briefing'];
       const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
       if ('email_enabled' in body && typeof body.email_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['email_enabled must be boolean'] });
       if ('returning_caller_greeting' in body && typeof body.returning_caller_greeting !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['returning_caller_greeting must be boolean'] });
       if ('instant_link_reply' in body && typeof body.instant_link_reply !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['instant_link_reply must be boolean'] });
       if ('order_lookup_enabled' in body && typeof body.order_lookup_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['order_lookup_enabled must be boolean'] });
+      if ('owner_briefing' in body) { const oe = owner.validate(body.owner_briefing); if (oe.length) return json(res, 400, { error: 'invalid', detail: oe }); }
       if ('shopify' in body && !validShopifyPatch(body.shopify)) return json(res, 400, { error: 'invalid', detail: ['shopify: {shop, mode: public|storefront, public_domain?, admin_shop?: *.myshopify.com} only'] });
       const next = { ...t, ...body };
       const errs = require('./tenants').validateTenant(next); if (errs.length) return json(res, 400, { error: 'invalid', detail: errs });
@@ -175,6 +180,7 @@ function createApp(d) {
       try { const r = kbb.installBundle(await kbb.readRaw(req), d.kbBundleDir, t.id); d.kbReset && d.kbReset(t.id); log('kb.bundle_installed', { tenant: t.id, pages: r.pages }); return json(res, 200, { tenant: t.id, pages: r.pages, version: r.version, generated: r.generated }); }
       catch (e) { return json(res, e.status || 400, { error: 'bundle_rejected', detail: String(e.message).slice(0, 200) }); }
     }
+    if (m[2] === 'owner-pin' || m[2] === 'owner-briefing') return await owner.admin(req, res, t, m[2], json);
     if (m[2] === 'approvals') return json(res, 200, { approvals: approvals.list(t.id) });
     if (m[2] === 'config') { const { secrets, ...rest } = t; return json(res, 200, { tenant: t.id, config: { ...rest, secrets: Object.keys(secrets || {}) } }); } // read-only; secret refs by name only
     return json(res, 200, { tenant: t.id, status: ob.onboardingStatus(t) });
@@ -383,6 +389,7 @@ function createApp(d) {
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/')) return await adminUi(req, res, u);
+      if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTwilio(sec(t, 'twilio_auth_token'), d.publicBaseUrl + req.url, params, req.headers['x-twilio-signature']));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms/status') return await twilioStatus(req, res);
@@ -395,7 +402,7 @@ function createApp(d) {
       return json(res, 404, { error: 'not_found' });
     } catch (e) { log('http.error', { path: u.pathname, err: e.message }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
   };
-  return { handler, approvals, calls };
+  return { handler, approvals, calls, owner };
 }
 
 function readGaps(f) { try { return require('fs').readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } }

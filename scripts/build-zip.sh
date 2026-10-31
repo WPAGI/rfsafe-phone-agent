@@ -6,7 +6,7 @@ VER=$(node -p 'require("./package.json").version'); NAME="rfsafe-phone-agent-v$V
 STAGE=$(mktemp -d)/"$NAME"; mkdir -p "$STAGE" dist
 cp -r bin src demo deploy scripts test "$STAGE"/
 cp package.json README.md DESIGN.md DEPLOY.md RESEARCH.md WIKI_PAGE.md CHANGELOG.md GO-LIVE.md render.yaml .gitignore "$STAGE"/
-find "$STAGE" \( -name '.env' -o -name '.env.*' -o -name 'data' -o -name '*.pem' -o -name '*.key' -o -name 'secrets.enc.json' -o -name 'consent.jsonl' -o -name 'owner-outbox.jsonl' \) -prune -print -exec rm -rf {} +
+find "$STAGE" \( -name '.env' -o -name '.env.*' -o -name 'data' -o -name '*.pem' -o -name '*.key' -o -name 'secrets.enc.json' -o -name 'consent.jsonl' -o -name 'owner-outbox.jsonl' -o -name 'owner-pins.json' \) -prune -print -exec rm -rf {} +
 node scripts/scan-secrets.js "$STAGE"
 rm -f "dist/$NAME.zip"
 python3 - "$STAGE" "dist/$NAME.zip" <<'PYZ'
