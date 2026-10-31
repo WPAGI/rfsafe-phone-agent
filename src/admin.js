@@ -134,13 +134,14 @@ function dashboard({ csrf, nl, calls, q, now, tenants, channelLog, err }) {
   const callRows = calls.slice(0, 500).map((r) => `<tr><td>${esc(r.at)}</td><td>${esc(r.caller || 'withheld')}</td><td>${r.seconds != null ? esc(r.seconds) + 's' : ''}</td><td>${esc(r.summary || '')}</td><td>${esc((r.tools || []).join(', '))}</td><td>${(r.emails || []).map((e) => esc(`${e.to_masked || '?'}: ${e.topic || 'links'}${e.ok ? '' : ' (failed)'}`)).join('<br>')}</td><td>${r.newsletter_optin ? 'yes' : ''}</td></tr>`).join('');
   const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString();
   return shell('CallBots admin', `<form method="post" action="/admin/logout" style="float:right">${hidden(csrf)}<button type="submit" style="background:#888">Sign out</button></form><h1>CallBots admin</h1>
+<p><a href="/admin/messages?type=sms">Review texts</a> · <a href="/admin/messages?type=email">Review emails</a> <small>(exact copies of every text and email sent)</small></p>
 ${channelsSection(csrf, tenants, channelLog, err)}
 <h2>Newsletter</h2>${k('confirmed (active)', active.length)}${k('unsubscribed', nl.length - active.length)}${k('new, last 7 days', since(d7))}${k('new, last 30 days', since(d30))}
 <p><a href="/admin/newsletter.csv">Download CSV</a> <small>(includes consent method, confirm time, IP and browser when recorded)</small></p>
 <table><tr><th>Name</th><th>Email</th><th>Tenant</th><th>Confirmed (UTC)</th><th>Source</th><th>Confirm IP</th><th>Unsubscribed</th></tr>${nlRows || '<tr><td colspan="7">No subscribers yet.</td></tr>'}</table>
 <h2>Call log</h2><form method="get" action="/admin">From <input type="date" name="from" value="${esc(q.from || '')}"> To <input type="date" name="to" value="${esc(q.to || '')}"> Number <input name="number" value="${esc(q.number || '')}" placeholder="digits, e.g. 727555"> <button type="submit">Filter</button> <a href="/admin">Clear</a></form>
-<p>${calls.length} call(s). <a href="/admin/calls.csv${qs ? '?' + esc(qs) : ''}">Download CSV</a> · <a href="/admin/kb-gaps.csv">Unanswered questions (CSV)</a> <small>Call records are kept ${CALL_RETENTION_DAYS} days. Times are UTC.</small></p>
+<p>${calls.length} call(s). <a href="/admin/calls.csv${qs ? '?' + esc(qs) : ''}">Download CSV</a> · <a href="/admin/kb-gaps.csv">Unanswered questions (CSV)</a> · <a href="/admin/messages?type=sms">Review texts</a> · <a href="/admin/messages?type=email">Review emails</a> <small>Call records are kept ${CALL_RETENTION_DAYS} days. Times are UTC.</small></p>
 <table><tr><th>Time (UTC)</th><th>Caller</th><th>Duration</th><th>Asked about</th><th>Tools</th><th>Emails sent</th><th>Newsletter opt-in</th></tr>${callRows || '<tr><td colspan="7">No calls recorded yet.</td></tr>'}</table>`);
 }
 
-module.exports = { AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, sentPage, dashboard, channelsSection, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };
+module.exports = { shell, AdminAuth, CallRecords, callRecord, adminSecret, parseCookies, newsletterRows, toCsv, NL_COLS, CALL_COLS, callCsvRows, filterCalls, loginPage, authPage, msgPage, sentPage, dashboard, channelsSection, LINK_TTL_MS, SESSION_MS, CALL_RETENTION_DAYS, DEFAULT_ADMIN_EMAIL };

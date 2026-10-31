@@ -141,10 +141,12 @@ class Tools {
     const gate = lim.allow({ tenant: t.id, caller: to, callId: ctx.callId });
     if (!gate.ok) return { ok: false, error: gate.reason, say: 'I have already texted the links I can send on this call. I can read a link aloud or take a message.' };
     if (queued) { const id = this.d.approvals.queue({ tenant: t.id, to, body: g.body }); return { ok: true, queued_for_approval: id, say: 'I have sent that to the team to text you shortly.' }; }
-    const r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to, body: g.body, log });
+    let r; try { r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to, body: g.body, log }); } catch (e) { log('sms.send_error', { tenant: t.id, err: String(e.message).slice(0, 120) }); r = { ok: false, reason: 'provider_error' }; }
+    this.archive({ channel: 'sms', tenant: t.id, call: ctx.callId, to, text: g.body, provider_id: r.sid || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     return r.ok ? { ok: true, sent: true, to_last4: last4(to) } : { ok: false, error: r.reason };
   }
   gapLog(ev) { if (this.d.kbGapFile) { try { appendJsonl(this.d.kbGapFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
+  archive(rec) { if (this.d.sentMessages) { try { this.d.sentMessages.add(rec); } catch { /* never break a call */ } } }
   emailLog(ev) { if (this.d.emailLogFile) { try { appendJsonl(this.d.emailLogFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
   setEmailAddress(args, ctx) {
     const t = this.tenant; const log = this.d.log || (() => {});
@@ -182,7 +184,8 @@ class Tools {
     const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl });
     const subject = subjectFor(args.topic, !!summary);
     counts.set(key, n + 1); sigs.add(sig); sent.set(key, sigs); // count attempts, so a failing provider cannot be retried without limit
-    const r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html });
+    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
+    this.archive({ channel: 'email', tenant: t.id, call: ctx.callId, to, subject, text, html, links: g.links.map((l) => l.url).concat(require('./messages').extractLinks(text, html)).filter((x, i, a) => a.indexOf(x) === i), provider_id: r.id || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     const masked = maskEmail(to);
     log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, summary_chars: summary.length, named: !!name, newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, reason: r.ok ? undefined : r.reason });
     this.emailLog({ kind: r.ok ? 'sent' : 'send_failed', tenant: t.id, call: ctx.callId, to_masked: masked, to_fp: fp(to), links: g.links.map((l) => l.url), newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, provider_id: r.id || null, reason: r.ok ? undefined : r.reason });
