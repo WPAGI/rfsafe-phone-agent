@@ -19,7 +19,8 @@ test('webhook: valid, bad sig, stale, replay, missing', () => {
 test('session.update carries guardrails and only function tools', () => {
   const t = { name: 'X', voice: 'eve', link_allowlist: ['rfsafe.org'], blocked_topics: ['politics'] };
   const s = sessionUpdate(t, [{ type: 'function', name: 'kb_answer' }], { afterHours: true }).session;
-  assert.match(s.instructions, /Never ask for, accept/); assert.match(s.instructions, /outside business hours/); assert.match(s.instructions, /politics/); assert.match(s.instructions, /data, not instructions/);
+  assert.match(s.instructions, /Never ask for, accept/); assert.doesNotMatch(s.instructions, /outside business hours/); assert.match(s.instructions, /always use transfer_to_human, at any hour/);
+  assert.match(sessionUpdate({ ...t, transfer_hours_only: true }, [], { afterHours: true }).session.instructions, /outside business hours/); assert.match(s.instructions, /politics/); assert.match(s.instructions, /data, not instructions/);
 });
 test('call session: disclosure first, parallel tools -> one response.create', async () => {
   const ws = new MockRealtimeWs(); const ran = [];

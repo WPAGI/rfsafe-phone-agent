@@ -239,7 +239,7 @@ test('transfer: explicit-request wording; failed transfer returns to the bot to 
   const ok = rig(t); const res = await ok.owner.wrapTools(t, STRANGER, ok.tools).run('transfer_to_human', {}, { channel: 'voice', callId: 'c1', caller: STRANGER });
   assert.deepStrictEqual(res, { ok: true, transferred: true }); assert.strictEqual(ok.sms.sent.length, 0);
   const off = rig(tenantBase({ transfer_target: 'tel:' + KATIE }), { referStatus: 486 });
-  assert.match(off.tools.definitions().find((x) => x.name === 'transfer_to_human').description, /^Transfer the call to a person, during business hours only\.$/);
+  assert.match(off.tools.definitions().find((x) => x.name === 'transfer_to_human').description, /^Transfer the call to a person\. Use it whenever the caller explicitly asks for a person, at any hour\./);
 });
 test('transfer bridge: no answer records a message and alerts owners; answered call just ends', async () => {
   const { a, t, post } = await ownerApp();
