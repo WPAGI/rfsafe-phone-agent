@@ -43,6 +43,15 @@ class SarCatalog {
       other_matches: scored.slice(1, 3).map((x) => x.r.post_name),
     };
   }
+  // Lowest-SAR phones from the same catalog. metric: head | body | combined (head + body). Optional brand filter.
+  async lowest({ metric = 'combined', brand = '', limit = 5 } = {}) {
+    const rows = await this.load(); const b = norm(brand);
+    const pick = (r) => { const h = num(r.ushead), bo = num(r.usbody); if (metric === 'head') return h; if (metric === 'body') return bo; return h != null && bo != null ? +(h + bo).toFixed(2) : null; };
+    const list = rows.filter((r) => pick(r) != null && (!b || norm(r.brand).includes(b) || norm(r.post_name).includes(b)))
+      .sort((x, y) => pick(x) - pick(y)).slice(0, Math.max(1, Math.min(10, limit | 0 || 5)))
+      .map((r) => { const name = r.post_name || (r.brand + ' ' + r.model); return { phone: name, head_cellular: num(r.ushead), body_cellular: num(r.usbody), release: r.releasedate ? String(r.releasedate).slice(0, 10) : null, sar_page: 'https://rfsafe.org/mel/SAR.php?phone=' + slugOf(name) }; });
+    return { found: list.length > 0, metric, units: 'W/kg (1-g, FCC-reported); US limit 1.6', phones: list, ranking: 'https://rfsafe.org/mel/RANK.php', catalog_size: rows.length };
+  }
 }
 
 module.exports = { SarCatalog, slugOf };

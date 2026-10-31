@@ -31,7 +31,7 @@ npm run build       # dist/rfsafe-phone-agent-v0.1.0.zip + .sha256 (secret-scann
 | `src/linkguard.js` | **SMS guard**: URL allowlist, payment/card/length checks |
 | `src/shopify.js` | read-only Shopify client (public JSON or Storefront GraphQL queries only) |
 | `src/kb.js` | BM25 KB over Markdown, returns allowlisted source links only |
-| `src/sms.js` | inbound SMS brain (mock or grok-4.3) plus reply guard |
+| `src/sms.js` | inbound SMS brain (mock or grok-4.7) plus reply guard |
 | `src/twilio.js` | Twilio signature check, consent ledger (STOP/START/HELP), REST and mock |
 | `src/tenants.js` | tenant registry plus AES-256-GCM per-tenant secret store |
 | `src/onboarding.js` | signed OAuth state, Shopify authorize/callback, readiness checklist |

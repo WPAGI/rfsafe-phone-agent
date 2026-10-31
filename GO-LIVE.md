@@ -19,7 +19,7 @@ Set these in the Render dashboard. Generate each random value with `openssl rand
 | `PA_STATE_SECRET` | before live | random. Signs connect-state cookies |
 | `PA_MASTER_KEY` | before live | random, and it must decode to exactly 32 bytes |
 | `XAI_API_KEY` | before live | xAI console key. Billing must be on |
-| `XAI_TEXT_MODEL` | optional | `grok-4.3` is the default for SMS replies |
+| `XAI_TEXT_MODEL` | optional | `grok-4.7` is the default for SMS replies |
 | `TWILIO_ACCOUNT_SID` | before the script | Twilio account SID |
 | `RFSAFE_TWILIO_AUTH_TOKEN` | before live | Twilio auth token. The tenant file references this name |
 | `RFSAFE_PHONE_NUMBER` | after purchase | the new number in E.164, such as `+1` and ten digits |

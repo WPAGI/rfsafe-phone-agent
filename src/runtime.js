@@ -86,7 +86,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), sentMessages: new (require('./messages').SentMessages)({ file: path.join(dataDir, 'sent-messages.jsonl'), legacyEmailFile: path.join(dataDir, 'email.jsonl') }), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), channelLogFile: path.join(dataDir, 'channel-changes.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),
     newsletter: (() => { const { Newsletter, deriveSecret } = require('./newsletter'); return new Newsletter({ secret: deriveSecret(env), file: path.join(dataDir, 'newsletter.jsonl'), baseUrl: env.PUBLIC_BASE_URL || 'https://callbots.org' }); })(),
     sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
-    brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.3', fetchImpl: liveFetch }) : new MockBrain(),
+    brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.7', fetchImpl: liveFetch }) : new MockBrain(),
     publicBaseUrl: env.PUBLIC_BASE_URL || 'http://localhost:8787', adminToken: env.PA_ADMIN_TOKEN || (mode === 'demo' ? 'demo-admin-token-EXAMPLE' : null),
     stateSecret: env.PA_STATE_SECRET || (mode === 'demo' ? 'demo-state-secret-EXAMPLE' : null),
     shopifyApp: { clientId: env.SHOPIFY_APP_CLIENT_ID || 'demo-client-id', secret: env.SHOPIFY_APP_SECRET || 'demo-app-secret-EXAMPLE' },
