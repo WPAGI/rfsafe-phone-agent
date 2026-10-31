@@ -78,7 +78,7 @@ function createApp(d) {
     const ws = await d.openRealtime(tenant, callId);
     const afterHours = !inHours(tenant.hours, now());
     const cc = d.callControlFor(tenant);
-    const session = new CallSession({ ws, tenant, callId, caller, tools: toolsFor(tenant, cc), afterHours, log,
+    const session = new CallSession({ ws, tenant, callId, caller, tools: toolsFor(tenant, cc), afterHours, log, newsletter: d.newsletter,
       onEnd: (summary, transcript) => {
         calls.delete(callId);
         try { appendJsonl(d.callLog, { at: new Date().toISOString(), from: fp(caller), ...summary }); } catch (e) { log('call.log_error', { err: e.message }); }
@@ -141,9 +141,10 @@ function createApp(d) {
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
     if (req.method === 'PATCH' && !m[2]) {
       // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
-      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply'];
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply', 'returning_caller_greeting'];
       const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
       if ('email_enabled' in body && typeof body.email_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['email_enabled must be boolean'] });
+      if ('returning_caller_greeting' in body && typeof body.returning_caller_greeting !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['returning_caller_greeting must be boolean'] });
       if ('instant_link_reply' in body && typeof body.instant_link_reply !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['instant_link_reply must be boolean'] });
       if ('order_lookup_enabled' in body && typeof body.order_lookup_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['order_lookup_enabled must be boolean'] });
       if ('shopify' in body && !validShopifyPatch(body.shopify)) return json(res, 400, { error: 'invalid', detail: ['shopify: {shop, mode: public|storefront, public_domain?, admin_shop?: *.myshopify.com} only'] });

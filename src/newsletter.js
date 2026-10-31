@@ -45,6 +45,17 @@ class Newsletter {
     }
     return st;
   }
+  // Returning caller: caller-ID number (E.164) is a confirmed news-text subscriber, or is linked to a confirmed
+  // newsletter email. Returns { firstName } (null if no name stored) or null. Never returns email or other details.
+  returningCaller(tenant, phone) {
+    if (typeof phone !== 'string' || !/^\+[1-9]\d{7,14}$/.test(phone)) return null;
+    const subs = new Map(this.subscribers().filter((s) => s.tenant === tenant).map((s) => [String(s.email || '').toLowerCase(), s]));
+    const linked = this.events().filter((r) => r.kind === 'link' && r.tenant === tenant && r.phone === phone).map((r) => subs.get(String(r.email || '').toLowerCase())).filter(Boolean);
+    if (!linked.length && !this.isSmsSubscriber(tenant, phone)) return null;
+    const named = linked.reverse().find((s) => cleanName(s.name));
+    const first = named ? cleanName(named.name).split(' ')[0] : '';
+    return { firstName: first || null };
+  }
   isSmsSubscriber(tenant, phone) { return !!phone && this.smsState(tenant, phone).status === 'subscribed'; }
   requestSms({ tenant, phone, call, email, wording }) { this.append({ kind: 'sms_pending', tenant, phone, call: call || null, email: email || null, wording, source: 'phone' }); }
   // Reply YES within the TTL confirms a pending request. Returns true if this YES was a news confirmation.
