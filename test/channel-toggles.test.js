@@ -84,3 +84,31 @@ test('tenant creation still forces texting off; err text is escaped', async () =
     const t = a.deps.tenants.get('newco'); if (t) assert.strictEqual(t.sms_enabled, false); else assert.ok(r.status >= 400);
   } finally { await a.close(); }
 });
+
+test('instant texts: PATCH accepts boolean instant_link_reply only; dashboard switch needs session + CSRF and is logged', async () => {
+  const a = await startApp();
+  try {
+    const t = a.deps.tenants.get('rfsafe-demo'); t.approval_mode = true; t.instant_link_reply = false;
+    const tok = a.deps.adminToken || process.env.ADMIN_TOKEN;
+    const patch = (body) => fetch(a.base + '/admin/tenants/rfsafe-demo', { method: 'PATCH', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (tok) {
+      assert.strictEqual((await patch({ instant_link_reply: 'yes' })).status, 400);
+      assert.strictEqual((await patch({ approval_mode: false })).status, 400);
+      assert.strictEqual((await patch({ instant_link_reply: true })).status, 200); assert.strictEqual(t.instant_link_reply, true);
+      t.instant_link_reply = false;
+    }
+    const s = await signIn(a);
+    assert.match(await dash(a, s), /data-ch="instant">HOLD FOR REVIEW/);
+    const form = { tenant: 'rfsafe-demo', channel: 'instant', enabled: 'on' };
+    assert.strictEqual((await post(a.base, '/admin/channels', { ...form, csrf: 'bad' }, s.sess)).status, 403);
+    assert.strictEqual((await post(a.base, '/admin/channels', { ...form, csrf: s.csrf })).status, 403);
+    assert.strictEqual(t.instant_link_reply, false);
+    assert.strictEqual((await post(a.base, '/admin/channels', { ...form, csrf: s.csrf }, s.sess)).status, 303);
+    assert.strictEqual(t.instant_link_reply, true); assert.strictEqual(t.approval_mode, true);
+    const html = await dash(a, s);
+    assert.match(html, /data-ch="instant">SEND INSTANTLY/);
+    assert.match(html, /<td>rfsafe-demo<\/td><td>Texts: send instantly<\/td><td>on<\/td><td>done/);
+    await post(a.base, '/admin/channels', { ...form, enabled: 'off', csrf: s.csrf }, s.sess);
+    assert.strictEqual(t.instant_link_reply, false); assert.match(await dash(a, s), /HOLD FOR REVIEW/);
+  } finally { await a.close(); }
+});
