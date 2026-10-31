@@ -24,6 +24,6 @@ test('every tenant file uses secret references only and demo data is labeled', (
   }
 });
 test('no tool or route can take payments', () => {
-  const src = fs.readdirSync(path.join(root, 'src')).map((f) => fs.readFileSync(path.join(root, 'src', f), 'utf8')).join('\n');
+  const src = fs.readdirSync(path.join(root, 'src'), { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(root, 'src', f), 'utf8')).join('\n');
   assert.ok(!/checkoutCreate|cartCreate|paymentIntent|\/charges\b/.test(src));
 });

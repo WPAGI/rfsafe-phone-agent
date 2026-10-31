@@ -1,4 +1,7 @@
 # Changelog
+## Owner briefing module (unreleased)
+- New isolated `src/owner/` module, off unless `owner_briefing.enabled` is true for the tenant. It adds the daily PIN-gated briefing call, urgent alerts with rate limits and quiet hours, the on-demand briefing for owner numbers, transfer fallback and an optional Twilio transfer bridge, and owner-call archive and audit logs. Admin: `owner_briefing` in the PATCH list, plus `/owner-pin` and `/owner-briefing`. See GO-LIVE.md.
+
 ## v0.2.0 (2026-10-30)
 - Public `/` is the CallBots marketing page (title, canonical, Open Graph, JSON-LD, FAQ). `/robots.txt`, `/sitemap.xml`, and `/favicon` are served from the app. `/health`, `/admin`, and webhooks are unchanged.
 - Homepage design pass: brand mark, light and dark palettes, sticky nav with a mobile menu, hero illustration, icon feature cards, and a three-step flow. SEO tags stay in place.

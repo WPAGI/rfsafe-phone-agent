@@ -73,3 +73,45 @@ When the name is ready, add the domain in Render and point DNS at `rfsafe-phone-
 - Turn on after deploy: `PATCH /admin/tenants/rfsafe` with `deploy/rfsafe.order-lookup.patch.json`.
 - Caller check: order number plus the email or phone on the order (caller ID counts). Max 3 failed checks per call.
   Returns status, items, carrier, last 4 of tracking, delivery estimate, city/state. Never the street address, payment, or prices.
+
+## Owner briefing module (off by default)
+Code: `src/owner/`. Nothing in it runs until the tenant has `owner_briefing.enabled: true`. With the flag off, inbound calls, texts, transfers and the tool list behave exactly as before (covered by tests). It adds:
+- **Daily briefing call** to the owner numbers at `daily_time` (default 18:00 America/New_York), from the bot's number. The owner must say or key in the PIN before anything is read. If voicemail answers, it leaves only: "This is the RF Safe phone assistant with your daily update. Please call the main line back." Restart-safe: the day is claimed in `DATA_DIR/owner-state.json` before dialing, so it runs once per day. If the server was down at the set time, it still runs within 3 hours of it.
+- **Urgent alerts.** It calls the owners right away for a safety issue, a legal threat, a caller who escalates (two or more anger phrases), a message marked urgent or ASAP, or repeated system errors (`error_threshold` within `error_window_minutes`). Limits are `alert_max_per_day` and `alert_min_gap_minutes`. During `quiet_hours` only the kinds in `quiet_hours_allow` (default: safety) place a call; the rest are logged and appear in the next briefing.
+- **On demand.** An owner number calling the bot and asking "what happened today?" gets the same briefing after giving the PIN. Other callers never see the tool. A wrong PIN gets "I could not verify that" and the call continues as normal. Each call allows 2 tries, and 5 failures in a day lock the PIN until the next day. Spoken PIN digits are redacted from the stored transcript.
+- **Transfer fallback.** When the flag is on, `transfer_to_human` is described as explicit-request only. If the transfer fails, the bot takes a message and texts and emails the owners a short notice (last 4 digits of the caller only). The optional `transfer_bridge_uri` also catches a transfer that was accepted but not answered (see Twilio below).
+- **Logs.** Every owner call goes to `call-records.jsonl` (`direction: outbound_owner`), `owner-calls.jsonl` (with final status from Twilio) and `owner-audit.jsonl`. Phone numbers are fingerprinted, and PINs are never logged.
+
+The briefing gives counts and topics only: calls, incoming texts, texts and emails sent, top questions, order lookups, messages and voicemails, alerts, follow-ups, errors and knowledge base gaps. It never includes caller numbers, names, emails or message text. Details stay in `/admin`.
+
+### Settings (`PATCH /admin/tenants/rfsafe` with `{"owner_briefing": {...}}`)
+| field | default | notes |
+|---|---|---|
+| enabled | false | master switch |
+| owner_numbers | known_callers whose role contains "admin" or "owner" | up to 5 E.164 numbers |
+| daily_call / daily_time / timezone | true / "18:00" / "America/New_York" | |
+| daily_numbers, alert_numbers | all owner numbers | must also be owner numbers |
+| copy_sms / copy_email | false / false | text copy to the owner numbers, email copy to `owner_email` |
+| emergency_alerts | true | |
+| alert_max_per_day / alert_min_gap_minutes | 3 / 30 | |
+| quiet_hours / quiet_hours_allow | 21:00 to 08:00 / ["safety"] | kinds: safety, legal, angry, urgent_callback, system_errors |
+| error_threshold / error_window_minutes | 5 / 15 | |
+| on_demand / transfer_fallback | true / true | |
+| transfer_bridge_uri | unset | tel:+E164 or sip: |
+| voice | "Polly.Joanna" | Twilio `<Say>` voice for owner calls |
+
+PIN: `POST /admin/tenants/rfsafe/owner-pin {"pin":"<4-8 digits>"}` (admin token). It is stored as a scrypt hash in `DATA_DIR/owner-pins.json` (0600), never in the tenant file or the config output. `DELETE` clears it.
+Status and preview: `GET /admin/tenants/rfsafe/owner-briefing`. Test call: `POST .../owner-briefing {"action":"call_now"}`, which dials owner numbers only and needs both the flag and a PIN.
+
+### Twilio requirements
+- Outbound calls use the REST API with the same `TWILIO_ACCOUNT_SID` / `twilio_auth_token` that sends texts. The `From` is the bot's number, which must be voice-capable in the account. Answering-machine detection (`MachineDetection=DetectMessageEnd`) adds a small per-call charge.
+- `PUBLIC_BASE_URL` must be the public https URL, because Twilio posts to `/twilio/owner/answer|pin|status` and each request is signature-checked against that tenant's auth token.
+- Copies by text go through the tenant's A2P Messaging Service (Customer Care campaign). They are internal notices to the owners' own numbers. Leave `copy_sms` off if that is not acceptable for the campaign.
+- Transfer bridge (optional): point a Twilio SIP domain or spare number's voice URL at `POST /twilio/owner/transfer?t=rfsafe`, then set `transfer_bridge_uri` to it. Twilio dials `transfer_target` for 20 seconds, and if nobody answers it records a message and alerts the owners. Without the bridge, only an outright failed REFER is caught, because the xAI REFER API does not report whether the person answered.
+
+### Enable
+1. Deploy (John approves). The scheduler starts but stays idle.
+2. Set the PIN with the owner-pin endpoint.
+3. `PATCH` with `{"owner_briefing":{"enabled":true,"daily_time":"18:00","owner_numbers":["+1..."]}}`.
+4. `POST .../owner-briefing {"action":"call_now"}` and answer. Check that the PIN prompt, the briefing and `owner-audit.jsonl` all work.
+5. To turn it off, `PATCH {"owner_briefing":{"enabled":false}}`. Everything goes back to the old behavior immediately.
