@@ -141,9 +141,10 @@ function createApp(d) {
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
     if (req.method === 'PATCH' && !m[2]) {
       // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
-      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled'];
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply'];
       const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
       if ('email_enabled' in body && typeof body.email_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['email_enabled must be boolean'] });
+      if ('instant_link_reply' in body && typeof body.instant_link_reply !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['instant_link_reply must be boolean'] });
       if ('order_lookup_enabled' in body && typeof body.order_lookup_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['order_lookup_enabled must be boolean'] });
       if ('shopify' in body && !validShopifyPatch(body.shopify)) return json(res, 400, { error: 'invalid', detail: ['shopify: {shop, mode: public|storefront, public_domain?, admin_shop?: *.myshopify.com} only'] });
       const next = { ...t, ...body };
@@ -303,7 +304,9 @@ function createApp(d) {
       if (!sess || !sameOrigin(req) || !f.csrf || !safeEq(f.csrf, auth.csrfFor(sess.sid))) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the dashboard and try again.'));
       const t = d.tenants.get(String(f.tenant || '')); const ch = f.channel; const on = f.enabled === 'on' ? true : f.enabled === 'off' ? false : null;
       const back = (msg) => adminUiSend(res, 303, '', { location: '/admin' + (msg ? '?err=' + encodeURIComponent(msg) : '') });
-      if (!t || !['sms', 'email'].includes(ch) || on === null) return back('Unknown line or setting. Reload the dashboard and try again.');
+      if (!t || !['sms', 'email', 'instant'].includes(ch) || on === null) return back('Unknown line or setting. Reload the dashboard and try again.');
+      // Texts: send instantly (instant_link_reply) or hold for review (approval queue). Recipient/allowlist/per-call limits unchanged.
+      if (ch === 'instant') { t.instant_link_reply = on; if (!on) t.approval_mode = true; d.tenants.save(t); log('tenant.instant_texts', { tenant: t.id, enabled: on }); logChannel({ tenant: t.id, channel: 'instant', enabled: on, ok: true }); return back(); }
       if (ch === 'email') { t.email_enabled = on; d.tenants.save(t); log('tenant.email', { tenant: t.id, enabled: on }); logChannel({ tenant: t.id, channel: 'email', enabled: on, ok: true }); return back(); }
       let r; try { r = await setSms(t, on); } catch (e) { r = { code: 500, body: { error: 'save_failed' } }; }
       if (r.code !== 200) { const msg = CH_ERR[r.body.error] || 'Texting could not be changed. Try again shortly.'; logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: false, error: r.body.error }); return back(msg); }
