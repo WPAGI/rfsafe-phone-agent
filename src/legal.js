@@ -108,6 +108,7 @@ ${NEWSLETTER_SECTION}
 <ul>
   <li>For each call we keep a short record for quality review by Quanta X Technology staff: the calling number, the time and length of the call, the topics you asked the assistant about, which tools it used, a masked copy of any email address it sent to with the email's topic, and whether you asked for the newsletter.</li>
   <li>We do not keep full call transcripts in this record. Call records are deleted after 180 days.</li>
+  <li>We keep a copy of each text and email our assistant sends you (the exact message, links and delivery status) for quality control. Only RF Safe staff can see these copies, and they are deleted after 180 days.</li>
   <li>Access is limited to our administrators, who sign in with a one-time link sent to our company inbox.</li>
 </ul>
 <h2>Retention and security</h2>
