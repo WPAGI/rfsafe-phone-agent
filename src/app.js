@@ -342,6 +342,45 @@ function createApp(d) {
       if (r.code !== 200) { const msg = CH_ERR[r.body.error] || 'Texting could not be changed. Try again shortly.'; logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: false, error: r.body.error }); return back(msg); }
       logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: true }); return back();
     }
+    if (p === '/admin/outbound' || p.startsWith('/admin/outbound/')) {
+      const OB = require('./owner/outbound'); const { PinStore } = require('./owner/pin');
+      if (!sess) return req.method === 'GET' && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+      const list = d.tenants.list(); const pick = (id) => list.find((x) => x.id === id) || list[0];
+      const back = (t, qs) => adminUiSend(res, 303, '', { location: '/admin/outbound?t=' + encodeURIComponent(t ? t.id : '') + (qs ? '&' + qs : '') });
+      const E = (m) => 'err=' + encodeURIComponent(m); const M = (m) => 'msg=' + encodeURIComponent(m);
+      const csrf = auth.csrfFor(sess.sid); const who = 'admin session ' + fp(sess.sid);
+      const render = (t, extra = {}) => {
+        const tz = require('./owner/config').settings(t).timezone; const today = require('./owner/config').localParts(now(), tz).date;
+        const dq = String(u.searchParams.get('date') || ''); const date = OB.DATE.test(dq) && dq <= today ? dq : today;
+        const nonce = require('crypto').randomBytes(16).toString('base64');
+        const body = OB.page({ csrf, nonce, tenants: list, t, date, today, unanswered: owner.unansweredFor(t, date), preview: owner.briefingPreview(t), calls: owner.recentCalls(t), pinSet: owner.pins.has(t.id), audit: owner.auditLog(t), msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 300), ...extra });
+        return adminUiSend(res, 200, adm.shell('Outbound', body));
+      };
+      if (req.method === 'GET' && p === '/admin/outbound') { const t = pick(String(u.searchParams.get('t') || '')); if (!t) return json(res, 404, { error: 'no_tenant' }); return render(t); }
+      if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
+      const f = await form();
+      if (!sameOrigin(req) || !f.csrf || !safeEq(f.csrf, csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the outbound page and try again.'));
+      const t = pick(String(f.t || '')); if (!t) return json(res, 404, { error: 'no_tenant' });
+      const act = p.slice('/admin/outbound/'.length);
+      if (act === 'pin') {
+        if (!PinStore.valid(f.pin)) return back(t, E('The PIN must be 4 to 8 digits.'));
+        if (String(f.pin) !== String(f.pin_confirm || '')) return back(t, E('The two PINs did not match.'));
+        owner.setPin(t, String(f.pin), who); log('admin.owner_pin', { tenant: t.id }); return back(t, M('PIN saved.'));
+      }
+      if (act === 'settings') {
+        const r = OB.parseSettings(f, t.owner_briefing || {}); if (r.errors) return back(t, E(r.errors.join('; ')));
+        t.owner_briefing = r.patch; d.tenants.save(t); owner.auditAdmin(t, 'settings_saved', { by: who, enabled: r.patch.enabled, voice: r.patch.voice }); log('admin.owner_settings', { tenant: t.id }); return back(t, M('Settings saved.'));
+      }
+      if (act === 'test-call') {
+        const C = require('./owner/config'); const to = String(f.to || '');
+        if (!C.isOwner(t, to)) return back(t, E('Test calls can only go to an owner number.'));
+        if (f.confirm !== 'yes') return render(t, { confirmCall: to });
+        if (!C.enabled(t)) return back(t, E('Turn the owner briefing on first.'));
+        if (!owner.pins.has(t.id)) return back(t, E('Set a PIN first.'));
+        const r = await owner.testCall(t, to, who); return back(t, r.ok ? M('Test call placed.') : E('The call could not be placed (' + (r.error || 'error') + ').'));
+      }
+      return json(res, 404, { error: 'not_found' });
+    }
     if (p === '/admin/subscribers' || p.startsWith('/admin/subscribers/')) {
       const S = require('./subscribers'); const path = require('path');
       if (!d.newsletterFile) return json(res, 503, { error: 'not_available' });
@@ -405,7 +444,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/health') return json(res, 200, { ok: true, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
-      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/')) return await adminUi(req, res, u);
+      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/')) return await adminUi(req, res, u);
       if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTwilio(sec(t, 'twilio_auth_token'), d.publicBaseUrl + req.url, params, req.headers['x-twilio-signature']));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);

@@ -59,8 +59,8 @@ class Tools {
     if (Object.values(args).some((v) => looksLikeCard(v))) { log('guard.payment_blocked', { tenant: t.id, tool: name }); return { ok: false, error: 'payment_details_refused', say: 'We never take payment details by phone or text. I can text you a link to order on the official website.' }; }
     try {
       switch (name) {
-        case 'kb_answer': { const q = String(args.question || '').slice(0, 500); const a = this.d.kbFor(t).answer(q); if (!a.found) this.gapLog({ tenant: t.id, question: q.slice(0, 200), reason: 'no_match', channel: ctx && ctx.channel }); return { ok: true, ...a, ...(a.found ? { guidance: a.guidance + ' If these passages do not actually answer the question, call note_unanswered and do not guess.' } : {}) }; }
-        case 'note_unanswered': { this.gapLog({ tenant: t.id, question: String(args.question || '').slice(0, 200), reason: 'model_unanswered', channel: ctx && ctx.channel }); return { ok: true, say: 'I do not have that information yet. I can take a message for the RF Safe team or text you a link to rfsafe.org.' }; }
+        case 'kb_answer': { const q = String(args.question || '').slice(0, 500); const a = this.d.kbFor(t).answer(q); if (!a.found) this.gapLog({ tenant: t.id, question: q.slice(0, 200), reason: 'no_match', ...this.gapCtx(ctx) }); return { ok: true, ...a, ...(a.found ? { guidance: a.guidance + ' If these passages do not actually answer the question, call note_unanswered and do not guess.' } : {}) }; }
+        case 'note_unanswered': { this.gapLog({ tenant: t.id, question: String(args.question || '').slice(0, 200), reason: 'model_unanswered', ...this.gapCtx(ctx) }); return { ok: true, say: 'I do not have that information yet. I can take a message for the RF Safe team or text you a link to rfsafe.org.' }; }
         case 'website_lookup': return await this.websiteLookup(args);
         case 'sar_ranking': { const r = await this.d.sarFor(t).lowest({ metric: ['head', 'body', 'combined'].includes(args.metric) ? args.metric : 'combined', brand: String(args.brand || '').slice(0, 40), limit: Number(args.limit) || 5 }); if (!checkUrl(r.ranking, t.link_allowlist).ok) delete r.ranking; for (const p of r.phones) if (!checkUrl(p.sar_page, t.link_allowlist).ok) delete p.sar_page; return { ok: true, ...r }; }
         case 'sar_lookup': { const r = await this.d.sarFor(t).lookup(String(args.phone || '').slice(0, 120)); if (!r.found) return { ok: true, found: false, close_matches: r.close || [], say: 'I could not find that exact model in our SAR database. Ask for the exact model name, or offer to text the SAR lookup page.' }; for (const k of ['sar_page', 'kids_visual', 'ranking']) if (!checkUrl(r[k], t.link_allowlist).ok) delete r[k]; return { ok: true, ...r }; }
@@ -157,6 +157,8 @@ class Tools {
     if (newsInvite) log('newsletter.sms_requested', { tenant: t.id, call: ctx.callId, to: fp(to), sent: !!r.ok });
     return r.ok ? { ok: true, sent: true, to_last4: last4(to), ...(newsInvite ? { news_invite: true, say_after: 'Tell the caller: to join the news texts, just reply YES to that text.' } : {}) } : { ok: false, error: r.reason };
   }
+  // Where a gap came from, for the owner briefing: channel, conversation id, caller last 4 only.
+  gapCtx(ctx) { return { channel: ctx && ctx.channel, call: (ctx && ctx.callId) || null, from_last4: ctx && ctx.caller ? String(ctx.caller).replace(/\D/g, '').slice(-4) || null : null }; }
   gapLog(ev) { if (this.d.kbGapFile) { try { appendJsonl(this.d.kbGapFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
   archive(rec) { if (this.d.sentMessages) { try { this.d.sentMessages.add(rec); } catch { /* never break a call */ } } }
   emailLog(ev) { if (this.d.emailLogFile) { try { appendJsonl(this.d.emailLogFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
