@@ -48,7 +48,7 @@ class SentMessages {
       const first = all.length ? all.reduce((m, r) => (r.at < m ? r.at : m), all[0].at) : null;
       all = all.concat(this.legacyEmails().filter((r) => !(r.provider_id && have.has(r.provider_id)) && (!first || r.at < first)));
     }
-    return all.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return all.reverse().sort((a, b) => String(b.at).localeCompare(String(a.at)));
   }
   get(id) { return this.list('sms').concat(this.list('email')).find((r) => r.id === id) || null; }
   prune() {
