@@ -143,9 +143,9 @@ test('daily call: copies off by default; configured time and numbers respected; 
 });
 
 // ---------- Twilio owner-call webhooks ----------
-async function ownerApp() {
+async function ownerApp(ob = { enabled: true, voice: 'twilio' }) {
   const a = await startApp(); const t = a.deps.tenants.get('rfsafe-demo');
-  t.known_callers = { [KATIE]: { name: 'Katie', role: 'administrator' } }; t.owner_briefing = { enabled: true };
+  t.known_callers = { [KATIE]: { name: 'Katie', role: 'administrator' } }; t.owner_briefing = ob;
   a.app.owner.pins.set(t.id, '4821');
   const post = (p, params) => { const url = a.base + p; return fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': twilioSignature('tw-test', url, params) }, body: new URLSearchParams(params) }); };
   return { a, t, post };
