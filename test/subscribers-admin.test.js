@@ -96,3 +96,28 @@ test('HTTP: page needs sign-in; dashboard links to it; POSTs need CSRF; delete a
     const x = await fetch(a.base + '/admin/subscribers', { headers: { authorization: 'Bearer ' + a.deps.adminToken } }); if (a.deps.adminToken) assert.strictEqual(x.status, 200);
   } finally { await a.close(); }
 });
+
+test('page: Merge only on rows missing email or phone, targets only fill the gap; Delete on every row', () => {
+  const { subscribersPage } = require('../src/subscribers');
+  const rows = [
+    { key: 'full', tenant: 'r', name: 'John', email: 'john@x.com', phone: '+17270000001' },
+    { key: 'eonly', tenant: 'r', name: 'Ann', email: 'ann@x.com', phone: '' },
+    { key: 'ponly', tenant: 'r', name: '', email: '', phone: '+17270000002' },
+    { key: 'ponly2', tenant: 'r', name: '', email: '', phone: '+17270000003' },
+    { key: 'other', tenant: 'z', name: '', email: '', phone: '+17270000004' },
+  ];
+  const html = subscribersPage({ csrf: 'c', nonce: 'n', rows, q: '', audit: [] });
+  const trs = html.split('<tr>').slice(2); const row = (k) => trs.find((t) => t.includes(`name="key" value="${k}"`));
+  for (const k of rows.map((r) => r.key)) assert.match(row(k), /Delete<\/button>/);
+  assert.doesNotMatch(row('full'), /subscribers\/merge/);
+  const opts = (k) => [...row(k).matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(opts('eonly'), ['ponly', 'ponly2']);
+  assert.deepStrictEqual(opts('ponly'), ['eonly']);
+  assert.doesNotMatch(row('other'), /subscribers\/merge/);
+  assert.doesNotMatch(html, /<option value="full"/);
+});
+test('page: no Merge anywhere when every entry has both email and phone', () => {
+  const { subscribersPage } = require('../src/subscribers');
+  const html = subscribersPage({ csrf: 'c', nonce: 'n', q: '', audit: [], rows: [{ key: 'a', tenant: 'r', email: 'a@x.com', phone: '+17270000001' }, { key: 'b', tenant: 'r', email: 'b@x.com', phone: '+17270000002' }] });
+  assert.doesNotMatch(html, /subscribers\/merge/); assert.strictEqual((html.match(/Delete<\/button>/g) || []).length, 2);
+});
