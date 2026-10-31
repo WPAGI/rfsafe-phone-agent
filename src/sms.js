@@ -3,6 +3,7 @@
 const { STOP_WORDS, START_WORDS, HELP_WORDS } = require('./twilio');
 const { checkUrl, looksLikeCard } = require('./linkguard');
 const { fp } = require('./util');
+const { newsSmsConfirmed } = require('./newsletter');
 
 const URLISH = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi;
 // Final reply guard: any link not on the allowlist is removed; payment-looking content is refused.
@@ -42,9 +43,13 @@ class XaiTextBrain {
   }
 }
 
-async function handleInboundSms({ tenant, from, body, consent, toolsFor, brain, instructions, log }) {
+async function handleInboundSms({ tenant, from, body, consent, toolsFor, brain, instructions, log, newsletter }) {
   const text = String(body || '').trim();
-  if (STOP_WORDS.test(text)) { consent.record(tenant.id, from, 'stop'); log('sms.stop', { tenant: tenant.id, from: fp(from) }); return `You are unsubscribed from ${tenant.name} texts. No more messages will be sent. Reply START to resubscribe.`; }
+  if (newsletter && /^\s*yes\s*[.!]?\s*$/i.test(text)) {
+    let ok = false; try { ok = newsletter.confirmSms(tenant.id, from, text); } catch { ok = false; }
+    if (ok) { consent.record(tenant.id, from, 'start'); log('newsletter.sms_confirmed', { tenant: tenant.id, from: fp(from) }); return newsSmsConfirmed(tenant.name); }
+  }
+  if (STOP_WORDS.test(text)) { consent.record(tenant.id, from, 'stop'); if (newsletter) { try { newsletter.stopSms(tenant.id, from); } catch { /* ignore */ } } log('sms.stop', { tenant: tenant.id, from: fp(from) }); return `You are unsubscribed from ${tenant.name} texts. No more messages will be sent. Reply START to resubscribe.`; }
   if (START_WORDS.test(text)) { consent.record(tenant.id, from, 'start'); return `You are resubscribed to ${tenant.name}. Reply STOP to opt out, HELP for help.`; }
   consent.record(tenant.id, from, 'inbound');
   if (HELP_WORDS.test(text)) return `${tenant.name} support (AI assistant). Visit https://${tenant.link_allowlist[0]}${tenant.support_email ? ', email ' + tenant.support_email : ''} or call this number. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out.`;

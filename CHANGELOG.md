@@ -11,3 +11,8 @@
 - First pilot build. Tool server, xAI SIP bridge, SMS guard, read-only Shopify client, KB tool, multi-tenant registry with encrypted secrets, mocked click-to-connect onboarding, demo with EXAMPLE data, and 27 tests.
 - Not deployed. No accounts were created and no real APIs were called.
 - Known unknowns: the xAI webhook signature scheme (Standard Webhooks assumed), xAI billing after a REFER, and Node `WebSocket` header support against the live xAI endpoint. All are to be checked on the first test call.
+
+## News-text opt-in (unreleased)
+- Voice: when texting a link, the bot may ask once about RF Safe breaking-news texts; on a spoken yes the text adds a reply-YES invite with frequency (up to 4 msgs/mo), "Msg & data rates may apply", HELP/STOP. Subscribed only after the YES reply; STOP cancels.
+- One newsletter list joins email and caller-ID phone, with separate email_optin / sms_optin and proof (time, call id, wording shown, YES reply). Existing text subscribers are recognized. Admin stats + CSV columns. Privacy/Terms SMS section updated.
+- This bot sends no news texts; a separate newsletter tool will.
