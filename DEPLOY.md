@@ -7,7 +7,7 @@ Nothing here has been done. Every step that creates an account, buys something, 
 ## Approvals John must OK (with cost)
 | # | Step | Cost |
 |---|---|---|
-| 1 | xAI API billing on the console (usage only) | $0.08/min voice; grok-4.3 SMS replies ~$1–2/mo |
+| 1 | xAI API billing on the console (usage only) | $0.08/min voice; grok-4.7 SMS replies ~$1–2/mo |
 | 2 | Twilio account + **one new local number** | $1.15/mo |
 | 3 | Twilio Elastic SIP Trunk (origination to xAI, call transfer enabled) | $0.0034/min in, $0.0100/min per transfer leg |
 | 4 | Register the number with xAI (`POST /v2/phone-numbers`, byo_trunk) | no fee listed |

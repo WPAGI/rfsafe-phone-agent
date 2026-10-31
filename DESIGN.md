@@ -35,7 +35,7 @@ flowchart LR
   B -- no --> X1[403]
   B -- yes --> C{STOP / START / HELP?}
   C -- yes --> L[Consent ledger + canned reply]
-  C -- no --> D[Brain: grok-4.3 + kb/product tools]
+  C -- no --> D[Brain: grok-4.7 + kb/product tools]
   D --> G[guardReply: strip non-allowlisted links, card, payment]
   G --> E{approval_mode?}
   E -- yes --> Q[Approvals queue for John]
