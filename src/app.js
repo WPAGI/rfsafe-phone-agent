@@ -313,6 +313,33 @@ function createApp(d) {
       if (r.code !== 200) { const msg = CH_ERR[r.body.error] || 'Texting could not be changed. Try again shortly.'; logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: false, error: r.body.error }); return back(msg); }
       logChannel({ tenant: t.id, channel: 'sms', enabled: on, ok: true }); return back();
     }
+    if (p === '/admin/subscribers' || p.startsWith('/admin/subscribers/')) {
+      const S = require('./subscribers'); const path = require('path');
+      if (!d.newsletterFile) return json(res, 503, { error: 'not_available' });
+      const dir = path.dirname(d.newsletterFile);
+      const subs = new S.Subscribers({ file: d.newsletterFile, auditFile: path.join(dir, 'subscriber-audit.jsonl'), suppressionFile: path.join(dir, 'subscriber-suppression.jsonl'), now: () => (now().getTime ? now().getTime() : Date.now()) });
+      const back = (qs) => adminUiSend(res, 303, '', { location: '/admin/subscribers' + (qs ? '?' + qs : '') });
+      if (req.method === 'POST') {
+        const f = await form();
+        if (!sess || !sameOrigin(req) || !f.csrf || !safeEq(f.csrf, auth.csrfFor(sess.sid))) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the subscribers page and try again.'));
+        const who = 'admin session ' + fp(sess.sid); const act = p.slice('/admin/subscribers/'.length); let r;
+        if (act === 'edit') r = subs.edit(String(f.key || ''), { name: f.name ?? null, email: f.email ?? null, phone: f.phone ?? null }, who);
+        else if (act === 'unsubscribe') r = subs.unsubscribe(String(f.key || ''), f.channel, who);
+        else if (act === 'merge') r = f.from ? subs.merge(String(f.into || ''), String(f.from), who) : { ok: false, error: 'cannot_merge' };
+        else if (act === 'delete') {
+          if (f.confirm !== 'yes') { const row = subs.get(String(f.key || '')); return row ? adminUiSend(res, 200, adm.shell('Delete entry', S.confirmDeletePage({ csrf: f.csrf, r: row }))) : back('err=' + encodeURIComponent(S.MSG.not_found)); }
+          r = subs.remove(String(f.key || ''), who);
+        } else return json(res, 404, { error: 'not_found' });
+        log('admin.subscribers', { action: act, ok: !!r.ok, error: r.ok ? undefined : r.error });
+        return back(r.ok ? 'msg=' + encodeURIComponent({ edit: 'Saved.', unsubscribe: 'Channel turned off.', merge: 'Entries merged.', delete: 'Entry deleted.' }[act]) : 'err=' + encodeURIComponent(S.MSG[r.error] || 'Could not save that change.'));
+      }
+      if (req.method !== 'GET' || p !== '/admin/subscribers') return json(res, 405, { error: 'method_not_allowed' });
+      if (!sess && !isAdmin(req)) return /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+      const q = (u.searchParams.get('q') || '').slice(0, 80);
+      if (!sess) return json(res, 200, { entries: subs.list(q).map(({ key, ...r }) => r) });
+      const nonce = require('crypto').randomBytes(16).toString('base64');
+      return adminUiSend(res, 200, adm.shell('Subscribers', S.subscribersPage({ csrf: auth.csrfFor(sess.sid), nonce, rows: subs.list(q), q, msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 200), audit: subs.auditLog(30) })), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
+    }
     // Data views: session cookie, or Bearer admin token for scripts.
     if (!sess && !isAdmin(req)) return (p === '/admin' || p === '/admin/messages') && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
@@ -349,7 +376,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/health') return json(res, 200, { ok: true, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
-      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname)) return await adminUi(req, res, u);
+      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/')) return await adminUi(req, res, u);
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms/status') return await twilioStatus(req, res);

@@ -197,7 +197,7 @@ class Tools {
     const name = cleanName(args.recipient_name);
     let isSub = false; try { isSub = !!(this.d.newsletter && this.d.newsletter.isSubscriber(t.id, to)); } catch { isSub = false; }
     const nl = isSub ? { subscriber: true, unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : args.newsletter_optin === true && this.d.newsletter ? { confirmUrl: this.d.newsletter.confirmUrl({ email: to, name, tenant: t.id }), unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : null;
-    if (nl && nl.confirmUrl && ctx.caller && this.d.newsletter) { try { this.d.newsletter.linkPhone({ tenant: t.id, email: to, phone: ctx.caller, call: ctx.callId }); } catch { /* ignore */ } }
+    if (nl && ctx.caller && this.d.newsletter && !(isSub && this.d.newsletter.emailOnFile && this.d.newsletter.emailOnFile(t.id, ctx.caller) === to)) { try { this.d.newsletter.linkPhone({ tenant: t.id, email: to, phone: ctx.caller, call: ctx.callId }); } catch { /* ignore */ } }
     const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl });
     const subject = subjectFor(args.topic, !!summary);
     counts.set(key, n + 1); sigs.add(sig); sent.set(key, sigs); // count attempts, so a failing provider cannot be retried without limit

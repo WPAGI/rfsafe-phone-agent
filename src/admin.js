@@ -87,13 +87,18 @@ function csvCell(v) { let s = v == null ? '' : String(v); if (/^[=+\-@\t\r]/.tes
 const toCsv = (cols, rows) => [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\r\n') + '\r\n';
 
 // Newsletter: one list per person (email and/or caller-ID phone), with separate email and text consent + proof.
-function newsletterRows(file) {
+function newsletterRows(file, { all = false } = {}) {
   let lines = []; try { lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean); } catch { return []; }
   const rows = []; const byEmail = new Map(); const byPhone = new Map();
   const blank = (tenant) => ({ name: '', email: '', phone: '', tenant, confirmed_at: '', source: 'phone', consent_method: '', confirm_ip: '', user_agent: '', unsubscribed_at: '', email_optin: '', sms_optin: '', sms_requested_at: '', sms_call: '', sms_consent_wording: '', sms_confirmed_at: '', sms_confirm_reply: '', sms_stopped_at: '' });
   const get = (tenant, email, phone) => {
     const ek = email ? tenant + '|' + String(email).trim().toLowerCase() : null; const pk = phone ? tenant + '|' + phone : null;
     let r = (ek && byEmail.get(ek)) || (pk && byPhone.get(pk));
+    const pr = pk && byPhone.get(pk);
+    if (r && pr && pr !== r && !pr.email && !r.phone) { // a phone-only row now linked to an email: fold it in
+      for (const [k, v] of Object.entries(pr)) if (v && !r[k] && k !== 'source') r[k] = v;
+      rows.splice(rows.indexOf(pr), 1); byPhone.set(pk, r);
+    }
     if (!r) { r = blank(tenant); rows.push(r); }
     if (ek && !r.email) { r.email = String(email).trim().toLowerCase(); byEmail.set(ek, r); }
     if (pk && !r.phone) { r.phone = phone; byPhone.set(pk, r); }
@@ -103,12 +108,13 @@ function newsletterRows(file) {
     let e; try { e = JSON.parse(l); } catch { continue; }
     if (e.kind === 'confirmed') { const r = get(e.tenant, e.email); Object.assign(r, { name: e.name || r.name, confirmed_at: e.at, source: e.source || 'phone', consent_method: 'phone verbal yes + email double opt-in click', confirm_ip: e.ip || '', user_agent: e.ua || '', unsubscribed_at: '', email_optin: 'subscribed' }); }
     else if (e.kind === 'unsubscribed') { const r = byEmail.get(e.tenant + '|' + String(e.email || '').trim().toLowerCase()); if (r) { r.unsubscribed_at = e.at; r.email_optin = 'unsubscribed'; } }
+    else if (e.kind === 'profile') { const r = get(e.tenant, e.email, e.phone); if (e.name != null) r.name = e.name; }
     else if (e.kind === 'link') { const r = get(e.tenant, e.email, e.phone); if (!r.phone) r.phone = e.phone; }
     else if (e.kind === 'sms_pending') { const r = get(e.tenant, e.email, e.phone); if (r.sms_optin !== 'subscribed') Object.assign(r, { sms_optin: 'pending', sms_requested_at: e.at, sms_call: e.call || '', sms_consent_wording: e.wording ? `Spoken: ${e.wording.spoken || ''} | Text: ${e.wording.text || ''}` : '' }); }
     else if (e.kind === 'sms_confirmed') { const r = get(e.tenant, null, e.phone); Object.assign(r, { sms_optin: 'subscribed', sms_confirmed_at: e.at, sms_confirm_reply: e.reply || '', sms_stopped_at: '' }); }
     else if (e.kind === 'sms_stopped') { const r = byPhone.get(e.tenant + '|' + e.phone); if (r) { r.sms_optin = 'unsubscribed'; r.sms_stopped_at = e.at; } }
   }
-  return rows.filter((r) => r.email_optin || r.sms_optin);
+  return rows.filter((r) => all ? (r.email || r.phone) : (r.email_optin || r.sms_optin));
 }
 const NL_COLS = ['name', 'email', 'tenant', 'confirmed_at', 'source', 'consent_method', 'confirm_ip', 'user_agent', 'unsubscribed_at', 'phone', 'email_optin', 'sms_optin', 'sms_requested_at', 'sms_call', 'sms_consent_wording', 'sms_confirmed_at', 'sms_confirm_reply', 'sms_stopped_at'];
 const CALL_COLS = ['at', 'ended_at', 'tenant', 'caller', 'seconds', 'summary', 'kb_queries', 'tools', 'emails', 'texts', 'newsletter_optin'];
@@ -150,7 +156,7 @@ function dashboard({ csrf, nl, calls, q, now, tenants, channelLog, err }) {
 <p><a href="/admin/messages?type=sms">Review texts</a> · <a href="/admin/messages?type=email">Review emails</a> <small>(exact copies of every text and email sent)</small></p>
 ${channelsSection(csrf, tenants, channelLog, err)}
 <h2>Newsletter</h2>${k('email confirmed (active)', active.length)}${k('email unsubscribed', emailRows.length - active.length)}${k('news texts confirmed', smsSubs)}${k('news texts awaiting YES', smsPend)}${k('news texts stopped', smsStop)}${k('new, last 7 days', since(d7))}${k('new, last 30 days', since(d30))}
-<p><a href="/admin/newsletter.csv">Download CSV</a> <small>(email and text consent per person: consent wording shown, source call, confirm time and reply, IP and browser when recorded)</small></p>
+<p><a href="/admin/subscribers"><b>Manage subscribers</b></a> (search, edit, unsubscribe, merge, delete) · <a href="/admin/newsletter.csv">Download CSV</a> <small>(email and text consent per person: consent wording shown, source call, confirm time and reply, IP and browser when recorded)</small></p>
 <table><tr><th>Name</th><th>Email</th><th>Tenant</th><th>Confirmed (UTC)</th><th>Source</th><th>Confirm IP</th><th>Unsubscribed</th><th>Phone</th><th>Email</th><th>News texts</th></tr>${nlRows || '<tr><td colspan="10">No subscribers yet.</td></tr>'}</table>
 <h2>Call log</h2><form method="get" action="/admin">From <input type="date" name="from" value="${esc(q.from || '')}"> To <input type="date" name="to" value="${esc(q.to || '')}"> Number <input name="number" value="${esc(q.number || '')}" placeholder="digits, e.g. 727555"> <button type="submit">Filter</button> <a href="/admin">Clear</a></form>
 <p>${calls.length} call(s). <a href="/admin/calls.csv${qs ? '?' + esc(qs) : ''}">Download CSV</a> · <a href="/admin/kb-gaps.csv">Unanswered questions (CSV)</a> · <a href="/admin/messages?type=sms">Review texts</a> · <a href="/admin/messages?type=email">Review emails</a> <small>Call records are kept ${CALL_RETENTION_DAYS} days. Times are UTC.</small></p>
