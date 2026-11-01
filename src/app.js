@@ -428,9 +428,10 @@ function createApp(d) {
       const html = p === '/admin/usage';
       if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
       if (!sess) return html && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
-      if (!d.usage) return json(res, 503, { error: 'usage_unavailable' });
+      const US = require('./usagesnapshot'); const stored = d.usageSnapshotFile ? US.load(d.usageSnapshotFile) : null;
+      if (!d.usage && !stored) return json(res, 503, { error: 'usage_unavailable' });
       if (!usageLimiter.allow(sess.sid)) { log('admin.usage_rate_limited', {}); return html ? adminUiSend(res, 429, adm.shell('Slow down', '<h1>Too many refreshes</h1><p>Wait a minute and reload. Figures refresh every few minutes anyway.</p>'), { 'retry-after': '60' }) : json(res, 429, { error: 'rate_limited' }); }
-      const snap = await d.usage.snapshot();
+      const snap = stored ? US.toPageSnap(stored, now().getTime ? now().getTime() : Date.now()) : await d.usage.snapshot();
       if (!html) { res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', ...SEC_HEADERS }); return res.end(JSON.stringify(snap)); }
       const nonce = require('crypto').randomBytes(16).toString('base64');
       return adminUiSend(res, 200, require('./usagepage').page({ snap, nonce }), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
@@ -457,6 +458,26 @@ function createApp(d) {
     return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }));
   }
   const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv', '/admin/usage', '/admin/usage.json']);
+  // Daily usage snapshot push: POST only, Bearer USAGE_SNAPSHOT_SECRET (no session/CSRF), rate-limited per IP.
+  // Never logs the body or the secret: status and byte count only.
+  const snapLimiter = new (require('./usage').SimpleLimiter)({ max: d.usageSnapshotRateMax || 10, windowMs: 60000 });
+  async function usageSnapshotRoute(req, res) {
+    const US = require('./usagesnapshot'); let bytes = 0;
+    const done = (code, body, extra) => { log('admin.usage_snapshot', { status: code, bytes }); res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', ...SEC_HEADERS, ...(extra || {}) }); res.end(JSON.stringify(body)); };
+    if (req.method !== 'POST') return done(405, { error: 'method_not_allowed' }, { allow: 'POST' });
+    const secret = (d.env || process.env).USAGE_SNAPSHOT_SECRET;
+    if (!secret) return done(503, { error: 'snapshot_not_configured' });
+    if (!snapLimiter.allow(clientIp(req))) return done(429, { error: 'rate_limited' }, { 'retry-after': '60' });
+    if (!US.bearerOk(req.headers.authorization, secret)) return done(401, { error: 'unauthorized' });
+    if (Number(req.headers['content-length']) > US.MAX_BYTES) { req.resume(); return done(413, { error: 'too_large' }); }
+    const raw = await new Promise((resolve) => { const chunks = []; let over = false; req.on('data', (c) => { bytes += c.length; if (bytes > US.MAX_BYTES) over = true; else chunks.push(c); }); req.on('end', () => resolve(over ? null : Buffer.concat(chunks).toString('utf8'))); req.on('error', () => resolve(null)); });
+    if (raw === null) return done(413, { error: 'too_large' });
+    let j; try { j = JSON.parse(raw); } catch { return done(400, { error: 'invalid_json' }); }
+    const v = US.validate(j); if (!v.ok) return done(400, { error: 'invalid_shape', where: v.error });
+    if (!d.usageSnapshotFile) return done(503, { error: 'no_storage' });
+    let stored_at; try { stored_at = US.store(d.usageSnapshotFile, v.value, now().getTime ? now().getTime() : Date.now()); } catch { return done(500, { error: 'store_failed' }); }
+    return done(200, { ok: true, stored_at });
+  }
   const usageLimiter = new (require('./usage').SimpleLimiter)({ max: d.usageRateMax || 30, windowMs: 60000 });
 
   const handler = async (req, res) => {
@@ -472,6 +493,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/health') return json(res, 200, { ok: true, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
+      if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
       if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/')) return await adminUi(req, res, u);
       if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTwilio(sec(t, 'twilio_auth_token'), d.publicBaseUrl + req.url, params, req.headers['x-twilio-signature']));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);

@@ -88,7 +88,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   return {
     mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: usageLog,
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
-    callRecords, usage, usageTokens,
+    callRecords, usage, usageTokens, usageSnapshotFile: path.join(dataDir, 'usage-snapshot.json'),
     newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
     adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),

@@ -41,9 +41,9 @@ test('estimate math: grok-4.7 tokens x published price; voice minutes x $0.08', 
   assert.strictEqual(x.kind, 'estimated'); assert.strictEqual(x.mtd, Math.round((1 * 2 + 0.5 * 0.5 + 0.1 * 6) * 100) / 100);
   const v = by(snap, 'xai_voice'); assert.strictEqual(v.mtd, 0.4); assert.strictEqual(v.last, 0.8); assert.strictEqual(PRICING.xai.voice_per_min, 0.08);
   const tw = by(snap, 'twilio'); assert.strictEqual(tw.kind, 'exact'); assert.strictEqual(tw.mtd, 0.4); assert.strictEqual(tw.last, 30); assert.ok(tw.figures.every((f) => f.kind === 'exact'));
-  assert.strictEqual(by(snap, 'render').kind, 'plan'); assert.strictEqual(by(snap, 'render').mtd, 7.25);
+  assert.strictEqual(by(snap, 'render').kind, 'plan'); assert.strictEqual(by(snap, 'render').mtd, 32.25, 'Pro plan 25 + API instance (starter 7) + 1 GB disk');
   const re = by(snap, 'resend'); assert.strictEqual(re.figures.find((f) => f.label === 'Emails sent this month').value, 1);
-  assert.ok(snap.services.every((s) => s.updated)); assert.strictEqual(snap.mtd, Math.round((0.4 + 0.4 + x.mtd + 0 + 7.25 + 0) * 100) / 100);
+  assert.ok(snap.services.every((s) => s.updated)); assert.strictEqual(snap.mtd, Math.round((0.4 + 0.4 + x.mtd + 0 + 32.25 + 0) * 100) / 100);
   assert.ok(JSON.parse(fs.readFileSync(path.join(m.dir, 't.json'), 'utf8'))['2026-11-01']['grok-4.7'].req === 1, 'counters persisted');
 });
 test('cache: second snapshot within TTL makes no provider calls; refetches after TTL', async () => {
@@ -62,7 +62,7 @@ test('not connected shows the env var name needed', async () => {
   const s = new UsageService({ env: {}, fetchImpl: async () => { throw new Error('no'); }, now: () => NOW });
   const snap = await s.snapshot(); const html = page({ snap, nonce: 'n' });
   for (const id of ['twilio', 'xai_text', 'xai_voice', 'resend', 'render', 'shopify']) assert.strictEqual(by(snap, id).status, 'not_connected', id);
-  assert.deepStrictEqual(by(snap, 'render').needs, ['RENDER_API_KEY']); assert.ok(by(snap, 'render').figures.some((f) => f.value === 'starter'), 'falls back to render.yaml plan');
+  assert.deepStrictEqual(by(snap, 'render').needs, ['RENDER_API_KEY']); assert.ok(by(snap, 'render').figures.map((f) => f.label).join('|') === 'Pro plan|Standard instance (2 GB)|1 GB disk', 'Render line items');
   assert.match(html, /Not connected — needs <code>RENDER_API_KEY<\/code>/); assert.match(html, /XAI_API_KEY/); assert.match(html, /RESEND_API_KEY/);
 });
 test('rate limiter: per key sliding window', () => {
