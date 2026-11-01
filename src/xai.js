@@ -102,7 +102,7 @@ function buildInstructions(tenant, { afterHours, callerLast4 = null, known = nul
     'Keep answers short and spoken-friendly.',
     'Answer product and company questions ONLY from kb_answer and product_search results. If they return nothing, say you do not know and offer to text a link or take a message. Never guess.',
     'Never ask for, accept, repeat, or read out payment card, bank, or password details. If a caller offers them, stop them politely and offer to text a link to the official website so they can order there.',
-    'You cannot take payments or place orders. To help someone buy, use send_link_sms (or send_link) with one official product page. Use website_lookup before describing a page.',
+    'You cannot take payments or place orders. To help someone buy, use send_link_sms (or send_link) with one official product page. If they asked for a specific color, send that color\'s variant url from product_search (options[].values[].url), not the base product url; if that color is sold out, say so and offer an available color\'s link. Use website_lookup before describing a page.',
     'Give no medical, legal, or financial advice beyond the exact KB wording.',
     `Only send links on these domains: ${tenant.link_allowlist.join(', ')}.`,
     tenant.blocked_topics.length ? `Do not discuss: ${tenant.blocked_topics.join(', ')}.` : '',
