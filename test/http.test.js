@@ -23,7 +23,8 @@ test('Twilio SMS: signature required, per-tenant token, guarded reply, STOP', as
     assert.strictEqual((await sms('+17275550100', 'hi', 'wrong')).status, 403);
     assert.strictEqual((await sms('+14155550123', 'hi', ENV.DEMO_TWILIO_AUTH_TOKEN)).status, 403); // rfsafe token on acme number
     const r = await sms('+17275550100', 'price of the iphone 17 case', ENV.DEMO_TWILIO_AUTH_TOKEN); const x = await r.text();
-    assert.strictEqual(r.status, 200); assert.match(x, /https:\/\/quantacase\.com\/products\//);
+    assert.strictEqual(r.status, 200); assert.doesNotMatch(x, /<Message>/); // answered out-of-band
+    await a.app.smsIdle(); const tw = a.deps.smsFor(a.deps.tenants.get('rfsafe-demo')); assert.match(tw.sent.at(-1).body, /https:\/\/quantacase\.com\/products\//); assert.strictEqual(tw.sent.at(-1).to, '+17275550177');
     assert.match(await (await sms('+17275550100', 'STOP', ENV.DEMO_TWILIO_AUTH_TOKEN)).text(), /unsubscribed/);
     assert.ok(!a.deps.consent.canText('rfsafe-demo', '+17275550177'));
     assert.match(await (await sms('+17275550100', '4111 1111 1111 1111 exp 12/29', ENV.DEMO_TWILIO_AUTH_TOKEN)).text(), /never take payment/);
