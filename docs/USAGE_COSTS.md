@@ -21,3 +21,22 @@ Prices live in one table, `PRICING` in `src/usage.js`, with source URLs and a ch
 - Keys are only used in server-side `authorization` headers. Responses contain numbers, labels and env var names only. Provider errors are logged as `usage.provider_error` with the status code only.
 - UI: server-rendered inline SVG (sparklines and a stacked daily chart), no chart library. Light and dark via `prefers-color-scheme`. The breakdown table turns into cards below 640px. One nonce script turns timestamps into "x min ago".
 - Days are UTC. Month to date is compared with the full last month.
+
+## Daily snapshots (`POST /admin/usage/snapshot`)
+
+The owner's computer can push a daily snapshot that the page renders instead of the live fetch.
+
+- Auth: `Authorization: Bearer $USAGE_SNAPSHOT_SECRET` (constant-time compare). No session or CSRF. If the env var is unset or empty, every request gets 503. Wrong or missing token: 401. 10 requests/minute per IP (429). POST only (405 otherwise).
+- Body: JSON, max 256 KB (413). Shape (400 otherwise): `{version, generated_at, services:[{service, status: ok|error|not_connected|partial, items?:[{name, usd|usd_month, label: exact|estimated|flat|plan}], total_usd_month_to_date?, daily?:[{date: YYYY-MM-DD, usd}], error?, note?}]}`. Caps: 30 services, 50 items, 62 daily rows, 200-char names, 1000-char notes.
+- Stored atomically (tmp + rename, mode 600) as `DATA_DIR/usage-snapshot.json`, latest only. Response `{ok:true, stored_at}`. Logs `admin.usage_snapshot` with status and byte count only.
+- `/admin/usage` shows "Updated at <time> ET" (America/New_York) when a valid snapshot exists; all snapshot strings are HTML-escaped. Missing/unreadable snapshot: falls back to the live fetch.
+
+```
+curl -sS -X POST https://callbots.org/admin/usage/snapshot \
+  -H "Authorization: Bearer $USAGE_SNAPSHOT_SECRET" -H 'Content-Type: application/json' \
+  --data-binary @usage-snapshot.json
+```
+
+## Render line items
+
+Pro plan $25/mo (flat), Standard instance (2 GB) and 1 GB disk. Instance and disk prices come from `PRICING.render` in `src/usage.js`. With `RENDER_API_KEY`, the instance lines come from the API service list instead.

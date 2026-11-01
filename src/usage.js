@@ -10,7 +10,10 @@ const path = require('path');
 const PRICING = {
   checked: '2026-11-01',
   xai: { source: 'https://docs.x.ai/developers/pricing', per_mtok: { 'grok-4.7': { in: 2, cached: 0.5, out: 6 }, 'grok-4.6': { in: 2, cached: 0.5, out: 6 }, default: { in: 2, cached: 0.5, out: 6 } }, voice_per_min: 0.08 },
-  render: { source: 'https://render.com/pricing', plans: { free: 0, starter: 7, standard: 25, pro: 85, 'pro plus': 175, 'pro max': 225, 'pro ultra': 450 }, disk_per_gb: 0.25 },
+  render: { source: 'https://render.com/pricing', plans: { free: 0, starter: 7, standard: 25, pro: 85, 'pro plus': 175, 'pro max': 225, 'pro ultra': 450 }, disk_per_gb: 0.25,
+    // The account as billed: Pro workspace plan (flat), one Standard instance (2 GB RAM), 1 GB disk. Instance and disk
+    // prices come from plans/disk_per_gb above.
+    workspace: { name: 'Pro', monthly: 25 }, instance: { plan: 'standard', ram: '2 GB' }, disk_gb: 1 },
   resend: { source: 'https://resend.com/pricing', plan: 'Free', monthly: 0, included: 3000 },
 };
 const TTL_MS = 12 * 60 * 1000;
@@ -90,20 +93,25 @@ function resend({ env, sentMessages, now }) {
   return { status: 'ok', kind: 'plan', mtd: p.monthly, last: p.monthly, today: 0, daily: daysBack(now).map((d) => ({ day: d, cost: 0, count: cnt[d] || 0 })), note: `Plan price is fixed (${p.plan}, ${p.included.toLocaleString('en-US')} emails/month included). Email counts come from this app's sent-message log.`,
     figures: [fig('Plan', p.plan, 'text', 'plan'), fig('Plan cost / month', p.monthly, 'usd', 'plan'), fig('Emails sent this month', c.mtd, 'emails', 'estimated'), fig('Emails sent last month', c.last, 'emails', 'estimated'), fig('Of monthly allowance', p.included ? Math.round((c.mtd / p.included) * 100) : 0, '%', 'estimated')] };
 }
+function renderLines(P) {
+  return [fig(`${P.workspace.name} plan`, P.workspace.monthly, 'usd', 'plan', 'flat, per month'),
+    fig(`Standard instance (${P.instance.ram})`, P.plans[P.instance.plan], 'usd', 'plan', 'per month, from PRICING table'),
+    fig(`${P.disk_gb} GB disk`, r2(P.disk_gb * P.disk_per_gb), 'usd', 'plan', 'per month, from PRICING table')];
+}
 function yamlPlan(file) { try { const s = fs.readFileSync(file, 'utf8'); return { plan: (s.match(/^\s*plan:\s*([\w ]+)/m) || [])[1]?.trim() || null, disk: Number((s.match(/sizeGB:\s*(\d+)/) || [])[1]) || 0 }; } catch { return { plan: null, disk: 0 }; } }
 async function render({ env, fetchImpl, now, renderYaml }) {
   const P = PRICING.render; const y = yamlPlan(renderYaml);
   const planCost = (pl) => P.plans[String(pl || '').toLowerCase().replace(/_/g, ' ')] ?? null;
+  const lines = renderLines(P);
   if (!env.RENDER_API_KEY) {
-    const c = planCost(y.plan); const total = (c || 0) + y.disk * P.disk_per_gb;
-    return { status: 'not_connected', needs: ['RENDER_API_KEY'], kind: 'plan', mtd: total, last: total, today: 0, daily: [], note: 'From render.yaml (no API key): live plan not confirmed.',
-      figures: [fig('Plan (render.yaml)', y.plan || 'unknown', 'text', 'plan'), fig('Web service / month', c || 0, 'usd', 'plan'), fig(`Disk ${y.disk} GB / month`, r2(y.disk * P.disk_per_gb), 'usd', 'plan')] };
+    const total = lines.reduce((a, f) => a + f.value, 0);
+    return { status: 'not_connected', needs: ['RENDER_API_KEY'], kind: 'plan', mtd: total, last: total, today: 0, daily: [], note: `Account as billed: Pro plan + Standard instance + ${P.disk_gb} GB disk. Instance and disk prices from this app's PRICING table (render.yaml says ${y.plan || 'unknown'}). Live plan not confirmed without an API key.`, figures: lines };
   }
   const r = await fetchImpl('https://api.render.com/v1/services?limit=100', { headers: { authorization: 'Bearer ' + env.RENDER_API_KEY, accept: 'application/json' } });
   if (!r.ok) throw new ProviderError(r.status, 'Render');
-  const items = (await r.json()) || []; let total = 0; const figures = [];
+  const items = (await r.json()) || []; let total = P.workspace.monthly; const figures = [lines[0]];
   for (const it of items) { const s = it.service || it; const pl = s.serviceDetails?.plan || null; const c = planCost(pl); if (s.suspended === 'suspended') continue; total += c || 0; figures.push(fig(`${String(s.name || s.type || 'service').slice(0, 60)} (${pl || 'no plan'})`, c ?? 0, 'usd', 'plan', c == null ? 'price not in table' : undefined)); }
-  total += y.disk * P.disk_per_gb; if (y.disk) figures.push(fig(`Disk ${y.disk} GB (render.yaml)`, r2(y.disk * P.disk_per_gb), 'usd', 'plan'));
+  total += lines[2].value; figures.push(lines[2]);
   return { status: 'ok', kind: 'plan', mtd: total, last: total, today: 0, daily: [], figures, note: 'Fixed monthly plan prices from the Render API service list. Bandwidth and build minutes not included.' };
 }
 function shopify({ env }) {
