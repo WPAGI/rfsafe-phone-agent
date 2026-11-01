@@ -1,7 +1,7 @@
 ---
 title: RF Safe's mission, history and what to do today
 source: https://rfsafe.org/class/start/
-aliases: rf safe history john coates angel leigh founded 1998 mission what can i do tips reduce exposure
+aliases: rf safe warning about rf emfs what is rf safe warning rf safe history john coates angel leigh founded 1998 mission what can i do tips reduce exposure
 reviewed: 2026-10-30 pending John's review (text from rfsafe.org/class/start)
 ---
 In 1995 John R. Coates' firstborn daughter, Angel Leigh, died shortly after birth with a neural tube defect. In 1998 he founded RF Safe to warn families, especially pregnant women and children, about RF risks regulators were ignoring, and to design practical tools that actually reduce exposure. RF Safe has been online since 1998 and curates a library of more than 4,000 EMF studies.
