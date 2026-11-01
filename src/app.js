@@ -7,7 +7,7 @@ const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTwilio, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
-const { quickSmsReply, answerSms, buildSmsInstructions, SmsMemory } = require('./sms');
+const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory } = require('./sms');
 const { knownCallerFor, returningCallerFor } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
@@ -145,6 +145,7 @@ function createApp(d) {
     const { params, tenant, ok } = await readTwilio(req);
     if (!ok) { log('twilio.webhook_rejected', { route: 'sms' }); res.writeHead(403); return res.end(); }
     const from = normNumber(params.From); const text = String(params.Body || '').trim();
+    if (d.sentMessages) { try { d.sentMessages.addInbound({ tenant: tenant.id, call: smsConvoId(from, +now()), from, text: text.slice(0, 1000) }); } catch { /* never block a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(''));
@@ -450,7 +451,7 @@ function createApp(d) {
       const sm = d.sentMessages; const rows = sm ? sm.list(type) : [];
       if (p === '/admin/messages.csv') return csv(type === 'email' ? 'sent-emails.csv' : 'sent-texts.csv', adm.toCsv(M.MSG_COLS, M.csvRows(rows)));
       const id = (u.searchParams.get('id') || '').slice(0, 80);
-      if (id) { const r = rows.find((x) => x.id === id); return r ? adminUiSend(res, 200, M.detailPage({ shell: adm.shell, r })) : adminUiSend(res, 404, adm.shell('Not found', '<h1>Message not found</h1><p><a href="/admin/messages?type=' + type + '">Back</a></p>')); }
+      if (id) { const r = rows.find((x) => x.id === id); return r ? adminUiSend(res, 200, M.detailPage({ shell: adm.shell, r, inbound: type === 'sms' && sm ? sm.inbound() : [] })) : adminUiSend(res, 404, adm.shell('Not found', '<h1>Message not found</h1><p><a href="/admin/messages?type=' + type + '">Back</a></p>')); }
       return adminUiSend(res, 200, M.listPage({ shell: adm.shell, channel: type, rows, page: parseInt(u.searchParams.get('page') || '1', 10) || 1 }));
     }
     if (p === '/admin/calls.csv') return csv('calls.csv', adm.toCsv(adm.CALL_COLS, adm.callCsvRows(calls)));

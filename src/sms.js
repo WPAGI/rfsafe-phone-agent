@@ -148,10 +148,12 @@ function shortenWithOffer(text, tenant) {
 }
 const withTimeout = (p, ms) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => { const e = new Error('sms brain timed out after ' + ms + 'ms'); e.name = 'TimeoutError'; rej(e); }, ms); })]).finally(() => clearTimeout(t)); };
 
+const smsConvoId = (from, t) => 'sms-' + fp(from) + '-' + new Date(t).toISOString().slice(0, 10);
+
 // Model answer for a non-keyword text. deliver(reply) (optional) sends it out-of-band and returns { sid }.
 async function answerSms({ tenant, from, text, toolsFor, brain, instructions, log, memory = null, archive = null, deliver = null, now = () => Date.now(), brainTimeoutMs = BRAIN_TIMEOUT_MS }) {
   // One text conversation per sender per day acts like a call id, so per-conversation tools (email) work and stay rate-limited.
-  const convo = 'sms-' + fp(from) + '-' + new Date(now()).toISOString().slice(0, 10);
+  const convo = smsConvoId(from, now());
   const inst = toolsFor(tenant);
   const tools = inst.ctxCall({ channel: 'sms', caller: from, callId: convo });
   const toolsView = { definitions: () => inst.definitions().filter((d) => !SMS_TOOLS_EXCLUDED.includes(d.name)), run: (n, a) => SMS_TOOLS_EXCLUDED.includes(n) ? Promise.resolve({ ok: false, error: 'voice_only' }) : tools.run(n, a) };
@@ -174,4 +176,4 @@ async function handleInboundSms(o) {
   return answerSms({ ...o, text });
 }
 
-module.exports = { fixLeakedInstructions, handleInboundSms, quickSmsReply, answerSms, kbFallback, shortenWithOffer, EMAIL_OFFER, CANNED, guardReply, MockBrain, XaiTextBrain, SmsMemory, buildSmsInstructions, SMS_MAX_CHARS, SMS_TOOLS_EXCLUDED };
+module.exports = { smsConvoId, fixLeakedInstructions, handleInboundSms, quickSmsReply, answerSms, kbFallback, shortenWithOffer, EMAIL_OFFER, CANNED, guardReply, MockBrain, XaiTextBrain, SmsMemory, buildSmsInstructions, SMS_MAX_CHARS, SMS_TOOLS_EXCLUDED };
