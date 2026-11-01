@@ -5,9 +5,9 @@ const { URL } = require('url');
 const { readBody, safeEq, fp, appendJsonl } = require('./util');
 const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
-const { verifyTwilio, twiml } = require('./twilio');
+const { verifyTwilio, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
-const { handleInboundSms, buildSmsInstructions, SmsMemory } = require('./sms');
+const { quickSmsReply, answerSms, buildSmsInstructions, SmsMemory } = require('./sms');
 const { knownCallerFor, returningCallerFor } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
@@ -138,15 +138,27 @@ function createApp(d) {
     res.end(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thank you. Your message was saved for ${xmlEscape(tenant.name)}.</Say><Hangup/></Response>`);
   }
 
+  // Keyword replies go back inline. Everything else gets empty TwiML at once (Twilio gives up after ~15 s) and the
+  // model answer is sent afterwards through the tenant's SMS transport, with the same guard and archive.
+  const smsJobs = new Set();
   async function twilioSms(req, res) {
     const { params, tenant, ok } = await readTwilio(req);
     if (!ok) { log('twilio.webhook_rejected', { route: 'sms' }); res.writeHead(403); return res.end(); }
-    const from = normNumber(params.From);
+    const from = normNumber(params.From); const text = String(params.Body || '').trim();
+    const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
+    if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
+    res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(''));
     const instructions = buildSmsInstructions(tenant, { known: knownCallerFor(tenant, from), returning: returningCallerFor(tenant, from, d.newsletter) });
     const archive = d.sentMessages ? (r) => d.sentMessages.add(r) : null;
-    const reply = await handleInboundSms({ tenant, from, body: params.Body, consent: d.consent, toolsFor: smsToolsFor, brain: d.brain, instructions, log, newsletter: d.newsletter, memory: smsMemory, archive, now: () => +now() });
-    log('sms.replied', { tenant: tenant.id, from: fp(from), chars: reply.length });
-    res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(reply));
+    const send = async (body) => { const r = await sendCustomerSms({ tenant, transport: d.smsFor(tenant), consent: d.consent, to: from, body, log }); if (!r.ok) throw new Error(r.reason); return r; };
+    let done = false; const holdMs = d.smsHoldMs ?? 4000;
+    const hold = holdMs > 0 ? setTimeout(() => { if (!done) send('Looking that up\u2026').catch(() => {}); }, holdMs) : null;
+    const t0 = Date.now();
+    const job = answerSms({ tenant, from, text, toolsFor: smsToolsFor, brain: d.brain, instructions, log, memory: smsMemory, archive, deliver: (b) => { done = true; if (hold) clearTimeout(hold); return send(b); }, now: () => +now(), brainTimeoutMs: d.smsBrainTimeoutMs })
+      .then((reply) => log('sms.replied', { tenant: tenant.id, from: fp(from), chars: reply.length, ms: Date.now() - t0, async: true }))
+      .catch((e) => log('sms.async_error', { tenant: tenant.id, from: fp(from), err_type: e.name || 'Error', err: String(e.message || '').slice(0, 120) }))
+      .finally(() => { done = true; if (hold) clearTimeout(hold); smsJobs.delete(job); });
+    smsJobs.add(job);
   }
 
   function adminStatus(req, res) {
@@ -461,7 +473,7 @@ function createApp(d) {
       return json(res, 404, { error: 'not_found' });
     } catch (e) { log('http.error', { path: u.pathname, err: redactSecrets(e.message) }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
   };
-  return { handler, approvals, calls, owner };
+  return { handler, approvals, calls, owner, smsIdle: () => Promise.all([...smsJobs]) };
 }
 
 function readGaps(f) { try { return require('fs').readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } }
