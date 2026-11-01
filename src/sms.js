@@ -80,7 +80,7 @@ class MockBrain {
 
 // Real brain: xAI chat completions with the tenant's function tools (OpenAI-compatible tool loop).
 class XaiTextBrain {
-  constructor({ apiKey, model = 'grok-4.7', fetchImpl = globalThis.fetch, maxTokens = 700, loopMs = 60000 }) { this.key = apiKey; this.model = model; this.fetch = fetchImpl; this.maxTokens = maxTokens; this.loopMs = loopMs; }
+  constructor({ apiKey, model = 'grok-4.7', fetchImpl = globalThis.fetch, maxTokens = 700, loopMs = 60000, onUsage = null }) { this.key = apiKey; this.model = model; this.fetch = fetchImpl; this.maxTokens = maxTokens; this.loopMs = loopMs; this.onUsage = onUsage; }
   async reply({ tools, text, instructions, history = [] }) {
     const msgs = [{ role: 'system', content: instructions }, ...history, { role: 'user', content: text }];
     const defs = tools.definitions().filter((d) => !SMS_TOOLS_EXCLUDED.includes(d.name)).map((d) => ({ type: 'function', function: { name: d.name, description: d.description, parameters: d.parameters } }));
@@ -89,7 +89,7 @@ class XaiTextBrain {
       if (Date.now() - t0 > this.loopMs) { const e = new Error('sms tool loop over ' + this.loopMs + 'ms'); e.name = 'TimeoutError'; throw e; }
       const r = await this.fetch('https://api.x.ai/v1/chat/completions', { method: 'POST', idempotent: true, headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ model: this.model, messages: msgs, tools: defs, max_tokens: this.maxTokens }) });
       if (!r.ok) throw new Error('xai ' + r.status);
-      const m = (await r.json()).choices[0].message; msgs.push(m);
+      const j = await r.json(); if (this.onUsage) { try { this.onUsage(this.model, j.usage); } catch { /* counters are best-effort */ } } const m = j.choices[0].message; msgs.push(m);
       if (!m.tool_calls || !m.tool_calls.length) return m.content;
       for (const c of m.tool_calls) { let a = {}; try { a = JSON.parse(c.function.arguments || '{}'); } catch { /* ignore */ } const out = await tools.run(c.function.name, a); msgs.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(out) }); }
     }

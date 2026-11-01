@@ -423,6 +423,18 @@ function createApp(d) {
       const nonce = require('crypto').randomBytes(16).toString('base64');
       return adminUiSend(res, 200, adm.shell('Subscribers', S.subscribersPage({ csrf: auth.csrfFor(sess.sid), nonce, rows: subs.list(q), q, msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 200), audit: subs.auditLog(30) })), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
     }
+    // Usage & costs: GET only, admin session only (no Bearer), rate-limited per session. Provider keys stay server-side.
+    if (p === '/admin/usage' || p === '/admin/usage.json') {
+      const html = p === '/admin/usage';
+      if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
+      if (!sess) return html && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+      if (!d.usage) return json(res, 503, { error: 'usage_unavailable' });
+      if (!usageLimiter.allow(sess.sid)) { log('admin.usage_rate_limited', {}); return html ? adminUiSend(res, 429, adm.shell('Slow down', '<h1>Too many refreshes</h1><p>Wait a minute and reload. Figures refresh every few minutes anyway.</p>'), { 'retry-after': '60' }) : json(res, 429, { error: 'rate_limited' }); }
+      const snap = await d.usage.snapshot();
+      if (!html) { res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', ...SEC_HEADERS }); return res.end(JSON.stringify(snap)); }
+      const nonce = require('crypto').randomBytes(16).toString('base64');
+      return adminUiSend(res, 200, require('./usagepage').page({ snap, nonce }), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
+    }
     // Data views: session cookie, or Bearer admin token for scripts.
     if (!sess && !isAdmin(req)) return (p === '/admin' || p === '/admin/messages') && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
@@ -444,7 +456,8 @@ function createApp(d) {
     const nowMs = now().getTime ? now().getTime() : Date.now();
     return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }));
   }
-  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv']);
+  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv', '/admin/usage', '/admin/usage.json']);
+  const usageLimiter = new (require('./usage').SimpleLimiter)({ max: d.usageRateMax || 30, windowMs: 60000 });
 
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
