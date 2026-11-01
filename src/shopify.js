@@ -6,6 +6,7 @@
 // There is no code path that issues a mutation, a POST other than a GraphQL *query*, or a checkout.
 const API_VERSION = '2025-07'; // Storefront API
 const ADMIN_API_VERSION = '2026-10'; // Admin GraphQL (order lookup)
+const DETAIL_COUNT = 3; const DETAIL_TIMEOUT_MS = 2500;
 
 function assertReadOnlyQuery(q) {
   const s = String(q).replace(/#[^\n]*/g, '').trim();
@@ -34,11 +35,30 @@ class ShopifyClient {
   async searchProducts(query, limit = 5) {
     query = String(query || '').slice(0, 100);
     if (this.mode === 'storefront') {
-      const j = await this._gql('query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle availableForSale priceRange{ minVariantPrice{ amount currencyCode } } } } } }', { q: query, n: limit });
-      return (j.data?.products?.edges || []).map(({ node: n }) => ({ title: n.title, price: n.priceRange.minVariantPrice.amount, currency: n.priceRange.minVariantPrice.currencyCode, available: n.availableForSale, url: this.productUrl(n.handle) }));
+      const j = await this._gql('query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle availableForSale priceRange{ minVariantPrice{ amount currencyCode } } options{ name values } variants(first:20){ nodes{ title availableForSale price{ amount } } } } } } }', { q: query, n: limit });
+      return (j.data?.products?.edges || []).map(({ node: n }) => ({ title: n.title, price: n.priceRange.minVariantPrice.amount, currency: n.priceRange.minVariantPrice.currencyCode, available: n.availableForSale, url: this.productUrl(n.handle),
+        options: (n.options || []).map((o) => ({ name: o.name, values: o.values || [] })),
+        variants: (n.variants?.nodes || []).map((v) => ({ title: v.title, available: !!v.availableForSale, price: Number(v.price?.amount) })) }));
     }
     const j = await this._get(`https://${this.shop}/search/suggest.json?q=${encodeURIComponent(query)}&resources[type]=product&resources[limit]=${limit}`);
-    return (j.resources?.results?.products || []).slice(0, limit).map((p) => ({ title: p.title, price: p.price, currency: 'USD', available: p.available, url: this.productUrl(p.handle) }));
+    const items = (j.resources?.results?.products || []).slice(0, limit).map((p) => ({ title: p.title, price: p.price, currency: 'USD', available: p.available, url: this.productUrl(p.handle), _handle: p.handle }));
+    // Colors/options: the public product .js for the top 3, in parallel, short timeout; a miss keeps the base result.
+    await Promise.all(items.slice(0, DETAIL_COUNT).map(async (it) => {
+      try {
+        const d = await this._getTimeout(`https://${this.publicDomain}/products/${encodeURIComponent(it._handle)}.js`, DETAIL_TIMEOUT_MS);
+        if (Array.isArray(d?.options)) it.options = d.options.map((o) => (typeof o === 'string' ? { name: o, values: [] } : { name: o.name, values: o.values || [] }));
+        if (Array.isArray(d?.variants)) it.variants = d.variants.slice(0, 50).map((v) => ({ title: v.title, available: !!v.available, price: Number(v.price) / 100 }));
+      } catch { /* skip quietly */ }
+    }));
+    for (const it of items) delete it._handle;
+    return items;
+  }
+  async _getTimeout(url, ms) {
+    const ac = typeof AbortController === 'function' ? new AbortController() : null; let timer;
+    const t = new Promise((_, rej) => { timer = setTimeout(() => { ac?.abort(); rej(new Error('timeout')); }, ms); });
+    try {
+      return await Promise.race([(async () => { const r = await this.fetch(url, { method: 'GET', headers: { accept: 'application/json' }, ...(ac ? { signal: ac.signal } : {}) }); if (!r.ok) throw new Error('shopify http ' + r.status); return r.json(); })(), t]);
+    } finally { clearTimeout(timer); }
   }
   // Order status (Admin GraphQL, read_orders). The caller must give the order number AND an email or phone
   // that is on the order (caller ID counts as a phone). Only status fields come back: no street address,
@@ -61,6 +81,18 @@ const ORDER_QUERY = `query($q:String!){ orders(first:5, query:$q){ nodes{ name c
   shippingAddress{ city provinceCode countryCodeV2 phone }
   lineItems(first:10){ nodes{ title quantity } }
   fulfillments(first:5){ displayStatus estimatedDeliveryAt deliveredAt trackingInfo(first:3){ company number } } } } }`;
+
+// Compact per-option stock for voice/SMS: [{name, available:[...], unavailable:[...]}]. A value is available if any variant with it is.
+function summarizeOptions(p) {
+  const opts = (p.options || []).filter((o) => o.name && !(o.name === 'Title' && o.values.length <= 1 && o.values[0] === 'Default Title'));
+  if (!opts.length || !(p.variants || []).length) return undefined;
+  return opts.map((o, i) => {
+    const vals = o.values.length ? o.values : [...new Set(p.variants.map((v) => String(v.title).split(' / ')[i]).filter(Boolean))];
+    const avail = []; const unavail = [];
+    for (const val of vals) (p.variants.some((v) => v.available && String(v.title).split(' / ')[i] === val) ? avail : unavail).push(val);
+    return { name: o.name, available: avail, unavailable: unavail };
+  });
+}
 
 function digits10(s) { const d = String(s || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; }
 function normEmail(s) { const e = String(s || '').trim().toLowerCase().replace(/\s+at\s+/g, '@').replace(/\s+dot\s+/g, '.').replace(/\s+/g, ''); return /^[^@]+@[^@]+\.[a-z]{2,}$/.test(e) ? e : ''; }
@@ -118,4 +150,4 @@ class ShopifyAdmin {
   toJSON() { return { shop: this.shop, apiVersion: this.apiVersion }; }
 }
 
-module.exports = { ShopifyClient, ShopifyAdmin, assertReadOnlyQuery, verifyOrderContact, safeOrderView, normEmail, ADMIN_API_VERSION };
+module.exports = { ShopifyClient, summarizeOptions, ShopifyAdmin, assertReadOnlyQuery, verifyOrderContact, safeOrderView, normEmail, ADMIN_API_VERSION };
