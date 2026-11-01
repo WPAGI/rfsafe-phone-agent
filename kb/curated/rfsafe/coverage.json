@@ -62,5 +62,17 @@
   {
     "q": "What can I do today to reduce my exposure?",
     "expect": "airplane mode|flip case"
+  },
+  {
+    "q": "QuantaCase contact us page URL",
+    "expect": "quantacase\\.com/pages/contact"
+  },
+  {
+    "q": "RF Safe's warning about RF EMFs",
+    "expect": "warn families"
+  },
+  {
+    "q": "Why are current standards not good enough",
+    "expect": "standard|limit|thermal"
   }
 ]
