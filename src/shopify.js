@@ -35,22 +35,21 @@ class ShopifyClient {
   async searchProducts(query, limit = 5) {
     query = String(query || '').slice(0, 100);
     if (this.mode === 'storefront') {
-      const j = await this._gql('query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle availableForSale priceRange{ minVariantPrice{ amount currencyCode } } options{ name values } variants(first:20){ nodes{ title availableForSale price{ amount } } } } } } }', { q: query, n: limit });
-      return (j.data?.products?.edges || []).map(({ node: n }) => ({ title: n.title, price: n.priceRange.minVariantPrice.amount, currency: n.priceRange.minVariantPrice.currencyCode, available: n.availableForSale, url: this.productUrl(n.handle),
+      const j = await this._gql('query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle availableForSale priceRange{ minVariantPrice{ amount currencyCode } } options{ name values } variants(first:20){ nodes{ id title availableForSale price{ amount } } } } } } }', { q: query, n: limit });
+      return (j.data?.products?.edges || []).map(({ node: n }) => ({ title: n.title, price: n.priceRange.minVariantPrice.amount, currency: n.priceRange.minVariantPrice.currencyCode, available: n.availableForSale, url: this.productUrl(n.handle), handle: n.handle,
         options: (n.options || []).map((o) => ({ name: o.name, values: o.values || [] })),
-        variants: (n.variants?.nodes || []).map((v) => ({ title: v.title, available: !!v.availableForSale, price: Number(v.price?.amount) })) }));
+        variants: (n.variants?.nodes || []).map((v) => ({ id: variantId(v.id), title: v.title, available: !!v.availableForSale, price: Number(v.price?.amount) })) }));
     }
     const j = await this._get(`https://${this.shop}/search/suggest.json?q=${encodeURIComponent(query)}&resources[type]=product&resources[limit]=${limit}`);
-    const items = (j.resources?.results?.products || []).slice(0, limit).map((p) => ({ title: p.title, price: p.price, currency: 'USD', available: p.available, url: this.productUrl(p.handle), _handle: p.handle }));
+    const items = (j.resources?.results?.products || []).slice(0, limit).map((p) => ({ title: p.title, price: p.price, currency: 'USD', available: p.available, url: this.productUrl(p.handle), handle: p.handle }));
     // Colors/options: the public product .js for the top 3, in parallel, short timeout; a miss keeps the base result.
     await Promise.all(items.slice(0, DETAIL_COUNT).map(async (it) => {
       try {
-        const d = await this._getTimeout(`https://${this.publicDomain}/products/${encodeURIComponent(it._handle)}.js`, DETAIL_TIMEOUT_MS);
+        const d = await this._getTimeout(`https://${this.publicDomain}/products/${encodeURIComponent(it.handle)}.js`, DETAIL_TIMEOUT_MS);
         if (Array.isArray(d?.options)) it.options = d.options.map((o) => (typeof o === 'string' ? { name: o, values: [] } : { name: o.name, values: o.values || [] }));
-        if (Array.isArray(d?.variants)) it.variants = d.variants.slice(0, 50).map((v) => ({ title: v.title, available: !!v.available, price: Number(v.price) / 100 }));
+        if (Array.isArray(d?.variants)) it.variants = d.variants.slice(0, 50).map((v) => ({ id: variantId(v.id), title: v.title, available: !!v.available, price: Number(v.price) / 100 }));
       } catch { /* skip quietly */ }
     }));
-    for (const it of items) delete it._handle;
     return items;
   }
   async _getTimeout(url, ms) {
@@ -82,16 +81,55 @@ const ORDER_QUERY = `query($q:String!){ orders(first:5, query:$q){ nodes{ name c
   lineItems(first:10){ nodes{ title quantity } }
   fulfillments(first:5){ displayStatus estimatedDeliveryAt deliveredAt trackingInfo(first:3){ company number } } } } }`;
 
-// Compact per-option stock for voice/SMS: [{name, available:[...], unavailable:[...]}]. A value is available if any variant with it is.
+// Shopify variant id: number from the .js, or a Storefront gid like gid://shopify/ProductVariant/123 -> 123.
+function variantId(id) {
+  if (id == null) return undefined;
+  const m = String(id).match(/(\d+)\s*$/); if (!m) return undefined;
+  const n = Number(m[1]); return Number.isSafeInteger(n) ? n : m[1];
+}
+
+// Compact per-option stock for voice/SMS: [{name, available:[...], unavailable:[...], values:[{value, available, variant_id, url}]}].
+// A value is available if any variant with it is. Each value links to its own variant (?variant=<id>) so a named color opens on that color.
+// p.url is the base product URL; the variant URL is built from it.
 function summarizeOptions(p) {
   const opts = (p.options || []).filter((o) => o.name && !(o.name === 'Title' && o.values.length <= 1 && o.values[0] === 'Default Title'));
   if (!opts.length || !(p.variants || []).length) return undefined;
+  const base = p.url ? String(p.url).split('?')[0] : '';
   return opts.map((o, i) => {
-    const vals = o.values.length ? o.values : [...new Set(p.variants.map((v) => String(v.title).split(' / ')[i]).filter(Boolean))];
-    const avail = []; const unavail = [];
-    for (const val of vals) (p.variants.some((v) => v.available && String(v.title).split(' / ')[i] === val) ? avail : unavail).push(val);
-    return { name: o.name, available: avail, unavailable: unavail };
+    const part = (v) => (opts.length === 1 ? String(v.title) : String(v.title).split(' / ')[i]);
+    const vals = o.values.length ? o.values : [...new Set(p.variants.map(part).filter(Boolean))];
+    const avail = []; const unavail = []; const values = [];
+    for (const val of vals) {
+      const has = p.variants.filter((v) => part(v) === val);
+      const pick = has.find((v) => v.available) || has[0];
+      (pick && pick.available ? avail : unavail).push(val);
+      const e = { value: val, available: !!(pick && pick.available) };
+      if (pick && pick.id != null) { e.variant_id = pick.id; if (base) e.url = `${base}?variant=${pick.id}`; }
+      values.push(e);
+    }
+    return { name: o.name, available: avail, unavailable: unavail, values };
   });
+}
+
+// When a text names an option value (e.g. "brown"), the link for it: {value, available, url, alt?} where alt is an available value's link if it is sold out.
+function linkForNamed(p, text) {
+  const t = ' ' + String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' ';
+  for (const o of p.options || []) {
+    for (const e of o.values || []) {
+      const w = String(e.value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (w && e.url && t.includes(' ' + w + ' ')) {
+        const alt = e.available ? undefined : (o.values || []).find((x) => x.available && x.url);
+        return { value: e.value, available: e.available, url: e.url, ...(alt ? { alt: { value: alt.value, url: alt.url } } : {}) };
+      }
+    }
+  }
+  return null;
+}
+// One product line for a text reply, preferring the named color's variant URL.
+function productLine(p, text) {
+  const n = linkForNamed(p, text);
+  if (n) return `${p.title} in ${n.value}: $${p.price}${n.available ? '' : ` (${n.value} is sold out${n.alt ? `; ${n.alt.value} is available: ${n.alt.url}` : ''})`}. Order on our site: ${n.url}`;
+  return `${p.title}: $${p.price}${p.available ? '' : ' (currently unavailable)'}. Order on our site: ${p.url}`;
 }
 
 function digits10(s) { const d = String(s || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; }
@@ -150,4 +188,4 @@ class ShopifyAdmin {
   toJSON() { return { shop: this.shop, apiVersion: this.apiVersion }; }
 }
 
-module.exports = { ShopifyClient, summarizeOptions, ShopifyAdmin, assertReadOnlyQuery, verifyOrderContact, safeOrderView, normEmail, ADMIN_API_VERSION };
+module.exports = { ShopifyClient, summarizeOptions, variantId, linkForNamed, productLine, ShopifyAdmin, assertReadOnlyQuery, verifyOrderContact, safeOrderView, normEmail, ADMIN_API_VERSION };
