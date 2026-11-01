@@ -74,21 +74,28 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     em.send = (s) => (ws.readyState === 1 ? ws.send(s) : q.push(s));
     return em;
   };
+  // Usage & Costs admin page: per-day token counters for the SMS brain, and the server-side provider fetcher.
+  const { TokenCounter, UsageService } = require('./usage');
+  const usageTokens = new TokenCounter({ file: path.join(dataDir, 'usage-tokens.json') });
+  const callRecords = new (require('./admin').CallRecords)({ file: path.join(dataDir, 'call-records.jsonl') });
+  const sentMessages = new (require('./messages').SentMessages)({ file: path.join(dataDir, 'sent-messages.jsonl'), legacyEmailFile: path.join(dataDir, 'email.jsonl') });
+  const usageLog = log || makeLogger(env.PA_LOG_FILE, secretValues(env));
+  const usage = new UsageService({ env, fetchImpl: mode === 'live' ? liveFetch : async () => { throw new Error('demo mode: no provider calls'); }, tokens: usageTokens, callRecords, sentMessages, log: usageLog });
   const outbox = path.join(dataDir, 'owner-outbox.jsonl');
   const notify = async (t, item) => { fs.appendFileSync(outbox, JSON.stringify({ tenant: t.id, to: t.owner_email || null, ...item }) + '\n', { mode: 0o600 }); };
   // Build each tenant's KB index right after boot (~3 s for the full wiki) so the first caller does not wait.
   if (mode === 'live') setTimeout(() => { for (const t of tenants.list()) { try { kbFor(t); } catch { /* logged on use */ } } }, 0).unref();
   return {
-    mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: log || makeLogger(env.PA_LOG_FILE, secretValues(env)),
+    mode, tenants, secrets, consent, env, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, notify, log: usageLog,
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
-    callRecords: new (require('./admin').CallRecords)({ file: path.join(dataDir, 'call-records.jsonl') }),
+    callRecords, usage, usageTokens,
     newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
     adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
-    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), sentMessages: new (require('./messages').SentMessages)({ file: path.join(dataDir, 'sent-messages.jsonl'), legacyEmailFile: path.join(dataDir, 'email.jsonl') }), kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), channelLogFile: path.join(dataDir, 'channel-changes.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),
+    websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), sentMessages, kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), channelLogFile: path.join(dataDir, 'channel-changes.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),
     newsletter: (() => { const { Newsletter, deriveSecret } = require('./newsletter'); return new Newsletter({ secret: deriveSecret(env), file: path.join(dataDir, 'newsletter.jsonl'), baseUrl: env.PUBLIC_BASE_URL || 'https://callbots.org' }); })(),
     sarFor: (() => { const c = new SarCatalog({ fetchImpl: mode === 'live' ? liveFetch : mocks.mockSarFetch() }); return () => c; })(),
-    brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.7', fetchImpl: brainFetch, loopMs: 60000 }) : new MockBrain(),
+    brain: mode === 'live' ? new XaiTextBrain({ apiKey: env.XAI_API_KEY, model: env.XAI_TEXT_MODEL || 'grok-4.7', fetchImpl: brainFetch, loopMs: 60000, onUsage: (m, u) => usageTokens.add(m, u) }) : new MockBrain(),
     publicBaseUrl: env.PUBLIC_BASE_URL || 'http://localhost:8787', adminToken: env.PA_ADMIN_TOKEN || (mode === 'demo' ? 'demo-admin-token-EXAMPLE' : null),
     stateSecret: env.PA_STATE_SECRET || (mode === 'demo' ? 'demo-state-secret-EXAMPLE' : null),
     shopifyApp: { clientId: env.SHOPIFY_APP_CLIENT_ID || 'demo-client-id', secret: env.SHOPIFY_APP_SECRET || 'demo-app-secret-EXAMPLE' },
