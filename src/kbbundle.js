@@ -5,10 +5,10 @@ const fs = require('fs'); const path = require('path'); const zlib = require('zl
 function readRaw(req, limit = 40 * 1024 * 1024) {
   return new Promise((resolve, reject) => { let n = 0; const c = []; req.on('data', (b) => { n += b.length; if (n > limit) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); } else c.push(b); }); req.on('end', () => resolve(Buffer.concat(c))); req.on('error', reject); });
 }
-function installBundle(buf, baseDir, tenantId) {
-  const { header, cards } = require('./kbformat').decode(buf); // throws 400 on any bad card, before touching the disk
+function installBundle(buf, baseDir, tenantId, opts = {}) {
+  const { header, cards } = require('./kbformat').decode(buf, { allowDomains: opts.allowDomains, tenantId }); // throws 400 on any bad card, before touching the disk
   if (!cards.length) throw Object.assign(new Error('empty bundle'), { status: 400 });
-  const { toMarkdown } = require('./kbformat');
+  const F = require('./kbformat'); const toMarkdown = header.format === F.GENERIC ? (c) => F.toMarkdownGeneric(c, { teamName: opts.teamName }) : F.toMarkdown;
   const id = String(tenantId).replace(/[^a-z0-9_-]/gi, ''); const final = path.join(baseDir, id + '-wiki'); const tmp = final + '.tmp-' + process.pid;
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const c of cards) { const f = path.join(tmp, c.id + '.md'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, toMarkdown(c)); }
