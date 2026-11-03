@@ -32,6 +32,24 @@ function validateTenant(t) {
   }
   if (t.support_email != null && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(t.support_email)) errs.push('support_email must be an email address');
   errs.push(...validateBrand(t.brand));
+  if (t.twilio != null) {
+    const tw = t.twilio;
+    if (typeof tw !== 'object' || Array.isArray(tw)) errs.push('twilio must be an object');
+    else {
+      if (tw.account_sid != null && !/^AC[0-9a-f]{32}$/.test(tw.account_sid)) errs.push('twilio.account_sid must be AC + 32 hex');
+      if (tw.api_key_sid != null && !/^SK[0-9a-f]{32}$/.test(tw.api_key_sid)) errs.push('twilio.api_key_sid must be SK + 32 hex');
+      if (tw.api_key_sid != null && !(t.secrets || {}).twilio_api_key_secret) errs.push('twilio.api_key_sid needs secrets.twilio_api_key_secret');
+      if (tw.webhook_keys != null) {
+        if (typeof tw.webhook_keys !== 'object' || Array.isArray(tw.webhook_keys)) errs.push('twilio.webhook_keys must map sharedKeyId -> secret name');
+        else for (const [id, name] of Object.entries(tw.webhook_keys)) {
+          if (!/^webhooks_sharedkey_[A-Za-z0-9]{26}$/.test(id)) errs.push(`twilio.webhook_keys key ${id} must be webhooks_sharedkey_ + 26 chars`);
+          if (!/^[a-z0-9_]{1,40}$/.test(String(name)) || !(t.secrets || {})[name]) errs.push(`twilio.webhook_keys.${id} must name a secret in secrets`);
+        }
+      }
+      if (tw.require_shared_key != null && typeof tw.require_shared_key !== 'boolean') errs.push('twilio.require_shared_key must be true/false');
+      if (tw.require_shared_key && !Object.keys(tw.webhook_keys || {}).length) errs.push('twilio.require_shared_key needs webhook_keys');
+    }
+  }
   return errs;
 }
 
