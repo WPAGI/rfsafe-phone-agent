@@ -116,3 +116,41 @@ test('readiness: shared-key tenant needs its webhook key secret, not the auth to
   assert.strictEqual(r['tenant:bestdealon:twilio_webhook_key'], true); assert.ok(!('tenant:bestdealon:twilio_auth_token' in r));
   assert.strictEqual(ids({ BDO_XAI_WEBHOOK_SECRET: 'a'.repeat(38) })['tenant:bestdealon:twilio_webhook_key'], false);
 });
+
+// Option B: with PA_EMAIL_ALLOW_ONLY set, the caller's own confirmed address passes; nothing else does.
+{
+  const { Tools, NOT_ALLOWED_SAY } = require('../src/tools'); const E2 = require('../src/email');
+  const rig = () => {
+    const hits = []; const f = async (u, o) => { hits.push(JSON.parse(o.body).to[0]); return { ok: true, json: async () => ({ id: 're_' + hits.length }) }; };
+    const mail = new E2.ResendEmail({ apiKey: 'k', fetchImpl: f, allowOnly: E2.TEST_INBOX + ',support@bestdealon.app' });
+    const tools = new Tools(t, { emailFor: () => mail, log: () => {}, notify: async () => {} });
+    return { hits, mail, tools };
+  };
+  const confirm = (tools, email, callId) => tools.run('set_email_address', { email, caller_said_yes: true }, { channel: 'voice', callId, caller: '+15550001111' });
+  const send = (tools, callId, summary = 'Best Deal On overview') => tools.run('send_email', { summary, topic: 'overview', urls: ['https://bestdealon.app/'] }, { channel: 'voice', callId, caller: '+15550001111' });
+  test('allow-only guard: the address confirmed on this call is allowed', async () => {
+    const { hits, tools } = rig(); assert.strictEqual((await confirm(tools, 'caller@example.com', 'c1')).ok, true);
+    const r = await send(tools, 'c1'); assert.strictEqual(r.ok, true); assert.deepStrictEqual(hits, ['caller@example.com']);
+  });
+  test('allow-only guard: unconfirmed or different addresses stay blocked, with the scripted line', async () => {
+    const { hits, mail, tools } = rig();
+    assert.strictEqual((await send(tools, 'c2')).error, 'confirm_email_first');
+    assert.strictEqual((await mail.send({ to: 'other@example.com', subject: 's', text: 't', confirmedRecipient: 'caller@example.com' })).reason, 'recipient_not_allowed');
+    assert.strictEqual((await mail.send({ to: 'other@example.com', subject: 's', text: 't' })).reason, 'recipient_not_allowed');
+    assert.deepStrictEqual(hits, []);
+    const { tools: t2 } = rig(); const failing = { send: async () => ({ ok: false, reason: 'recipient_not_allowed' }) }; t2.d.emailFor = () => failing;
+    await confirm(t2, 'x@example.com', 'c3'); const r = await send(t2, 'c3');
+    assert.strictEqual(r.error, 'recipient_not_allowed'); assert.strictEqual(r.say, NOT_ALLOWED_SAY);
+    assert.strictEqual(NOT_ALLOWED_SAY, "I can't email that right now; I'll take a message so the team follows up.");
+  });
+  test('allow-only guard: an address confirmed on another call does not carry over', async () => {
+    const { hits, tools } = rig(); await confirm(tools, 'caller@example.com', 'callA');
+    const r = await send(tools, 'callB'); assert.strictEqual(r.ok, false); assert.strictEqual(r.error, 'confirm_email_first'); assert.deepStrictEqual(hits, []);
+  });
+  test('allow-only guard: the static allowlist still works without a confirmed address', async () => {
+    const { hits, mail } = rig();
+    assert.strictEqual((await mail.send({ to: 'support@bestdealon.app', subject: 's', text: 't' })).ok, true);
+    assert.strictEqual((await mail.send({ to: 'nope@example.com', subject: 's', text: 't' })).reason, 'recipient_not_allowed');
+    assert.deepStrictEqual(hits, ['support@bestdealon.app']);
+  });
+}

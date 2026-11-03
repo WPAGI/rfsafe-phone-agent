@@ -59,9 +59,12 @@ function checkLinks(urls, allowlist) {
 }
 class ResendEmail {
   constructor({ apiKey, fetchImpl = globalThis.fetch, allowOnly = null }) { this.key = apiKey; this.fetch = fetchImpl; this.allowOnly = allowList(allowOnly); }
-  async send({ to, replyTo, subject, text, html, from }) {
+  // confirmedRecipient: the one address the caller confirmed on this call (set_email_address). It passes the
+  // allowlist guard; every other address still has to be on PA_EMAIL_ALLOW_ONLY.
+  async send({ to, replyTo, subject, text, html, from, confirmedRecipient }) {
     if (!this.key) return { ok: false, reason: 'email_not_configured' };
-    if (this.allowOnly.length && ![].concat(to).every((x) => this.allowOnly.includes(String(x).trim().toLowerCase()))) return { ok: false, reason: 'recipient_not_allowed' };
+    const ok1 = (x) => { const a = String(x).trim().toLowerCase(); return this.allowOnly.includes(a) || (!!confirmedRecipient && a === String(confirmedRecipient).trim().toLowerCase()); };
+    if (this.allowOnly.length && ![].concat(to).every(ok1)) return { ok: false, reason: 'recipient_not_allowed' };
     const r = await this.fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ from: from || FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
     if (!r.ok) return { ok: false, reason: 'provider_' + r.status };
     const j = await r.json().catch(() => ({})); return { ok: true, id: j.id || null };

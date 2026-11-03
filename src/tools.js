@@ -38,6 +38,7 @@ const DEFS = {
   order_status: { description: 'Check a QuantaCase/store order. Ask for the order number AND the email address or phone number used on the order before calling; caller ID also counts as a phone. Share only what comes back (status, items, carrier, delivery estimate, city/state). Never read out a street address or payment details, never take payments, and if it fails just say you could not verify that order and offer to take a message.', parameters: { type: 'object', properties: { order_number: { type: 'string', description: 'digits, e.g. 1146' }, email: { type: 'string', description: 'email on the order, if the caller gave one' }, phone: { type: 'string', description: 'phone on the order, if different from caller ID' } }, required: ['order_number'] } },
 };
 
+const NOT_ALLOWED_SAY = "I can't email that right now; I'll take a message so the team follows up.";
 class Tools {
   // deps: { kbFor(tenant), shopifyFor(tenant), smsFor(tenant), consent, callControl, notify, approvals, log, now }
   constructor(tenant, deps) { this.tenant = tenant; this.d = deps; }
@@ -220,13 +221,13 @@ class Tools {
     const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl, tenant: t });
     const subject = subjectFor(args.topic, !!summary, t);
     counts.set(key, n + 1); sigs.add(sig); sent.set(key, sigs); // count attempts, so a failing provider cannot be retried without limit
-    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html, ...(t.brand ? { from: require('./email').senderFor(t) } : {}) }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
+    let r; try { r = await this.d.emailFor(t).send({ to, confirmedRecipient: to, replyTo: t.support_email || undefined, subject, text, html, ...(t.brand ? { from: require('./email').senderFor(t) } : {}) }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
     this.archive({ channel: 'email', tenant: t.id, call: ctx.callId, to, subject, text, html, links: g.links.map((l) => l.url).concat(require('./messages').extractLinks(text, html)).filter((x, i, a) => a.indexOf(x) === i), provider_id: r.id || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     const masked = maskEmail(to);
     log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, summary_chars: summary.length, named: !!name, newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, reason: r.ok ? undefined : r.reason });
     this.emailLog({ kind: r.ok ? 'sent' : 'send_failed', tenant: t.id, call: ctx.callId, to_masked: masked, to_fp: fp(to), links: g.links.map((l) => l.url), newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, provider_id: r.id || null, reason: r.ok ? undefined : r.reason });
     const hide = (this._onFile || new Set()).has(key);
-    return r.ok ? { ok: true, sent: true, ...(hide ? { to: 'email on file' } : { to_masked: masked }), say: 'Done, it is on its way from rfsafe@callbots.org. If you do not see it in a minute or two, please check your spam or junk folder.' } : { ok: false, error: r.reason, say: 'The email did not go through. I can say the site name aloud or take a message.' };
+    return r.ok ? { ok: true, sent: true, ...(hide ? { to: 'email on file' } : { to_masked: masked }), say: 'Done, it is on its way from rfsafe@callbots.org. If you do not see it in a minute or two, please check your spam or junk folder.' } : { ok: false, error: r.reason, say: r.reason === 'recipient_not_allowed' ? NOT_ALLOWED_SAY : 'The email did not go through. I can say the site name aloud or take a message.' };
   }
   textNumberFor(ctx) { return ctx.callId ? (this._textTo || new Map()).get(ctx.callId) || null : null; }
   setTextNumber(args, ctx) {
@@ -255,4 +256,4 @@ class Approvals {
   list(tenantId) { return [...this.items.values()].filter((i) => i.tenant === tenantId); }
 }
 
-module.exports = { Tools, Approvals, inHours, DEFS };
+module.exports = { NOT_ALLOWED_SAY, Tools, Approvals, inHours, DEFS };
