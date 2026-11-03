@@ -20,14 +20,39 @@ function validateCard(c, allow = ALLOW) {
   if (typeof c.updated !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(c.updated)) e.push('updated');
   return e;
 }
+// Generic per-business format (docs/KB_TEMPLATE.md). Same card shape; business kinds; every card needs a
+// source on the tenant's own domains (brand.kb_allow_domains). rfsafe-kb bundles are handled exactly as before.
+const GENERIC = 'callbots-kb';
+const GENERIC_KINDS = ['business', 'product', 'service', 'pricing', 'faq', 'policy', 'escalation'];
+function validateGenericCard(c, allow) {
+  const e = validateCard(c && typeof c === 'object' ? { ...c, kind: KINDS[0] } : c, allow).filter((x) => x !== 'kind');
+  if (c && typeof c === 'object' && !GENERIC_KINDS.includes(c.kind)) e.push('kind');
+  if (c && typeof c === 'object' && (!Array.isArray(c.sources) || !c.sources.length)) e.push('sources (at least one)');
+  if (c && typeof c === 'object' && typeof c.body === 'string' && !c.body.trim() && !(c.position || '').trim()) e.push('body (empty card)');
+  return e;
+}
 function encode(header, cards) { return zlib.gzipSync([JSON.stringify({ format: FORMAT, version: VERSION, count: cards.length, ...header }), ...cards.map((c) => JSON.stringify(c))].join('\n') + '\n'); }
-function decode(buf) {
+function decode(buf, opts = {}) {
   const lines = zlib.gunzipSync(buf, { maxOutputLength: 400 * 1024 * 1024 }).toString('utf8').split('\n').filter(Boolean);
   const header = JSON.parse(lines.shift() || '{}');
+  if (header.format === GENERIC) return decodeGeneric(header, lines, opts);
   if (header.format !== FORMAT || header.version !== VERSION) throw Object.assign(new Error(`not a ${FORMAT} v${VERSION} bundle`), { status: 400 });
   const cards = lines.map((l, i) => { const c = JSON.parse(l); const e = validateCard(c); if (e.length) throw Object.assign(new Error(`card ${i + 1} (${c && c.id}): bad ${e.join(', ')}`), { status: 400 }); return c; });
   const ids = new Set(); for (const c of cards) { if (ids.has(c.id)) throw Object.assign(new Error('duplicate id ' + c.id), { status: 400 }); ids.add(c.id); }
   return { header, cards };
+}
+function decodeGeneric(header, lines, { allowDomains, tenantId } = {}) {
+  if (header.version !== VERSION) throw Object.assign(new Error(`not a ${GENERIC} v${VERSION} bundle`), { status: 400 });
+  if (!Array.isArray(allowDomains) || !allowDomains.length) throw Object.assign(new Error(`${GENERIC} bundle needs the tenant's source domains`), { status: 400 });
+  if (tenantId && header.tenant !== tenantId) throw Object.assign(new Error('bundle is for tenant ' + header.tenant), { status: 400 });
+  const allow = allowFor(allowDomains);
+  const cards = lines.map((l, i) => { const c = JSON.parse(l); const e = validateGenericCard(c, allow); if (e.length) throw Object.assign(new Error(`card ${i + 1} (${c && c.id}): bad ${e.join(', ')}`), { status: 400 }); return c; });
+  const ids = new Set(); for (const c of cards) { if (ids.has(c.id)) throw Object.assign(new Error('duplicate id ' + c.id), { status: 400 }); ids.add(c.id); }
+  return { header, cards };
+}
+function toMarkdownGeneric(c, { teamName } = {}) {
+  const fm = ['---', `title: ${JSON.stringify(c.title)}`, `source: ${c.sources[0]}`, `aliases: ${c.aliases.join(' ')}`, `page_type: ${c.kind}`, `updated: ${c.updated}`, '---'].join('\n');
+  return `${fm}\n${c.position ? `${teamName ? teamName + "'s" : 'Our'} answer: ${c.position}\n\n` : ''}${c.body}\n\nSources: ${c.sources.join(' ')}\n`;
 }
 // Card -> Markdown page the KB indexes. Position comes first so the bot states RF Safe's view.
 function toMarkdown(c) {
@@ -35,4 +60,4 @@ function toMarkdown(c) {
   const fm = ['---', `title: ${JSON.stringify(c.title)}`, rf ? `source: ${rf}` : null, `aliases: ${c.aliases.join(' ')}`, `page_type: ${c.kind === 'curated' ? 'position' : c.kind}`, `updated: ${c.updated}`, '---'].filter(Boolean).join('\n');
   return `${fm}\n${c.position ? `RF Safe's position: ${c.position}\n\n` : ''}${c.body}\n\nSources: ${c.sources.join(' ')}\n`;
 }
-module.exports = { allowFor, ALLOW, FORMAT, VERSION, KINDS, validateCard, encode, decode, toMarkdown, hash };
+module.exports = { GENERIC, GENERIC_KINDS, validateGenericCard, toMarkdownGeneric, allowFor, ALLOW, FORMAT, VERSION, KINDS, validateCard, encode, decode, toMarkdown, hash };
