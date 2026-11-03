@@ -4,7 +4,7 @@ const fs = require('fs'); const path = require('path');
 const { validateTenant } = require('../src/tenants'); const { verifyTenantTwilio } = require('../src/twilio');
 const { checkTemplate } = require('../src/kbtemplate'); const { KB } = require('../src/kb');
 const DEP = path.join(__dirname, '..', 'deploy'); const read = (f) => JSON.parse(fs.readFileSync(path.join(DEP, f), 'utf8'));
-const t = read('bestdealon.tenant.json');
+const t = read('bestdealon/tenants/bestdealon.json');
 
 test('bestdealon tenant is valid, SMS off, number and brand set', () => {
   assert.deepStrictEqual(validateTenant(t), []);
@@ -30,10 +30,9 @@ test('twilio patch: valid once filled, rejected while placeholders remain', () =
   delete filled._note; assert.deepStrictEqual(validateTenant(filled), []);
   assert.ok(!('twilio_auth_token' in filled.secrets), 'no main auth token used');
 });
-test('bestdealon KB starts empty and valid', () => {
+test('bestdealon KB is valid', () => {
   const d = path.join(__dirname, '..', 'kb', 'bestdealon');
   assert.deepStrictEqual(checkTemplate(d).errors, []);
-  assert.strictEqual(new KB({ dirs: [d] }).answer('what are your hours').found, false);
 });
 
 const { Tools } = require('../src/tools'); const E = require('../src/email');
@@ -72,4 +71,23 @@ test('bestdealon: owner is support@bestdealon.app (also the sender); pricing = t
   assert.strictEqual(t.owner_email, 'support@bestdealon.app'); assert.match(t.brand.email_from, /<support@bestdealon\.app>$/);
   assert.match(t.extra_instructions, /do not quote/i); assert.match(t.extra_instructions, /take a message/i);
   assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', 'pricing.jsonl'), 'utf8').trim(), '');
+});
+
+const GREETING = "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. Right now I can help by voice and email, and texting is coming soon. Are you a business owner, or calling about a business page?";
+test('bestdealon greeting is the call-script greeting, exactly', () => { assert.strictEqual(t.disclosure, GREETING); });
+test('bestdealon: says voice and email only, texting coming soon; never promises texts or outbound calls', () => {
+  const { buildInstructions } = require('../src/xai');
+  const { TenantRegistry } = require('../src/tenants'); const ins = buildInstructions(new TenantRegistry(null).add({ ...t }), { afterHours: false });
+  assert.match(t.extra_instructions, /only voice and email work today; texting is coming soon/);
+  assert.match(t.extra_instructions, /Never offer, promise or send a text/); assert.match(t.extra_instructions, /never promise that you or anyone will place an outbound call/);
+  assert.match(ins, /texting is NOT switched on/); assert.match(ins, /only voice and email work today/);
+  const names = mk(t, []).definitions().map((d) => d.name); assert.ok(!names.includes('set_text_number'));
+  const kbText = fs.readdirSync(path.join(__dirname, '..', 'kb', 'bestdealon')).map((f) => fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', f), 'utf8')).join('\n');
+  assert.ok(!/opt in by checking|calls and texts|TODO/i.test(kbText));
+});
+test('bestdealon KB loads from the tenant dir and answers; pricing stays take-a-message', () => {
+  const dir = path.join(DEP, 'bestdealon', 'tenants'); const kb = new KB({ dirs: t.kb.dirs.map((p) => path.resolve(dir, p)) });
+  assert.strictEqual(kb.answer('what is the Best Deal On Bot chrome extension').found, true);
+  const kbText = fs.readdirSync(path.join(__dirname, '..', 'kb', 'bestdealon')).map((f) => fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', f), 'utf8')).join('\n');
+  assert.ok(!/\$\s?\d|account is free/i.test(kbText)); assert.match(kbText, /do not have pricing on this line/);
 });
