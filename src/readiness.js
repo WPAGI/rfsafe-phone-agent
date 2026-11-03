@@ -24,7 +24,9 @@ function collectChecks({ env = {}, tenants = [], dataDir, dataWritable = false, 
   add('DATA_DIR', !!env.DATA_DIR && dataWritable, true, !env.DATA_DIR ? 'missing' : (dataWritable ? 'writable' : 'not writable'));
   add('TENANTS_DIR', tenants.length > 0, true, tenants.length ? tenants.length + ' tenant file(s) loaded' : 'no tenant files loaded');
   for (const t of tenants) {
-    for (const name of ['xai_webhook_secret', 'twilio_auth_token']) {
+    // Tenants that require Twilio shared-key signing check those key secrets instead of the account auth token.
+    const sharedOnly = !!(t.twilio && t.twilio.require_shared_key && t.twilio.webhook_keys && Object.keys(t.twilio.webhook_keys).length);
+    for (const name of ['xai_webhook_secret', ...(sharedOnly ? [...new Set(Object.values(t.twilio.webhook_keys))] : ['twilio_auth_token'])]) {
       const ref = (t.secrets || {})[name];
       if (!ref) { add('tenant:' + t.id + ':' + name, false, true, 'not declared on the tenant'); continue; }
       const resolved = !!resolveSecret(t, name, { env });

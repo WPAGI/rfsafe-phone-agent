@@ -100,3 +100,10 @@ test('bestdealon: Twilio webhooks require the shared key; a correctly signed req
   assert.strictEqual(verifyTenantTwilio(t, sec, url, p, { 'x-twilio-signature': sig, 'x-twilio-webhooks-signature-settings': `key=${id},algorithm=HMAC_SHA1` }), true);
   assert.strictEqual(verifyTenantTwilio(t, sec, url, p, { 'x-twilio-signature': sig }), false);
 });
+test('readiness: shared-key tenant needs its webhook key secret, not the auth token', () => {
+  const { collectChecks } = require('../src/readiness');
+  const ids = (env) => Object.fromEntries(collectChecks({ env, tenants: [t], dataDir: '/x', dataWritable: true }).checks.filter((c) => c.id.startsWith('tenant:bestdealon:')).map((c) => [c.id, c.ok]));
+  const r = ids({ BDO_XAI_WEBHOOK_SECRET: 'a'.repeat(38), BDO_TWILIO_WEBHOOK_KEY: 'b'.repeat(32) });
+  assert.strictEqual(r['tenant:bestdealon:twilio_webhook_key'], true); assert.ok(!('tenant:bestdealon:twilio_auth_token' in r));
+  assert.strictEqual(ids({ BDO_XAI_WEBHOOK_SECRET: 'a'.repeat(38) })['tenant:bestdealon:twilio_webhook_key'], false);
+});
