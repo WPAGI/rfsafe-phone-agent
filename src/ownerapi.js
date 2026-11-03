@@ -53,6 +53,9 @@ function createOwnerApi(d, { log = () => {}, readJsonl }) {
     cache.set(key, { v, exp: now() + (v ? OK_TTL : BAD_TTL) });
     return v;
   }
+  // Who sets up / turns on features, as the owner should read it. A service with a branded tenant (callbots-bdo)
+  // names that brand's support; otherwise the original Quanta X Technology wording, unchanged.
+  const supportLine = (t) => { const b = (t && t.brand) ? t : d.tenants.list().find((x) => x.brand); return b ? `${b.brand.team_name} support (${b.owner_email || require('./brand').addrOf(b.brand.email_from)})` : null; };
   const tenantFor = (phone) => d.tenants.list().find((t) => digits(t.bizinator_phone) === phone) || null;
 
   function send(req, res, code, body, type = 'application/json; charset=utf-8', extra = {}) {
@@ -71,7 +74,7 @@ function createOwnerApi(d, { log = () => {}, readJsonl }) {
     if (who && who.error) return send(req, res, 503, { error: who.error, message: 'Could not reach Best Deal On to check your sign-in. Try again shortly.' });
     if (!who) { log('owner_api.denied', { reason: 'token' }); return send(req, res, 401, { error: 'unauthorized', message: 'This sign-in is not valid for a business you own.' }); }
     const t = tenantFor(who.phone);
-    if (!t) return send(req, res, 404, { error: 'no_phone_bot', message: 'Your business does not have a phone bot connected yet. Quanta X Technology staff can set one up.' });
+    if (!t) return send(req, res, 404, { error: 'no_phone_bot', message: supportLine(null) ? `Your business does not have a phone bot connected yet. ${supportLine(null)} can set one up.` : 'Your business does not have a phone bot connected yet. Quanta X Technology staff can set one up.' });
     const p = u.pathname.replace(/^\/api\/owner\/v1/, '') || '/';
     log('owner_api.read', { tenant: t.id, path: p, user: fp(who.user) });
     const mine = (r) => r && r.tenant === t.id;
@@ -83,7 +86,7 @@ function createOwnerApi(d, { log = () => {}, readJsonl }) {
     if (p === '/status') {
       const ob = onboardingStatus(t);
       return send(req, res, 200, { business: { phone: who.phone, tenant: t.id, name: t.name }, config: redactedConfig(t),
-        channels: { voice: !!(t.numbers && t.numbers.length), email: !!t.email_enabled, sms: !!t.sms_enabled, sms_note: t.sms_enabled ? null : 'Texting is a feature that turns on after a one-time carrier approval (usually about 4 to 24 hours). Quanta X Technology staff turn it on.' },
+        channels: { voice: !!(t.numbers && t.numbers.length), email: !!t.email_enabled, sms: !!t.sms_enabled, sms_note: t.sms_enabled ? null : (supportLine(t) ? 'Texting is a feature that turns on after a one-time carrier approval (usually about 4 to 24 hours). ' + supportLine(t) + ' turns it on.' : 'Texting is a feature that turns on after a one-time carrier approval (usually about 4 to 24 hours). Quanta X Technology staff turn it on.') },
         onboarding: ob, ready: ob.filter((s) => !s.optional).every((s) => s.done), kb: !!(t.kb && (t.kb.dirs || t.kb.collection_id)), mode: d.mode || 'unknown' });
     }
     if (p === '/subscribers' || p === '/subscribers.csv') {
