@@ -58,7 +58,7 @@
   "extra_instructions": "Channels: only voice and email work today; texting is coming soon. Never offer, promise or send a text message, and never promise that you or anyone will place an outbound call; say the team gets messages by email. Pricing: do not quote or estimate any price. If a caller asks about pricing, say pricing is not available on this line and offer to take a message for the Best Deal On team. Never invent prices, features, stats, customer counts or results; if it is not in the knowledge base, say you do not have that yet and offer to take a message. Never say Best Deal On is made by, affiliated with or endorsed by xAI. Never give out John's personal contact; refer to Quanta X Technology staff. Never say the extension is in the Chrome Web Store. Never read out sample data from the Bizinator test page. Never quote provider costs as fixed prices.",
   "twilio": {
     "webhook_keys": {
-      "webhooks_sharedkey_01m6h1rym5fwvrc1v9s4r8cgag": "twilio_webhook_key"
+      "webhooks_sharedkey_01m6h66hrjfzs9yebq08h4z2m5": "twilio_webhook_key"
     },
     "require_shared_key": true
   },
