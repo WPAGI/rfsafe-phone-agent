@@ -67,6 +67,15 @@ test('test-recipient guard: only the allowed inbox can receive real email', asyn
   assert.strictEqual((await m.send({ to: 'someone@example.com', subject: 's', text: 't' })).reason, 'recipient_not_allowed'); assert.strictEqual(calls, 0);
   assert.strictEqual((await m.send({ to: E.TEST_INBOX, subject: 's', text: 't' })).ok, true); assert.strictEqual(calls, 1);
 });
+test('test-recipient guard accepts a comma-separated list (test inbox + owner) and still blocks others', async () => {
+  let calls = 0; const f = async () => { calls++; return { ok: true, json: async () => ({ id: 'x' }) }; };
+  const m = new E.ResendEmail({ apiKey: 'k', fetchImpl: f, allowOnly: E.TEST_INBOX + ', Support@BestDealOn.app' });
+  assert.strictEqual((await m.send({ to: 'support@bestdealon.app', subject: 's', text: 't' })).ok, true);
+  assert.strictEqual((await m.send({ to: E.TEST_INBOX, subject: 's', text: 't' })).ok, true);
+  assert.strictEqual((await m.send({ to: 'someone@example.com', subject: 's', text: 't' })).reason, 'recipient_not_allowed');
+  assert.strictEqual((await m.send({ to: ['support@bestdealon.app', 'x@example.com'], subject: 's', text: 't' })).reason, 'recipient_not_allowed');
+  assert.strictEqual(calls, 2);
+});
 test('bestdealon: owner is support@bestdealon.app (also the sender); pricing = take a message', () => {
   assert.strictEqual(t.owner_email, 'support@bestdealon.app'); assert.match(t.brand.email_from, /<support@bestdealon\.app>$/);
   assert.match(t.extra_instructions, /do not quote/i); assert.match(t.extra_instructions, /take a message/i);
