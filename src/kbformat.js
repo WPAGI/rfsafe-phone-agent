@@ -5,7 +5,8 @@ const FORMAT = 'rfsafe-kb'; const VERSION = 1;
 const KINDS = ['curated', 'position', 'answer', 'topic', 'study', 'harm-node', 'research', 'article', 'post', 'research-finding'];
 const ALLOW = /^https:\/\/(?:[a-z0-9-]+\.)*(?:rfsafe\.org|quantacase\.com|doi\.org|pubmed\.ncbi\.nlm\.nih\.gov|ncbi\.nlm\.nih\.gov|x\.com|ntp\.niehs\.nih\.gov)\//i;
 const hash = (c) => crypto.createHash('sha256').update(JSON.stringify([c.title, c.position, c.body, c.sources, c.aliases])).digest('hex').slice(0, 16);
-function validateCard(c) {
+function allowFor(domains) { const esc = (d) => d.replace(/[.]/g, '\\.'); return new RegExp('^https:\\/\\/(?:[a-z0-9-]+\\.)*(?:' + domains.map(esc).join('|') + ')\\/', 'i'); }
+function validateCard(c, allow = ALLOW) {
   const e = [];
   if (!c || typeof c !== 'object') return ['not an object'];
   if (typeof c.id !== 'string' || !/^[a-z0-9][a-z0-9._/-]{1,200}$/.test(c.id) || c.id.includes('..')) e.push('id');
@@ -13,7 +14,7 @@ function validateCard(c) {
   if (typeof c.title !== 'string' || !c.title.trim() || c.title.length > 300) e.push('title');
   if (typeof c.position !== 'string' || c.position.length > 4000) e.push('position');
   if (typeof c.body !== 'string' || c.body.length > 200000) e.push('body');
-  if (!Array.isArray(c.sources) || c.sources.some((s) => typeof s !== 'string' || !ALLOW.test(s))) e.push('sources');
+  if (!Array.isArray(c.sources) || c.sources.some((s) => typeof s !== 'string' || !allow.test(s))) e.push('sources');
   if (c.kind === 'research-finding' && !(c.sources || []).length) e.push('sources (research-finding needs at least one)');
   if (!Array.isArray(c.aliases) || c.aliases.some((s) => typeof s !== 'string')) e.push('aliases');
   if (typeof c.updated !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(c.updated)) e.push('updated');
@@ -34,4 +35,4 @@ function toMarkdown(c) {
   const fm = ['---', `title: ${JSON.stringify(c.title)}`, rf ? `source: ${rf}` : null, `aliases: ${c.aliases.join(' ')}`, `page_type: ${c.kind === 'curated' ? 'position' : c.kind}`, `updated: ${c.updated}`, '---'].filter(Boolean).join('\n');
   return `${fm}\n${c.position ? `RF Safe's position: ${c.position}\n\n` : ''}${c.body}\n\nSources: ${c.sources.join(' ')}\n`;
 }
-module.exports = { FORMAT, VERSION, KINDS, validateCard, encode, decode, toMarkdown, hash };
+module.exports = { allowFor, ALLOW, FORMAT, VERSION, KINDS, validateCard, encode, decode, toMarkdown, hash };

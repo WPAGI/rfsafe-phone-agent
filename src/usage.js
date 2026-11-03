@@ -52,7 +52,7 @@ const series = (daily, now) => daysBack(now).map((d) => ({ day: d, cost: r2(dail
 
 // ---- providers ----
 async function twilio({ env, fetchImpl, now }) {
-  const sid = env.TWILIO_ACCOUNT_SID || env.RFSAFE_TWILIO_ACCOUNT_SID; const tok = env.RFSAFE_TWILIO_AUTH_TOKEN || env.TWILIO_AUTH_TOKEN;
+  const sid = env.TWILIO_ACCOUNT_SID || env.RFSAFE_TWILIO_ACCOUNT_SID; const tok = env.RFSAFE_TWILIO_AUTH_TOKEN || env.TWILIO_AUTH_TOKEN; // RF Safe's token wins on the RF Safe service (unchanged order)
   if (!sid || !tok) return { status: 'not_connected', needs: [!sid && 'TWILIO_ACCOUNT_SID (or RFSAFE_TWILIO_ACCOUNT_SID)', !tok && 'RFSAFE_TWILIO_AUTH_TOKEN (or TWILIO_AUTH_TOKEN)'].filter(Boolean) };
   if (!/^AC[0-9a-zA-Z]{32}$/.test(sid)) return { status: 'error', error: 'TWILIO_ACCOUNT_SID is not a valid Account SID' };
   const auth = 'Basic ' + Buffer.from(sid + ':' + tok).toString('base64');
