@@ -14,7 +14,7 @@ Upgrading from Bizinator Backup: replace the files in the existing folder and cl
 
 New business pages stay private until you click "I own this business" and an admin approves them. Best Deal On may verify a business phone number with an automated call and a one-time code.
 
-Callbots phone assistant onboarding: a business signs up, turns on calls (texting is coming soon), and fills an empty knowledge base with Grok Bot's help.
+Callbots phone assistant onboarding: a business signs up, turns on calls (texting turns on after a one-time carrier approval), and fills an empty knowledge base with Grok Bot's help.
 
 
 Sources: https://bestdealon.app/app/ https://bestdealon.app/

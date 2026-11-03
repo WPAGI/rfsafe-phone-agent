@@ -83,7 +83,7 @@ function createOwnerApi(d, { log = () => {}, readJsonl }) {
     if (p === '/status') {
       const ob = onboardingStatus(t);
       return send(req, res, 200, { business: { phone: who.phone, tenant: t.id, name: t.name }, config: redactedConfig(t),
-        channels: { voice: !!(t.numbers && t.numbers.length), email: !!t.email_enabled, sms: !!t.sms_enabled, sms_note: t.sms_enabled ? null : 'Texting is coming soon. It is turned on by Quanta X Technology staff after carrier approval.' },
+        channels: { voice: !!(t.numbers && t.numbers.length), email: !!t.email_enabled, sms: !!t.sms_enabled, sms_note: t.sms_enabled ? null : 'Texting is a feature that turns on after a one-time carrier approval (usually about 4 to 24 hours). Quanta X Technology staff turn it on.' },
         onboarding: ob, ready: ob.filter((s) => !s.optional).every((s) => s.done), kb: !!(t.kb && (t.kb.dirs || t.kb.collection_id)), mode: d.mode || 'unknown' });
     }
     if (p === '/subscribers' || p === '/subscribers.csv') {

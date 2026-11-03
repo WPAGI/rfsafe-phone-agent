@@ -82,17 +82,18 @@ test('bestdealon: owner is support@bestdealon.app (also the sender); pricing = t
   assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', 'pricing.jsonl'), 'utf8').trim(), '');
 });
 
-const GREETING = "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. Right now I can help by voice and email, and texting is coming soon. Are you a business owner, or calling about a business page?";
+const GREETING = "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. Right now I can help by voice and email; texting is a feature that turns on after a one-time carrier approval. Are you a business owner, or calling about a business page?";
 test('bestdealon greeting is the call-script greeting, exactly', () => { assert.strictEqual(t.disclosure, GREETING); });
-test('bestdealon: says voice and email only, texting coming soon; never promises texts or outbound calls', () => {
+test('bestdealon: voice and email today, texting after carrier approval; never offers texts or outbound calls', () => {
   const { buildInstructions } = require('../src/xai');
   const { TenantRegistry } = require('../src/tenants'); const ins = buildInstructions(new TenantRegistry(null).add({ ...t }), { afterHours: false });
-  assert.match(t.extra_instructions, /only voice and email work today; texting is coming soon/);
+  assert.match(t.extra_instructions, /only voice and email work today; texting is a feature that turns on after a one-time carrier approval/); assert.match(t.extra_instructions, /Do not offer to text yet/);
+  assert.ok(!/coming soon/i.test(t.disclosure + t.extra_instructions + ins), 'no coming soon in greeting or prompt');
   assert.match(t.extra_instructions, /Never offer, promise or send a text/); assert.match(t.extra_instructions, /never promise that you or anyone will place an outbound call/);
   assert.match(ins, /texting is NOT switched on/); assert.match(ins, /only voice and email work today/);
   const names = mk(t, []).definitions().map((d) => d.name); assert.ok(!names.includes('set_text_number'));
   const kbText = fs.readdirSync(path.join(__dirname, '..', 'kb', 'bestdealon')).map((f) => fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', f), 'utf8')).join('\n');
-  assert.ok(!/opt in by checking|calls and texts|TODO/i.test(kbText));
+  assert.ok(!/opt in by checking|calls and texts|TODO|coming soon/i.test(kbText));
 });
 test('bestdealon KB loads from the tenant dir and answers; pricing stays take-a-message', () => {
   const dir = path.join(DEP, 'bestdealon', 'tenants'); const kb = new KB({ dirs: t.kb.dirs.map((p) => path.resolve(dir, p)) });

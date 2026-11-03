@@ -16,7 +16,7 @@ Can someone else claim my business? You may only manage a page for a business yo
 
 Do you sell my data? Quanta X Technology does not sell personal information, and does not share or sell mobile numbers or text opt-in data for marketing.
 
-Texts? Texting is coming soon. Today the assistant works by voice and email.
+Texts? Texting is a feature that turns on after a one-time carrier approval, which usually takes about 4 to 24 hours depending on carrier acceptance. Today the assistant works by voice and email.
 
 Is this from xAI? No. Best Deal On is not affiliated with or endorsed by xAI.
 
