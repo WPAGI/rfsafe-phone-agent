@@ -10,6 +10,7 @@ const { fp, appendJsonl } = require('./util');
 const { buildEmail, checkLinks, maskEmail, validEmail, cleanSummary, subjectFor } = require('./email');
 const { cleanName } = require('./newsletter');
 const EMAILS_PER_CALL = 3;
+const bdoClaims = require('./bdoverify');
 
 function inHours(hours, now = new Date()) {
   if (!hours) return true;
@@ -50,7 +51,9 @@ class Tools {
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
     if (this.tenant.sms_enabled) names.splice(names.indexOf('send_link'), 0, 'set_text_number');
     if (this.tenant.email_enabled && this.d.emailFor) names.splice(names.indexOf('take_message'), 0, 'set_email_address', 'send_email');
-    return rebrandDeep(names.map((n) => ({ type: 'function', name: n, ...DEFS[n] })), this.tenant);
+    const defs = names.map((n) => ({ type: 'function', name: n, ...DEFS[n] }));
+    if (bdoClaims.claimToolsEnabled(this.tenant, this.d.env, this.d.bdoSite)) for (const [n, def] of Object.entries(bdoClaims.CLAIM_DEFS)) defs.unshift({ type: 'function', name: n, ...def });
+    return rebrandDeep(defs, this.tenant);
   }
   // ctx: { channel: 'voice'|'sms', callId?, caller }
   ctxCall(ctx) { return { run: (name, args) => this.run(name, args || {}, ctx) }; }
@@ -63,6 +66,7 @@ class Tools {
     if (Object.values(args).some((v) => looksLikeCard(v))) { log('guard.payment_blocked', { tenant: t.id, tool: name }); return { ok: false, error: 'payment_details_refused', say: 'We never take payment details by phone or text. I can text you a link to order on the official website.' }; }
     try {
       switch (name) {
+        case 'bdo_listing_for_caller': case 'bdo_start_claim': return await bdoClaims.runClaimTool(name, args, ctx, this.d.bdoSite);
         case 'kb_answer': { const q = String(args.question || '').slice(0, 500); const a = this.d.kbFor(t).answer(q); if (!a.found) this.gapLog({ tenant: t.id, question: q.slice(0, 200), reason: 'no_match', ...this.gapCtx(ctx) }); return { ok: true, ...a, ...(a.found ? { guidance: a.guidance + ' If these passages do not actually answer the question, call note_unanswered and do not guess.' } : {}) }; }
         case 'note_unanswered': { this.gapLog({ tenant: t.id, question: String(args.question || '').slice(0, 200), reason: 'model_unanswered', ...this.gapCtx(ctx) }); return { ok: true, say: 'I do not have that information yet. I can take a message for the RF Safe team or text you a link to rfsafe.org.' }; }
         case 'website_lookup': return await this.websiteLookup(args);

@@ -33,8 +33,13 @@ function createApp(d) {
   // Inbound texts: per-sender memory, and one Tools instance per tenant so a multi-text email flow keeps its state.
   const smsMemory = d.smsMemory || new SmsMemory({ now: () => +now() }); const smsTools = new WeakMap();
   const smsToolsFor = (t) => { if (!smsTools.has(t)) smsTools.set(t, toolsFor(t)); return smsTools.get(t); };
-  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
+  // Best Deal On Verify by call + inbound claims (src/bdoverify.js). Flags default OFF; tenant bestdealon only.
+  const bdo = require('./bdoverify');
+  const bdoSite = d.bdoSite || new bdo.BdoSite({ url: (d.env || {}).BDO_SITE_URL, secret: (d.env || {}).BDO_CALLBOT_SHARED_SECRET });
+  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter, env: d.env || {}, bdoSite });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
+  const bdoVerify = bdo.createBdoVerify({ env: d.env || {}, tenants: d.tenants, log, driver: d.bdoCallDriver, site: bdoSite, publicBaseUrl: d.publicBaseUrl,
+    verifyTwilio: (t, params, req) => verifyTenantTwilio(t, sec, d.publicBaseUrl + req.url, params, req.headers) });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
   const bytes = (res, code, type, body) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff' }); res.end(body); };
@@ -515,6 +520,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
       if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/')) return await adminUi(req, res, u);
+      if (u.pathname.startsWith('/bdo/')) return await bdoVerify.route(req, res, u);
       if (u.pathname.startsWith('/api/owner/v1/')) return await ownerApi.route(req, res, u);
       if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTenantTwilio(t, sec, d.publicBaseUrl + req.url, params, req.headers));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
