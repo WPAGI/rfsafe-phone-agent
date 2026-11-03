@@ -68,3 +68,8 @@ test('test-recipient guard: only the allowed inbox can receive real email', asyn
   assert.strictEqual((await m.send({ to: 'someone@example.com', subject: 's', text: 't' })).reason, 'recipient_not_allowed'); assert.strictEqual(calls, 0);
   assert.strictEqual((await m.send({ to: E.TEST_INBOX, subject: 's', text: 't' })).ok, true); assert.strictEqual(calls, 1);
 });
+test('bestdealon: owner is support@bestdealon.app (also the sender); pricing = take a message', () => {
+  assert.strictEqual(t.owner_email, 'support@bestdealon.app'); assert.match(t.brand.email_from, /<support@bestdealon\.app>$/);
+  assert.match(t.extra_instructions, /do not quote/i); assert.match(t.extra_instructions, /take a message/i);
+  assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', 'pricing.jsonl'), 'utf8').trim(), '');
+});

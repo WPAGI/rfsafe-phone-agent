@@ -1,7 +1,7 @@
 {
   "id": "bestdealon",
   "name": "Best Deal On",
-  "owner_email": "SET_AT_DEPLOY",
+  "owner_email": "support@bestdealon.app",
   "numbers": [
     "+17276320002"
   ],
@@ -52,5 +52,6 @@
     "deliver": "email"
   },
   "disclosure": "Hi, you have reached {name}. You are speaking with an AI assistant.",
-  "returning_caller_greeting": false
+  "returning_caller_greeting": false,
+  "extra_instructions": "Pricing: do not quote or estimate any price. If a caller asks about pricing, say pricing is not available on this line and offer to take a message for the Best Deal On team."
 }
