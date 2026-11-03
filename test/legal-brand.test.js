@@ -18,8 +18,8 @@ test('bdo privacy and terms: Best Deal On text, no RF Safe or CallBots wording',
   for (const p of [renderPrivacy(bdo), renderTerms(bdo)]) {
     assert.doesNotMatch(p, RF); assert.match(p, /Best Deal On/); assert.match(p, /support@bestdealon\.app/);
     assert.match(p, /not shared with third parties or affiliates/);
-    assert.match(p, /coming soon/i);
-    assert.doesNotMatch(p, /reply STOP to (opt out|cancel)|we will text you|will call you back|we text|order status/i);
+    assert.doesNotMatch(p, /coming soon/i); assert.match(p, /Texting needs a one-time carrier approval, which usually takes about 4 to 24 hours depending on carrier acceptance\./);
+    assert.doesNotMatch(p, /we will text you|will call you back|we text|order status/i);
   }
 });
 test('HTTP: single branded tenant serves Best Deal On legal pages; RF Safe demo unchanged', async () => {

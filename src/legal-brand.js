@@ -1,7 +1,7 @@
 'use strict';
 // Privacy Policy and Terms for a tenant with its own `brand` block (Best Deal On on callbots-bdo).
 // RF Safe / callbots.org (no brand block) never reaches this file; src/legal.js keeps its text byte-for-byte.
-// Rules for this text: texting is "coming soon" (no texts are sent today); never promise texts or outbound calls;
+// Rules for this text: texting is listed as a feature with the carrier-approval note (John, Nov 3); never promise texts or outbound calls;
 // phone numbers and texting data are not shared with third parties or affiliates.
 const { OPERATOR } = require('./page');
 const { brandFor, addrOf } = require('./brand');
@@ -18,8 +18,8 @@ function shell(c, title, body) {
 ${body}
 <p><a href="https://${c.site}/">${c.site}</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p></main></body></html>`;
 }
-const smsSection = (c) => `<h2 id="sms">Text messaging (coming soon)</h2>
-<p>Texting on the ${c.name} line is not available yet. We do not send text messages today. Before texting starts, we will update this page with how you opt in, message frequency, and how to reply STOP and HELP. Nothing on this page promises texts or outbound calls from us.</p>
+const smsSection = (c) => `<h2 id="sms">Text messaging</h2>
+<p>Texting is a feature of the ${c.name} line. Texting needs a one-time carrier approval, which usually takes about 4 to 24 hours depending on carrier acceptance. Texts are sent only with your consent, and you can reply STOP to opt out or HELP for help at any time. Msg &amp; data rates may apply.</p>
 <p><strong>Your phone number and any texting data, including opt-in data and consent, are not shared with third parties or affiliates</strong> for their marketing or any other purpose, except service providers that carry calls or messages for us and are bound to use the data only for that.</p>`;
 
 function renderBrandPrivacy(t) {
@@ -75,7 +75,7 @@ function renderBrandTerms(t) {
 <p class="eff">Effective date: ${EFFECTIVE}</p>
 <p>These Terms govern your use of the ${c.name} phone line and these pages (the "Service"). The Service is operated by ${c.op}. By using the Service you agree to these Terms.</p>
 <h2>The Service</h2>
-<p>Calls are answered by an AI assistant, not a person, and may be recorded. The assistant answers from ${c.name}'s published information, can email you information you ask for, and can take a message for the ${c.name} team. Today the Service works by voice and email only; texting is coming soon.</p>
+<p>Calls are answered by an AI assistant, not a person, and may be recorded. The assistant answers from ${c.name}'s published information, can email you information you ask for, and can take a message for the ${c.name} team. Texting is also a feature; it needs a one-time carrier approval, which usually takes about 4 to 24 hours depending on carrier acceptance.</p>
 <ul>
   <li>The assistant can make mistakes. Check important details on <a href="https://${c.site}/">${c.site}</a> or with the ${c.name} team.</li>
   <li>The assistant does not quote prices. Information provided is general information, not legal or financial advice.</li>
