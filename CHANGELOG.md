@@ -1,4 +1,7 @@
 # Changelog
+## Unreleased (bdo-newsletter-branding)
+- Newsletter confirm, unsubscribe and error pages, news-text confirmation and spoken invite wording now follow the tenant brand block. Tenants without a brand (RF Safe) are byte-for-byte unchanged. Tests: test/newsletter-branding.test.js.
+
 ## Owner briefing module (unreleased)
 - New isolated `src/owner/` module, off unless `owner_briefing.enabled` is true for the tenant. It adds the daily PIN-gated briefing call, urgent alerts with rate limits and quiet hours, the on-demand briefing for owner numbers, transfer fallback and an optional Twilio transfer bridge, and owner-call archive and audit logs. Admin: `owner_briefing` in the PATCH list, plus `/owner-pin` and `/owner-briefing`. See GO-LIVE.md.
 

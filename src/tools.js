@@ -156,7 +156,7 @@ class Tools {
     const nl = this.d.newsletter; let body = g.body; let newsInvite = false;
     if (ctx.channel === 'voice' && args.news_optin === true && nl) {
       let st = { status: 'none' }; try { st = nl.smsState(t.id, to); } catch { /* ignore */ }
-      if (st.status !== 'subscribed') { const { newsSmsInvite } = require('./newsletter'); const inv = newsSmsInvite(t.name); body = body + '\n' + inv; newsInvite = true; try { nl.requestSms({ tenant: t.id, phone: to, call: ctx.callId, email: (this._emailTo && this._emailTo.get(t.id + '|' + ctx.callId)) || null, wording: { spoken: require('./newsletter').NEWS_SMS_SPOKEN, text: inv } }); } catch { /* never break a call */ } }
+      if (st.status !== 'subscribed') { const { newsSmsInvite } = require('./newsletter'); const inv = newsSmsInvite(t.name); body = body + '\n' + inv; newsInvite = true; try { nl.requestSms({ tenant: t.id, phone: to, call: ctx.callId, email: (this._emailTo && this._emailTo.get(t.id + '|' + ctx.callId)) || null, wording: { spoken: require('./brand').rebrand(require('./newsletter').NEWS_SMS_SPOKEN, t), text: inv } }); } catch { /* never break a call */ } }
     }
     let r; try { r = await sendCustomerSms({ tenant: t, transport: this.d.smsFor(t), consent: this.d.consent, to, body, log }); } catch (e) { log('sms.send_error', { tenant: t.id, err: String(e.message).slice(0, 120) }); r = { ok: false, reason: 'provider_error' }; }
     this.archive({ channel: 'sms', tenant: t.id, call: ctx.callId, to, text: body, provider_id: r.sid || null, error: r.ok ? null : r.reason, caller: ctx.caller });

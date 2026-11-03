@@ -105,7 +105,7 @@ class XaiTextBrain {
 function quickSmsReply({ tenant, from, text, consent, log, newsletter, memory = null }) {
   if (newsletter && /^\s*yes\s*[.!]?\s*$/i.test(text)) {
     let ok = false; try { ok = newsletter.confirmSms(tenant.id, from, text); } catch { ok = false; }
-    if (ok) { consent.record(tenant.id, from, 'start'); log('newsletter.sms_confirmed', { tenant: tenant.id, from: fp(from) }); return newsSmsConfirmed(tenant.name); }
+    if (ok) { consent.record(tenant.id, from, 'start'); log('newsletter.sms_confirmed', { tenant: tenant.id, from: fp(from) }); return rebrand(newsSmsConfirmed(tenant.name), tenant); }
   }
   if (STOP_WORDS.test(text)) { if (memory) memory.clear(tenant.id, from); consent.record(tenant.id, from, 'stop'); if (newsletter) { try { newsletter.stopSms(tenant.id, from); } catch { /* ignore */ } } log('sms.stop', { tenant: tenant.id, from: fp(from) }); return `You are unsubscribed from ${tenant.name} texts. No more messages will be sent. Reply START to resubscribe.`; }
   if (START_WORDS.test(text)) { consent.record(tenant.id, from, 'start'); return `You are resubscribed to ${tenant.name}. Reply STOP to opt out, HELP for help.`; }

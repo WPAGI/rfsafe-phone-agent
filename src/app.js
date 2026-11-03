@@ -260,19 +260,24 @@ function createApp(d) {
 
   // Newsletter double opt-in. GET shows a button only (link scanners never confirm); POST records.
   async function newsletterRoute(req, res, u) {
-    const nlp = require('./newsletter'); const nl = d.newsletter;
+    const nlp = require('./newsletter'); const nl = d.newsletter; const { rebrand, brandFor, addrOf } = require('./brand');
+    // Tenant for wording: the signed token's tenant; before a token is verified, the only tenant on a single-tenant
+    // service (callbots-bdo). Tenants without a brand block (RF Safe) get the original text byte-for-byte.
+    const soleTenant = () => { try { const l = d.tenants.list(); return l.length === 1 ? l[0] : null; } catch { return null; } };
+    const tenantOf = (o) => (o && o.t && d.tenants.get(o.t)) || soleTenant();
+    const brandText = (html, t) => (t && t.brand ? rebrand(html, t).replace(/support@quantaxtechnology\.com/g, addrOf(brandFor(t).email_from)) : html);
     const page = (code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'same-origin' }); res.end(body); };
     const unsub = u.pathname.endsWith('/unsubscribe'); const action = unsub ? 'unsub' : 'sub';
-    if (!nl) return page(503, nlp.page('Not available', '<p>The newsletter is not available right now.</p>'));
+    if (!nl) return page(503, brandText(nlp.page('Not available', '<p>The newsletter is not available right now.</p>'), soleTenant()));
     if (req.method === 'GET') {
-      const tok = u.searchParams.get('t') || ''; if (!nl.verify(tok, action)) return page(400, nlp.page('Link expired or invalid', '<p>This link is invalid or has expired. Ask for a new one on your next call, or email support@quantaxtechnology.com.</p>'));
-      return page(200, unsub ? nlp.formPage({ title: 'Unsubscribe', text: "Press the button to stop receiving RF Safe's monthly newsletter.", button: 'Unsubscribe me', action: '/newsletter/unsubscribe', tok }) : nlp.formPage({ title: 'Confirm your subscription', text: "Press the button to confirm you want RF Safe's monthly newsletter. You can unsubscribe at any time.", button: 'Confirm my newsletter subscription', action: '/newsletter/confirm', tok }));
+      const tok = u.searchParams.get('t') || ''; const g = nl.verify(tok, action); const gt = tenantOf(g); if (!g) return page(400, brandText(nlp.page('Link expired or invalid', '<p>This link is invalid or has expired. Ask for a new one on your next call, or email support@quantaxtechnology.com.</p>'), gt));
+      return page(200, brandText(unsub ? nlp.formPage({ title: 'Unsubscribe', text: "Press the button to stop receiving RF Safe's monthly newsletter.", button: 'Unsubscribe me', action: '/newsletter/unsubscribe', tok }) : nlp.formPage({ title: 'Confirm your subscription', text: "Press the button to confirm you want RF Safe's monthly newsletter. You can unsubscribe at any time.", button: 'Confirm my newsletter subscription', action: '/newsletter/confirm', tok }), gt));
     }
     if (req.method === 'POST') {
       const tok = new URLSearchParams(await readBody(req, 8192)).get('t') || u.searchParams.get('t') || '';
-      const o = nl.verify(tok, action); if (!o) return page(400, nlp.page('Link expired or invalid', '<p>This link is invalid or has expired.</p>'));
+      const o = nl.verify(tok, action); const pt = tenantOf(o); if (!o) return page(400, brandText(nlp.page('Link expired or invalid', '<p>This link is invalid or has expired.</p>'), pt));
       nl.record(o, unsub ? 'unsubscribed' : 'confirmed', unsub ? {} : { ip: clientIp(req), ua: req.headers['user-agent'] || '' }); log(unsub ? 'newsletter.unsubscribed' : 'newsletter.confirmed', { tenant: o.t, to: fp(o.e) });
-      return page(200, unsub ? nlp.page('You are unsubscribed', "<p>You will not receive RF Safe's newsletter. Thank you.</p>") : nlp.page('Thank you!', "<p>You are subscribed to RF Safe's monthly newsletter. Every issue has an unsubscribe link.</p>"));
+      return page(200, brandText(unsub ? nlp.page('You are unsubscribed', "<p>You will not receive RF Safe's newsletter. Thank you.</p>") : nlp.page('Thank you!', "<p>You are subscribed to RF Safe's monthly newsletter. Every issue has an unsubscribe link.</p>"), pt));
     }
     return json(res, 405, { error: 'method_not_allowed' });
   }
