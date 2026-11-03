@@ -79,7 +79,8 @@ ${siteFooter()}
 </html>`;
 }
 
-function renderPrivacy() {
+function renderPrivacy(tenant) {
+  if (tenant && tenant.brand) return require('./legal-brand').renderBrandPrivacy(tenant);
   return shell({ title: 'Privacy Policy | CallBots', description: 'How Quanta X Technology LLC collects, uses, and protects information when you call or text a line answered by CallBots, including SMS terms.', path: '/privacy', body: `
 <h1>Privacy Policy</h1>
 <p class="eff">Effective date: ${EFFECTIVE}</p>
@@ -129,7 +130,8 @@ ${NEWSLETTER_SECTION}
 <p>See also our <a href="/terms">Terms of Service</a>.</p>` });
 }
 
-function renderTerms() {
+function renderTerms(tenant) {
+  if (tenant && tenant.brand) return require('./legal-brand').renderBrandTerms(tenant);
   return shell({ title: 'Terms of Service | CallBots', description: 'Terms for using callbots.org and phone lines answered by the CallBots AI assistant from Quanta X Technology LLC, including SMS terms.', path: '/terms', body: `
 <h1>Terms of Service</h1>
 <p class="eff">Effective date: ${EFFECTIVE}</p>

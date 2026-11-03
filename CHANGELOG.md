@@ -1,4 +1,7 @@
 # Changelog
+## Unreleased (bdo-legal-pages)
+- /privacy and /terms are tenant-driven: a single-tenant service with a brand block (callbots-bdo) serves Best Deal On text (src/legal-brand.js): voice and email only, texting coming soon, no text or outbound-call promises, phone numbers and texting data not shared with third parties or affiliates. RF Safe output is byte-identical (hash-pinned in test/legal-brand.test.js).
+
 ## Unreleased (bdo-newsletter-branding)
 - Newsletter confirm, unsubscribe and error pages, news-text confirmation and spoken invite wording now follow the tenant brand block. Tenants without a brand (RF Safe) are byte-for-byte unchanged. Tests: test/newsletter-branding.test.js.
 

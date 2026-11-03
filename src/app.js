@@ -258,6 +258,10 @@ function createApp(d) {
     return json(res, 404, { error: 'not_found' });
   }
 
+  // Legal pages: a single-tenant service whose tenant has a brand block (callbots-bdo) shows that brand's text;
+  // otherwise (RF Safe / callbots.org) the original pages, unchanged.
+  function legalTenant() { try { const l = d.tenants.list(); return l.length === 1 && l[0].brand ? l[0] : null; } catch { return null; } }
+
   // Newsletter double opt-in. GET shows a button only (link scanners never confirm); POST records.
   async function newsletterRoute(req, res, u) {
     const nlp = require('./newsletter'); const nl = d.newsletter; const { rebrand, brandFor, addrOf } = require('./brand');
@@ -500,8 +504,8 @@ function createApp(d) {
     const u = new URL(req.url, 'http://x');
     try {
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding());
-      if (req.method === 'GET' && (u.pathname === '/privacy' || u.pathname === '/privacy-policy')) return html(res, 200, require('./legal').renderPrivacy());
-      if (req.method === 'GET' && (u.pathname === '/terms' || u.pathname === '/terms-of-service')) return html(res, 200, require('./legal').renderTerms());
+      if (req.method === 'GET' && (u.pathname === '/privacy' || u.pathname === '/privacy-policy')) return html(res, 200, require('./legal').renderPrivacy(legalTenant()));
+      if (req.method === 'GET' && (u.pathname === '/terms' || u.pathname === '/terms-of-service')) return html(res, 200, require('./legal').renderTerms(legalTenant()));
       if (req.method === 'GET' && u.pathname === '/robots.txt') return bytes(res, 200, 'text/plain; charset=utf-8', ROBOTS);
       if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
