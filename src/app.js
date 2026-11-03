@@ -5,7 +5,7 @@ const { URL } = require('url');
 const { readBody, safeEq, fp, appendJsonl } = require('./util');
 const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
-const { verifyTenantTwilio, twiml, sendCustomerSms } = require('./twilio');
+const { verifyTenantTwilio, parseSignatureSettings, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
 const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory } = require('./sms');
 const { knownCallerFor, returningCallerFor } = require('./xai');
@@ -48,8 +48,12 @@ function createApp(d) {
     const body = await readBody(req);
     const params = Object.fromEntries(new URLSearchParams(body));
     const url = d.publicBaseUrl + req.url;
-    const tenant = tenantForTwilio(params);
+    // Twilio's shared-key header names the key; a tenant that owns that key can be found even when the
+    // request has no matching To/AccountSid (e.g. Twilio's Webhooks/Tests requests). Signature still decides.
+    const keyId = req.headers['x-twilio-webhooks-signature-settings'] ? parseSignatureSettings(req.headers['x-twilio-webhooks-signature-settings']).key : null;
+    const tenant = tenantForTwilio(params) || (keyId ? d.tenants.list().find((t) => t.twilio && t.twilio.webhook_keys && Object.prototype.hasOwnProperty.call(t.twilio.webhook_keys, keyId)) : null);
     const ok = !!(tenant && verifyTenantTwilio(tenant, sec, url, params, req.headers));
+    if (!ok) log('twilio.verify_failed', { reason: tenant ? 'bad_signature' : 'no_tenant', shared_key: !!keyId });
     return { params, tenant, ok };
   }
   function xmlEscape(s) { return String(s).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c])); }
