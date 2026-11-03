@@ -91,3 +91,12 @@ test('bestdealon KB loads from the tenant dir and answers; pricing stays take-a-
   const kbText = fs.readdirSync(path.join(__dirname, '..', 'kb', 'bestdealon')).map((f) => fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', f), 'utf8')).join('\n');
   assert.ok(!/\$\s?\d|account is free/i.test(kbText)); assert.match(kbText, /do not have pricing on this line/);
 });
+test('bestdealon: Twilio webhooks require the shared key; a correctly signed request passes', () => {
+  const { sharedKeySignature } = require('../src/twilio');
+  const id = Object.keys(t.twilio.webhook_keys)[0]; assert.strictEqual(t.twilio.require_shared_key, true);
+  const sec = (_t, name) => (name === 'twilio_webhook_key' ? 'k'.repeat(32) : null);
+  const url = 'https://callbots-bdo.onrender.com/twilio/voice'; const p = { CallSid: 'CA1' };
+  const sig = sharedKeySignature('k'.repeat(32), 'HMAC_SHA1', url, p);
+  assert.strictEqual(verifyTenantTwilio(t, sec, url, p, { 'x-twilio-signature': sig, 'x-twilio-webhooks-signature-settings': `key=${id},algorithm=HMAC_SHA1` }), true);
+  assert.strictEqual(verifyTenantTwilio(t, sec, url, p, { 'x-twilio-signature': sig }), false);
+});
