@@ -10,6 +10,33 @@ function twilioSignature(authToken, url, params) {
   const data = url + Object.keys(params).sort().map((k) => k + params[k]).join('');
   return crypto.createHmac('sha1', authToken).update(Buffer.from(data, 'utf8')).digest('base64');
 }
+// Per-tenant webhook check. Twilio's webhook configuration API can sign with a SharedKey created with an
+// API key (https://www.twilio.com/docs/usage/webhooks/webhook-shared-keys). Such requests carry
+// X-Twilio-Webhooks-Signature-Settings: key=<sharedKeyId>,algorithm=HMAC_SHA1|HMAC_SHA256 and the signature
+// in X-Twilio-Signature over the same url + sorted params string. Without that header Twilio signed with the
+// account auth token (the RF Safe path, unchanged). tenant.twilio.webhook_keys maps sharedKeyId -> secret name;
+// tenant.twilio.require_shared_key refuses the auth-token path.
+const SIG_ALGOS = { HMAC_SHA1: 'sha1', HMAC_SHA256: 'sha256' };
+function parseSignatureSettings(h) {
+  const o = {}; for (const part of String(h || '').split(',')) { const i = part.indexOf('='); if (i > 0) o[part.slice(0, i).trim()] = part.slice(i + 1).trim(); }
+  return o;
+}
+function sharedKeySignature(secret, algorithm, url, params) {
+  const data = url + Object.keys(params).sort().map((k) => k + params[k]).join('');
+  return crypto.createHmac(SIG_ALGOS[algorithm], secret).update(Buffer.from(data, 'utf8')).digest('base64');
+}
+function verifyTenantTwilio(tenant, sec, url, params, headers) {
+  const sig = headers['x-twilio-signature']; if (!tenant || !sig) return false;
+  const cfg = tenant.twilio || {}; const ss = headers['x-twilio-webhooks-signature-settings'];
+  if (ss) {
+    const { key, algorithm } = parseSignatureSettings(ss);
+    const name = key && (cfg.webhook_keys || {})[key]; if (!name || !SIG_ALGOS[algorithm]) return false;
+    const secret = sec(tenant, name); if (!secret) return false;
+    return safeEq(sharedKeySignature(secret, algorithm, url, params), sig);
+  }
+  if (cfg.require_shared_key) return false;
+  return verifyTwilio(sec(tenant, 'twilio_auth_token'), url, params, sig);
+}
 function verifyTwilio(authToken, url, params, header) {
   if (!authToken || !header) return false;
   return safeEq(twilioSignature(authToken, url, params), header);
@@ -32,16 +59,17 @@ class Consent {
 
 // Real transport (used only when TWILIO_LIVE=1 and credentials exist). Tests/demo use MockTwilio.
 class TwilioRest {
-  constructor({ accountSid, authToken, fetchImpl = globalThis.fetch }) { this.sid = accountSid; this.tok = authToken; this.fetch = fetchImpl; }
+  // REST auth: an API key (SK sid + secret) when given, else the account sid + auth token. URLs always use the account sid.
+  constructor({ accountSid, authToken, apiKeySid, apiKeySecret, fetchImpl = globalThis.fetch }) { this.sid = accountSid; this.user = apiKeySid && apiKeySecret ? apiKeySid : accountSid; this.tok = apiKeySid && apiKeySecret ? apiKeySecret : authToken; this.fetch = fetchImpl; }
   async sendSms({ from, to, body, statusCallback, messagingServiceSid }) {
     // A2P 10DLC: send through the Messaging Service (registered campaign) when one is set; otherwise From.
     const form = new URLSearchParams(messagingServiceSid ? { MessagingServiceSid: messagingServiceSid, To: to, Body: body } : { From: from, To: to, Body: body }); if (statusCallback) form.set('StatusCallback', statusCallback);
-    const r = await this.fetch(`https://api.twilio.com/2010-04-01/Accounts/${this.sid}/Messages.json`, { method: 'POST', headers: { authorization: 'Basic ' + Buffer.from(this.sid + ':' + this.tok).toString('base64'), 'content-type': 'application/x-www-form-urlencoded' }, body: form });
+    const r = await this.fetch(`https://api.twilio.com/2010-04-01/Accounts/${this.sid}/Messages.json`, { method: 'POST', headers: { authorization: 'Basic ' + Buffer.from(this.user + ':' + this.tok).toString('base64'), 'content-type': 'application/x-www-form-urlencoded' }, body: form });
     const j = await r.json(); if (!r.ok) throw new Error('twilio ' + r.status + ' ' + (j.code || '')); return { sid: j.sid };
   }
   // Read-only: E.164 numbers in a Messaging Service's sender pool.
   async senderPool(messagingServiceSid) {
-    const r = await this.fetch(`https://messaging.twilio.com/v1/Services/${encodeURIComponent(messagingServiceSid)}/PhoneNumbers?PageSize=100`, { headers: { authorization: 'Basic ' + Buffer.from(this.sid + ':' + this.tok).toString('base64') } });
+    const r = await this.fetch(`https://messaging.twilio.com/v1/Services/${encodeURIComponent(messagingServiceSid)}/PhoneNumbers?PageSize=100`, { headers: { authorization: 'Basic ' + Buffer.from(this.user + ':' + this.tok).toString('base64') } });
     const j = await r.json(); if (!r.ok) throw new Error('twilio ' + r.status + ' ' + (j.code || '')); return (j.phone_numbers || []).map((p) => p.phone_number);
   }
 }
@@ -61,4 +89,4 @@ async function sendCustomerSms({ tenant, transport, consent, to, body, log }) {
 
 function twiml(msg) { const esc = (s) => String(s).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c])); return '<?xml version="1.0" encoding="UTF-8"?><Response>' + (msg ? `<Message>${esc(msg)}</Message>` : '') + '</Response>'; }
 
-module.exports = { twilioSignature, verifyTwilio, Consent, TwilioRest, MockTwilio, sendCustomerSms, twiml, STOP_WORDS, START_WORDS, HELP_WORDS };
+module.exports = { twilioSignature, verifyTwilio, verifyTenantTwilio, sharedKeySignature, parseSignatureSettings, Consent, TwilioRest, MockTwilio, sendCustomerSms, twiml, STOP_WORDS, START_WORDS, HELP_WORDS };

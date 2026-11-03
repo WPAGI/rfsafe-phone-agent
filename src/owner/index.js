@@ -22,7 +22,7 @@ function createOwner(d, { log: rawLog = () => {}, tokenSecretFor = d.ownerTokenS
   const mockVoice = new MockVoice();
   const tokens = d.ownerTokens || new OwnerTokens({ now: () => +now() });
   const tokenSecret = (t) => { try { return tokenSecretFor ? tokenSecretFor(t) : null; } catch { return null; } };
-  const voiceFor = (t) => { if (d.ownerVoiceFor) return d.ownerVoiceFor(t); const tr = d.smsFor && d.smsFor(t); return tr && tr.sid && tr.tok && tr.fetch ? new TwilioVoiceRest({ accountSid: tr.sid, authToken: tr.tok, fetchImpl: tr.fetch }) : mockVoice; };
+  const voiceFor = (t) => { if (d.ownerVoiceFor) return d.ownerVoiceFor(t); const tr = d.smsFor && d.smsFor(t); return tr && tr.sid && tr.tok && tr.fetch ? new TwilioVoiceRest({ accountSid: tr.sid, authToken: tr.tok, user: tr.user, fetchImpl: tr.fetch }) : mockVoice; };
   const enabledTenants = () => (d.tenants ? d.tenants.list().filter(C.enabled) : []);
   const dayOf = (t) => C.localParts(now(), C.settings(t).timezone).date;
   const safe = (f) => { try { return f(); } catch (e) { rawLog('owner.error', { err: e.message }); return null; } };

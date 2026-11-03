@@ -5,7 +5,7 @@ const { URL } = require('url');
 const { readBody, safeEq, fp, appendJsonl } = require('./util');
 const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
-const { verifyTwilio, twiml, sendCustomerSms } = require('./twilio');
+const { verifyTenantTwilio, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
 const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory } = require('./sms');
 const { knownCallerFor, returningCallerFor } = require('./xai');
@@ -49,7 +49,7 @@ function createApp(d) {
     const params = Object.fromEntries(new URLSearchParams(body));
     const url = d.publicBaseUrl + req.url;
     const tenant = tenantForTwilio(params);
-    const ok = !!(tenant && verifyTwilio(sec(tenant, 'twilio_auth_token'), url, params, req.headers['x-twilio-signature']));
+    const ok = !!(tenant && verifyTenantTwilio(tenant, sec, url, params, req.headers));
     return { params, tenant, ok };
   }
   function xmlEscape(s) { return String(s).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c])); }
@@ -496,7 +496,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
       if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/')) return await adminUi(req, res, u);
-      if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTwilio(sec(t, 'twilio_auth_token'), d.publicBaseUrl + req.url, params, req.headers['x-twilio-signature']));
+      if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTenantTwilio(t, sec, d.publicBaseUrl + req.url, params, req.headers));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms/status') return await twilioStatus(req, res);
