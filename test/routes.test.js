@@ -139,3 +139,16 @@ test('SMS HELP and START are handled and call-end is logged without the caller n
     assert.ok(!lines.includes('7275550188'));
   } finally { await a.close(); }
 });
+
+test('voice fallback: tenant with record_audio false gets no Record and no recording notice', async () => {
+  const a = await startApp();
+  try {
+    const t = a.deps.tenants.list().find((x) => x.numbers.includes('+17275550100'));
+    t.take_message = { enabled: true, record_audio: false, deliver: 'outbox' };
+    const voice = await signedSms(a.base, '/twilio/voice', { From: '+17275550142', To: '+17275550100', CallSid: 'CA_nr' }, ENV.DEMO_TWILIO_AUTH_TOKEN);
+    const xml = await voice.text();
+    assert.strictEqual(voice.status, 200);
+    assert.doesNotMatch(xml, /<Record/); assert.doesNotMatch(xml, /record/i);
+    assert.match(xml, /<Hangup\/>/); assert.match(xml, /never take payment/);
+  } finally { await a.close(); }
+});
