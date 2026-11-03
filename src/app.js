@@ -54,6 +54,10 @@ function createApp(d) {
   }
   function xmlEscape(s) { return String(s).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c])); }
   function voiceTwiml(tenant) {
+    if ((tenant.take_message || {}).record_audio === false) {
+      // No audio recording and no recording notice for this tenant.
+      return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thanks for calling ${xmlEscape(tenant.name)}. Our assistant is unavailable right now. Please call back a little later. We never take payment by phone.</Say><Hangup/></Response>`;
+    }
     const away = !inHours(tenant.hours, now());
     const name = xmlEscape(tenant.name);
     const action = xmlEscape(d.publicBaseUrl + '/twilio/voice/recording');

@@ -43,6 +43,7 @@ class Tools {
   constructor(tenant, deps) { this.tenant = tenant; this.d = deps; }
   definitions() {
     const names = ['kb_answer', 'note_unanswered', 'website_lookup', 'send_link', 'send_link_sms', 'take_message', 'end_call', 'transfer_to_human'];
+    if ((this.tenant.take_message || {}).enabled === false) names.splice(names.indexOf('take_message'), 1);
     if (this.tenant.shopify) names.splice(2, 0, 'product_search');
     if (this.tenant.sar_lookup && this.d.sarFor) names.splice(1, 0, 'sar_lookup', 'sar_ranking');
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
@@ -87,6 +88,7 @@ class Tools {
         case 'take_message': {
           const msg = { tenant: t.id, from: ctx.caller, name: String(args.name || '').slice(0, 80), callback: String(args.callback || ctx.caller || '').slice(0, 20), message: String(args.message).slice(0, 1000), channel: ctx.channel, at: new Date().toISOString() };
           await this.d.notify(t, { kind: 'message', ...msg }); log('message.taken', { tenant: t.id, from: fp(ctx.caller) });
+          if ((t.take_message || {}).deliver === 'email') return { ok: true, saved: true, emailed: await this.emailOwnerMessage(msg) };
           return { ok: true, saved: true };
         }
         case 'end_call': {
@@ -162,6 +164,15 @@ class Tools {
   }
   // Where a gap came from, for the owner briefing: channel, conversation id, caller last 4 only.
   gapCtx(ctx) { return { channel: ctx && ctx.channel, call: (ctx && ctx.callId) || null, from_last4: ctx && ctx.caller ? String(ctx.caller).replace(/\D/g, '').slice(-4) || null : null }; }
+  // Owner gets taken messages by email (tenant.take_message.deliver = 'email'), e.g. while SMS waits on A2P.
+  async emailOwnerMessage(msg) {
+    const t = this.tenant; const E = require('./email');
+    if (!t.owner_email || !E.validEmail(t.owner_email) || !this.d.emailFor) return false;
+    const text = `New message taken by the ${t.name} phone assistant.\n\nName: ${msg.name || '(not given)'}\nCallback: ${msg.callback || '(not given)'}\nChannel: ${msg.channel}\nAt: ${msg.at}\n\nMessage:\n${msg.message}\n`;
+    let r; try { r = await this.d.emailFor(t).send({ to: t.owner_email, subject: `New message for ${t.name}`, text, from: E.senderFor(t) }); } catch { r = { ok: false }; }
+    (this.d.log || (() => {}))('message.emailed', { tenant: t.id, ok: !!(r && r.ok), reason: (r && r.reason) || null });
+    return !!(r && r.ok);
+  }
   gapLog(ev) { if (this.d.kbGapFile) { try { appendJsonl(this.d.kbGapFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
   archive(rec) { if (this.d.sentMessages) { try { this.d.sentMessages.add(rec); } catch { /* never break a call */ } } }
   emailLog(ev) { if (this.d.emailLogFile) { try { appendJsonl(this.d.emailLogFile, { at: new Date().toISOString(), ...ev }); } catch { /* ignore */ } } }
@@ -209,7 +220,7 @@ class Tools {
     const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl, tenant: t });
     const subject = subjectFor(args.topic, !!summary, t);
     counts.set(key, n + 1); sigs.add(sig); sent.set(key, sigs); // count attempts, so a failing provider cannot be retried without limit
-    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html, ...(t.brand ? { from: brandFor(t).email_from } : {}) }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
+    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html, ...(t.brand ? { from: require('./email').senderFor(t) } : {}) }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
     this.archive({ channel: 'email', tenant: t.id, call: ctx.callId, to, subject, text, html, links: g.links.map((l) => l.url).concat(require('./messages').extractLinks(text, html)).filter((x, i, a) => a.indexOf(x) === i), provider_id: r.id || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     const masked = maskEmail(to);
     log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, summary_chars: summary.length, named: !!name, newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, reason: r.ok ? undefined : r.reason });

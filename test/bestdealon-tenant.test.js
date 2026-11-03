@@ -35,3 +35,36 @@ test('bestdealon KB starts empty and valid', () => {
   assert.deepStrictEqual(checkTemplate(d).errors, []);
   assert.strictEqual(new KB({ dirs: [d] }).answer('what are your hours').found, false);
 });
+
+const { Tools } = require('../src/tools'); const E = require('../src/email');
+const mk = (tenant, sent) => new Tools(tenant, { kbFor: () => ({ answer: () => ({ found: false }) }), consent: {}, notify: async () => {}, log: () => {}, emailFor: () => ({ send: async (m) => { sent.push(m); return { ok: true }; } }) });
+test('bestdealon: take-a-message enabled, no audio recording, no recording notice', () => {
+  assert.deepStrictEqual(t.take_message, { enabled: true, record_audio: false, deliver: 'email' });
+  assert.ok(mk(t, []).definitions().some((d) => d.name === 'take_message'));
+  assert.ok(!/record/i.test(t.disclosure)); assert.strictEqual(t.returning_caller_greeting, false);
+});
+test('bestdealon: taken message is emailed to the owner from support@bestdealon.app', async () => {
+  const sent = []; const tt = { ...t, owner_email: 'bestdealon@mail.grokbot.com' };
+  const r = await mk(tt, sent).run('take_message', { name: 'Ann', callback: '+15550001111', message: 'Call me' }, { channel: 'voice', caller: '+15550001111' });
+  assert.strictEqual(r.emailed, true); assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].from, 'Best Deal On <support@bestdealon.app>'); assert.match(sent[0].text, /Call me/);
+});
+test('bestdealon: email on, SMS off; caller email tools offered', () => {
+  assert.strictEqual(t.email_enabled, true); assert.strictEqual(t.sms_enabled, false);
+  const names = mk(t, []).definitions().map((d) => d.name);
+  assert.ok(names.includes('set_email_address') && names.includes('send_email')); assert.ok(!names.includes('set_text_number'));
+});
+test('RF Safe keeps its sender and take_message unchanged', () => {
+  assert.strictEqual(E.senderFor(read('rfsafe.tenant.json')), 'RF Safe <rfsafe@callbots.org>');
+  assert.strictEqual(E.senderFor(t), 'Best Deal On <support@bestdealon.app>');
+});
+test('take_message can be turned off; validator rejects bad blocks', () => {
+  assert.ok(!mk({ ...t, take_message: { enabled: false } }, []).definitions().some((d) => d.name === 'take_message'));
+  assert.ok(validateTenant({ ...t, take_message: { deliver: 'sms' } }).length);
+});
+test('test-recipient guard: only the allowed inbox can receive real email', async () => {
+  let calls = 0; const f = async () => { calls++; return { ok: true, json: async () => ({ id: 'x' }) }; };
+  const m = new E.ResendEmail({ apiKey: 'k', fetchImpl: f, allowOnly: E.TEST_INBOX });
+  assert.strictEqual((await m.send({ to: 'someone@example.com', subject: 's', text: 't' })).reason, 'recipient_not_allowed'); assert.strictEqual(calls, 0);
+  assert.strictEqual((await m.send({ to: E.TEST_INBOX, subject: 's', text: 't' })).ok, true); assert.strictEqual(calls, 1);
+});

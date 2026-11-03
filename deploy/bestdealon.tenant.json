@@ -2,12 +2,34 @@
   "id": "bestdealon",
   "name": "Best Deal On",
   "owner_email": "SET_AT_DEPLOY",
-  "numbers": ["+17276320002"],
-  "link_allowlist": ["bestdealon.app"],
-  "hours": { "tz": "America/New_York", "open": "09:00", "close": "17:00", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] },
+  "numbers": [
+    "+17276320002"
+  ],
+  "link_allowlist": [
+    "bestdealon.app"
+  ],
+  "hours": {
+    "tz": "America/New_York",
+    "open": "09:00",
+    "close": "17:00",
+    "days": [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri"
+    ]
+  },
   "voice": "eve",
-  "keyterms": ["Best Deal On", "bestdealon.app"],
-  "kb": { "dirs": ["../kb/bestdealon"] },
+  "keyterms": [
+    "Best Deal On",
+    "bestdealon.app"
+  ],
+  "kb": {
+    "dirs": [
+      "../kb/bestdealon"
+    ]
+  },
   "sms_enabled": false,
   "approval_mode": true,
   "instant_link_reply": false,
@@ -16,9 +38,19 @@
     "team_name": "Best Deal On",
     "email_from": "Best Deal On <support@bestdealon.app>",
     "site": "bestdealon.app",
-    "kb_allow_domains": ["bestdealon.app"]
+    "kb_allow_domains": [
+      "bestdealon.app"
+    ]
   },
   "secrets": {
     "xai_webhook_secret": "env:BDO_XAI_WEBHOOK_SECRET"
-  }
+  },
+  "email_enabled": true,
+  "take_message": {
+    "enabled": true,
+    "record_audio": false,
+    "deliver": "email"
+  },
+  "disclosure": "Hi, you have reached {name}. You are speaking with an AI assistant.",
+  "returning_caller_greeting": false
 }

@@ -32,6 +32,16 @@ function validateTenant(t) {
   }
   if (t.support_email != null && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(t.support_email)) errs.push('support_email must be an email address');
   errs.push(...validateBrand(t.brand));
+  if (t.take_message != null) {
+    const m = t.take_message;
+    if (typeof m !== 'object' || Array.isArray(m) || Object.keys(m).some((k) => !['enabled', 'record_audio', 'deliver'].includes(k))) errs.push('take_message allows only enabled, record_audio, deliver');
+    else {
+      if (m.enabled != null && typeof m.enabled !== 'boolean') errs.push('take_message.enabled must be true/false');
+      if (m.record_audio != null && typeof m.record_audio !== 'boolean') errs.push('take_message.record_audio must be true/false');
+      if (m.deliver != null && !['outbox', 'email'].includes(m.deliver)) errs.push('take_message.deliver must be outbox or email');
+      if (m.deliver === 'email' && !(t.brand && t.brand.email_from)) errs.push('take_message.deliver email needs brand.email_from');
+    }
+  }
   if (t.twilio != null) {
     const tw = t.twilio;
     if (typeof tw !== 'object' || Array.isArray(tw)) errs.push('twilio must be an object');
