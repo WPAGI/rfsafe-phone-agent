@@ -14,7 +14,8 @@ const { faviconIco, FAVICON_SVG } = require('./favicon');
 const { DEMO_ADMIN } = require('./readiness');
 const ob = require('./onboarding');
 const adm = require('./admin');
-const { createOwner } = require('./owner'); // owner briefing module: inert unless tenant.owner_briefing.enabled
+const { createOwner } = require('./owner');
+const { createOwnerApi } = require('./ownerapi'); // Best Deal On Bot extension: per-business read API // owner briefing module: inert unless tenant.owner_briefing.enabled
 
 const CALL_END_TYPES = new Set(['realtime.call.ended', 'realtime.call.completed', 'realtime.call.failed']);
 
@@ -24,6 +25,7 @@ function createApp(d) {
   const owner = createOwner(d, { log: d.log || (() => {}), tokenSecretFor: (t) => resolveSecret(t, 'xai_webhook_secret', { env: d.env, store: d.secrets }) });
   const log = owner.wrapLog(d.log || (() => {}));
   const notify = d.notify ? owner.wrapNotify(d.notify) : d.notify;
+  const ownerApi = createOwnerApi(d, { log: d.log || (() => {}), readJsonl: (f) => readGaps(f) });
   const verifier = new WebhookVerifier({ now: d.clock });
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
@@ -189,7 +191,7 @@ function createApp(d) {
     const t = m[1] && d.tenants.get(m[1]); if (!t) return json(res, 404, { error: 'not_found' });
     if (req.method === 'PATCH' && !m[2]) {
       // Content fields only. Numbers, secrets, payments and texting are not editable here (texting waits for A2P).
-      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply', 'returning_caller_greeting', 'owner_briefing', 'transfer_hours_only'];
+      const body = JSON.parse(await readBody(req)); const ALLOWED = ['link_allowlist', 'keyterms', 'extra_instructions', 'website', 'kb', 'sar_lookup', 'hours', 'transfer_target', 'owner_email', 'voice', 'disclosure', 'blocked_topics', 'shopify', 'order_lookup_enabled', 'known_callers', 'support_email', 'email_enabled', 'instant_link_reply', 'returning_caller_greeting', 'owner_briefing', 'transfer_hours_only', 'bizinator_phone'];
       const bad = Object.keys(body).filter((k) => !ALLOWED.includes(k)); if (bad.length) return json(res, 400, { error: 'field_not_editable', fields: bad });
       if ('email_enabled' in body && typeof body.email_enabled !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['email_enabled must be boolean'] });
       if ('returning_caller_greeting' in body && typeof body.returning_caller_greeting !== 'boolean') return json(res, 400, { error: 'invalid', detail: ['returning_caller_greeting must be boolean'] });
@@ -504,6 +506,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
       if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/')) return await adminUi(req, res, u);
+      if (u.pathname.startsWith('/api/owner/v1/')) return await ownerApi.route(req, res, u);
       if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTenantTwilio(t, sec, d.publicBaseUrl + req.url, params, req.headers));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);
