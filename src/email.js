@@ -5,6 +5,11 @@ const { rebrand } = require('./brand');
 const SUMMARY_MAX = 4000;
 const TOPIC_MAX = 80;
 const FROM = 'RF Safe <rfsafe@callbots.org>';
+// Sender comes from the tenant's brand block; tenants without one (RF Safe) keep FROM exactly.
+const senderFor = (tenant) => (tenant && tenant.brand && tenant.brand.email_from) || FROM;
+// Test guard: when allowOnly is set (env PA_EMAIL_ALLOW_ONLY), every recipient must be in it.
+const TEST_INBOX = 'bestdealon@mail.grokbot.com';
+const allowList = (s) => String(s || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 const SUBJECT = 'Your RF Safe links';
 const EMAIL_RE = /^[^@\s<>"',;]+@[^@\s<>"',;]+\.[a-z]{2,}$/i;
 const validEmail = (e) => typeof e === 'string' && e.length <= 254 && EMAIL_RE.test(e.trim());
@@ -53,13 +58,17 @@ function checkLinks(urls, allowlist) {
   return { ok: true, links: out };
 }
 class ResendEmail {
-  constructor({ apiKey, fetchImpl = globalThis.fetch }) { this.key = apiKey; this.fetch = fetchImpl; }
-  async send({ to, replyTo, subject, text, html, from }) {
+  constructor({ apiKey, fetchImpl = globalThis.fetch, allowOnly = null }) { this.key = apiKey; this.fetch = fetchImpl; this.allowOnly = allowList(allowOnly); }
+  // confirmedRecipient: the one address the caller confirmed on this call (set_email_address). It passes the
+  // allowlist guard; every other address still has to be on PA_EMAIL_ALLOW_ONLY.
+  async send({ to, replyTo, subject, text, html, from, confirmedRecipient }) {
     if (!this.key) return { ok: false, reason: 'email_not_configured' };
+    const ok1 = (x) => { const a = String(x).trim().toLowerCase(); return this.allowOnly.includes(a) || (!!confirmedRecipient && a === String(confirmedRecipient).trim().toLowerCase()); };
+    if (this.allowOnly.length && ![].concat(to).every(ok1)) return { ok: false, reason: 'recipient_not_allowed' };
     const r = await this.fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ from: from || FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
     if (!r.ok) return { ok: false, reason: 'provider_' + r.status };
     const j = await r.json().catch(() => ({})); return { ok: true, id: j.id || null };
   }
 }
 class MockEmail { constructor() { this.sent = []; } async send(m) { this.sent.push(m); return { ok: true, id: 'mock_' + this.sent.length }; } }
-module.exports = { ResendEmail, MockEmail, buildEmail, cleanSummary, cleanTopic, subjectFor, SUMMARY_MAX, checkLinks, maskEmail, validEmail, FROM, SUBJECT, AI_NOTE };
+module.exports = { senderFor, TEST_INBOX, ResendEmail, MockEmail, buildEmail, cleanSummary, cleanTopic, subjectFor, SUMMARY_MAX, checkLinks, maskEmail, validEmail, FROM, SUBJECT, AI_NOTE };

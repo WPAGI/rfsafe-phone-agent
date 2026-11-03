@@ -59,7 +59,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
   const smsFor = (t) => { if (!smsCache.has(t.id)) smsCache.set(t.id, mode === 'live' ? new TwilioRest({ accountSid: t.twilio?.account_sid || env.TWILIO_ACCOUNT_SID || env.RFSAFE_TWILIO_ACCOUNT_SID, authToken: resolveSecret(t, 'twilio_auth_token', { env, store: secrets }), apiKeySid: t.twilio?.api_key_sid, apiKeySecret: t.twilio?.api_key_sid ? resolveSecret(t, 'twilio_api_key_secret', { env, store: secrets }) : null, fetchImpl: liveFetch }) : new MockTwilio()); return smsCache.get(t.id); };
   const { ResendEmail, MockEmail } = require('./email');
   const mockEmail = new MockEmail();
-  const liveEmail = mode === 'live' ? new ResendEmail({ apiKey: env.RESEND_API_KEY, fetchImpl: liveFetch }) : null;
+  const liveEmail = mode === 'live' ? new ResendEmail({ apiKey: env.RESEND_API_KEY, fetchImpl: liveFetch, allowOnly: env.PA_EMAIL_ALLOW_ONLY || null }) : null;
   const emailFor = () => (mode === 'live' ? liveEmail : mockEmail);
   const mockCC = new mocks.MockCallControl();
   const callControlFor = () => (mode === 'live' ? new XaiCallControl({ apiKey: env.XAI_API_KEY, fetchImpl: liveFetch }) : mockCC);

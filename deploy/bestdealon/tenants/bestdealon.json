@@ -1,0 +1,65 @@
+{
+  "id": "bestdealon",
+  "name": "Best Deal On",
+  "owner_email": "support@bestdealon.app",
+  "numbers": [
+    "+17276320002"
+  ],
+  "link_allowlist": [
+    "bestdealon.app"
+  ],
+  "hours": {
+    "tz": "America/New_York",
+    "open": "09:00",
+    "close": "17:00",
+    "days": [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri"
+    ]
+  },
+  "voice": "eve",
+  "keyterms": [
+    "Best Deal On",
+    "bestdealon.app"
+  ],
+  "kb": {
+    "dirs": [
+      "../../../kb/bestdealon"
+    ]
+  },
+  "sms_enabled": false,
+  "approval_mode": true,
+  "instant_link_reply": false,
+  "order_lookup_enabled": false,
+  "brand": {
+    "team_name": "Best Deal On",
+    "email_from": "Best Deal On <support@bestdealon.app>",
+    "site": "bestdealon.app",
+    "kb_allow_domains": [
+      "bestdealon.app"
+    ]
+  },
+  "secrets": {
+    "xai_webhook_secret": "env:BDO_XAI_WEBHOOK_SECRET",
+    "twilio_api_key_secret": "env:BDO_TWILIO_API_KEY_SECRET",
+    "twilio_webhook_key": "env:BDO_TWILIO_WEBHOOK_KEY"
+  },
+  "email_enabled": true,
+  "take_message": {
+    "enabled": true,
+    "record_audio": false,
+    "deliver": "email"
+  },
+  "disclosure": "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. Right now I can help by voice and email, and texting is coming soon. Are you a business owner, or calling about a business page?",
+  "returning_caller_greeting": false,
+  "extra_instructions": "Channels: only voice and email work today; texting is coming soon. Never offer, promise or send a text message, and never promise that you or anyone will place an outbound call; say the team gets messages by email. Pricing: do not quote or estimate any price. If a caller asks about pricing, say pricing is not available on this line and offer to take a message for the Best Deal On team. Never invent prices, features, stats, customer counts or results; if it is not in the knowledge base, say you do not have that yet and offer to take a message. Never say Best Deal On is made by, affiliated with or endorsed by xAI. Never give out John's personal contact; refer to Quanta X Technology staff. Never say the extension is in the Chrome Web Store. Never read out sample data from the Bizinator test page. Never quote provider costs as fixed prices.",
+  "twilio": {
+    "webhook_keys": {
+      "webhooks_sharedkey_01m6h1rym5fwvrc1v9s4r8cgag": "twilio_webhook_key"
+    },
+    "require_shared_key": true
+  }
+}

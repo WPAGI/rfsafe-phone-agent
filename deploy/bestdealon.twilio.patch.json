@@ -1,0 +1,14 @@
+{
+  "_note": "Apply only after John approves creating the Twilio API key and SharedKey. Replace the FILL_ values with the real SIDs (SIDs are not secrets; the key secret and shared-key secret go in Render env only).",
+  "twilio": {
+    "account_sid": "FILL_AC_SID",
+    "api_key_sid": "FILL_SK_SID",
+    "webhook_keys": { "FILL_webhooks_sharedkey_ID": "twilio_webhook_key" },
+    "require_shared_key": true
+  },
+  "secrets": {
+    "xai_webhook_secret": "env:BDO_XAI_WEBHOOK_SECRET",
+    "twilio_api_key_secret": "env:BDO_TWILIO_API_KEY_SECRET",
+    "twilio_webhook_key": "env:BDO_TWILIO_WEBHOOK_KEY"
+  }
+}

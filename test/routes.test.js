@@ -139,3 +139,33 @@ test('SMS HELP and START are handled and call-end is logged without the caller n
     assert.ok(!lines.includes('7275550188'));
   } finally { await a.close(); }
 });
+
+test('voice fallback: tenant with record_audio false gets no Record and no recording notice', async () => {
+  const a = await startApp();
+  try {
+    const t = a.deps.tenants.list().find((x) => x.numbers.includes('+17275550100'));
+    t.take_message = { enabled: true, record_audio: false, deliver: 'outbox' };
+    const voice = await signedSms(a.base, '/twilio/voice', { From: '+17275550142', To: '+17275550100', CallSid: 'CA_nr' }, ENV.DEMO_TWILIO_AUTH_TOKEN);
+    const xml = await voice.text();
+    assert.strictEqual(voice.status, 200);
+    assert.doesNotMatch(xml, /<Record/); assert.doesNotMatch(xml, /record/i);
+    assert.match(xml, /<Hangup\/>/); assert.match(xml, /never take payment/);
+  } finally { await a.close(); }
+});
+
+test('Twilio shared-key request without To finds the tenant by key id and verifies', async () => {
+  const { sharedKeySignature } = require('../src/twilio');
+  const a = await startApp();
+  try {
+    const t = a.deps.tenants.list().find((x) => x.numbers.includes('+17275550100'));
+    const kid = 'webhooks_sharedkey_' + 'B'.repeat(26);
+    t.twilio = { webhook_keys: { [kid]: 'twilio_webhook_key' }, require_shared_key: true }; t.take_message = { record_audio: false };
+    t.secrets = { ...(t.secrets || {}), twilio_webhook_key: 'env:BDO_TEST_WK' }; a.deps.env.BDO_TEST_WK = 'z'.repeat(32);
+    const params = { CallSid: 'CAtest' };
+    const sig = sharedKeySignature('z'.repeat(32), 'HMAC_SHA1', a.base + '/twilio/voice', params);
+    const r = await post(a.base, '/twilio/voice', new URLSearchParams(params), { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': sig, 'x-twilio-webhooks-signature-settings': `key=${kid},algorithm=HMAC_SHA1` });
+    assert.strictEqual(r.status, 200); assert.doesNotMatch(await r.text(), /<Record/);
+    const bad = await post(a.base, '/twilio/voice', new URLSearchParams(params), { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': 'nope', 'x-twilio-webhooks-signature-settings': `key=${kid},algorithm=HMAC_SHA1` });
+    assert.strictEqual(bad.status, 403);
+  } finally { await a.close(); }
+});
