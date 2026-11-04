@@ -47,11 +47,15 @@ class Newsletter {
   }
   // Returning caller: caller-ID number (E.164) is a confirmed news-text subscriber, or is linked to a confirmed
   // newsletter email. Returns { firstName } (null if no name stored) or null. Never returns email or other details.
-  returningCaller(tenant, phone) {
+  // includeUnconfirmed (opt-in per tenant; RF Safe does not set it): also match pending news-text requests and phone
+  // links to emails that never confirmed; names come from any record for that email. emailDomain stays confirmed-only.
+  returningCaller(tenant, phone, { includeUnconfirmed = false } = {}) {
     if (typeof phone !== 'string' || !/^\+[1-9]\d{7,14}$/.test(phone)) return null;
     const subs = new Map(this.subscribers().filter((s) => s.tenant === tenant).map((s) => [String(s.email || '').toLowerCase(), s]));
-    const linked = this.events().filter((r) => r.kind === 'link' && r.tenant === tenant && r.phone === phone).map((r) => subs.get(String(r.email || '').toLowerCase())).filter(Boolean);
-    if (!linked.length && !this.isSmsSubscriber(tenant, phone)) return null;
+    if (includeUnconfirmed) for (const r of this.events()) if (r.tenant === tenant && r.email && r.kind !== 'link' && !subs.has(String(r.email).toLowerCase())) subs.set(String(r.email).toLowerCase(), { email: r.email, name: r.name || null, tenant });
+    const linked = this.events().filter((r) => r.kind === 'link' && r.tenant === tenant && r.phone === phone).map((r) => subs.get(String(r.email || '').toLowerCase()) || (includeUnconfirmed ? { email: r.email, name: null } : null)).filter(Boolean);
+    const sms = this.smsState(tenant, phone).status;
+    if (!linked.length && !(sms === 'subscribed' || (includeUnconfirmed && sms === 'pending'))) return null;
     const named = linked.reverse().find((s) => cleanName(s.name));
     const first = named ? cleanName(named.name).split(' ')[0] : '';
     const onFile = this.emailOnFile(tenant, phone); const domain = onFile ? onFile.split('@')[1] : null;

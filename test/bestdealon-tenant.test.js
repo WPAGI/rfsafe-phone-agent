@@ -40,7 +40,7 @@ const mk = (tenant, sent) => new Tools(tenant, { kbFor: () => ({ answer: () => (
 test('bestdealon: take-a-message enabled, no audio recording, no recording notice', () => {
   assert.deepStrictEqual(t.take_message, { enabled: true, record_audio: false, deliver: 'email' });
   assert.ok(mk(t, []).definitions().some((d) => d.name === 'take_message'));
-  assert.ok(!/record/i.test(t.disclosure)); assert.strictEqual(t.returning_caller_greeting, false);
+  assert.ok(!/record/i.test(t.disclosure)); assert.strictEqual(t.returning_caller_greeting, true); assert.ok(!/record/i.test(t.welcome_back));
 });
 test('bestdealon: taken message is emailed to the owner from support@bestdealon.app', async () => {
   const sent = []; const tt = { ...t, owner_email: 'bestdealon@mail.grokbot.com' };
