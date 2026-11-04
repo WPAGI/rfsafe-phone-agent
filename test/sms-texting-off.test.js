@@ -30,3 +30,21 @@ test('bestdealon tenant: HELP reply names Best Deal On and support@bestdealon.ap
   const consent = { record() {} }; const r = quickSmsReply({ tenant: t, from: '+15555550142', text: 'HELP', consent, log: () => {} });
   assert.match(r, /^Best Deal On support/); assert.match(r, /email support@bestdealon\.app/); assert.match(r, /Reply STOP/);
 });
+
+test('bestdealon live SMS transport: BDO API key from env, account from env, sends via the BDO Messaging Service', async () => {
+  const { buildDeps } = require('../src/runtime'); const { sendCustomerSms } = require('../src/twilio');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pa-bdo-')); fs.copyFileSync(path.join(__dirname, '..', 'deploy/bestdealon/tenants/bestdealon.json'), path.join(dir, 'bestdealon.json'));
+  const AC = 'AC' + 'a'.repeat(32), SK = 'SK' + 'b'.repeat(32);
+  const env = { BDO_TWILIO_ACCOUNT_SID: AC, BDO_TWILIO_API_KEY_SID: SK, BDO_TWILIO_API_KEY_SECRET: 'k-secret', BDO_XAI_WEBHOOK_SECRET: 'x', BDO_TWILIO_WEBHOOK_KEY: 'w', RFSAFE_TWILIO_AUTH_TOKEN: 'must-not-be-used', PUBLIC_BASE_URL: 'https://example.test', PA_ADMIN_TOKEN: 'a'.repeat(32), PA_STATE_SECRET: 's'.repeat(32), PA_MASTER_KEY: Buffer.alloc(32, 7).toString('base64'), XAI_API_KEY: 'x', DATA_DIR: os.tmpdir() };
+  const calls = []; const fetchImpl = async (url, o) => { calls.push({ url, o }); return { ok: true, json: async () => ({ sid: 'SMfake' }) }; };
+  const deps = buildDeps({ mode: 'live', env, tenantsDir: dir, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'pa-bdo-d-')), log: () => {}, fetchImpl });
+  const t = deps.tenants.list().find((x) => x.id === 'bestdealon'); assert.strictEqual(t.sms_enabled, true);
+  const tr = deps.smsFor(t); tr.fetch = fetchImpl;
+  const consent = { canText: () => true };
+  const r = await sendCustomerSms({ tenant: t, transport: tr, consent, to: '+15555550142', body: 'hi', log: () => {} });
+  assert.ok(r.ok); assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].url, `https://api.twilio.com/2010-04-01/Accounts/${AC}/Messages.json`);
+  assert.strictEqual(calls[0].o.headers.authorization, 'Basic ' + Buffer.from(SK + ':k-secret').toString('base64'));
+  const form = new URLSearchParams(String(calls[0].o.body)); assert.strictEqual(form.get('MessagingServiceSid'), 'MGbffe879b3cbc03744a86df88e1170bea'); assert.strictEqual(form.get('From'), null);
+});

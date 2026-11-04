@@ -6,9 +6,10 @@ const { checkTemplate } = require('../src/kbtemplate'); const { KB } = require('
 const DEP = path.join(__dirname, '..', 'deploy'); const read = (f) => JSON.parse(fs.readFileSync(path.join(DEP, f), 'utf8'));
 const t = read('bestdealon/tenants/bestdealon.json');
 
-test('bestdealon tenant is valid, SMS off, number and brand set', () => {
+test('bestdealon tenant is valid, SMS on via the BDO Messaging Service, number and brand set', () => {
   assert.deepStrictEqual(validateTenant(t), []);
-  assert.strictEqual(t.sms_enabled, false); assert.deepStrictEqual(t.numbers, ['+17276320002']);
+  assert.strictEqual(t.sms_enabled, true); assert.deepStrictEqual(t.numbers, ['+17276320002']);
+  assert.strictEqual(t.twilio.messaging_service_sid, 'MGbffe879b3cbc03744a86df88e1170bea'); assert.strictEqual(t.twilio.account_sid_env, 'BDO_TWILIO_ACCOUNT_SID'); assert.strictEqual(t.twilio.api_key_sid_env, 'BDO_TWILIO_API_KEY_SID'); assert.ok(!t.secrets.twilio_auth_token, 'no auth token');
   assert.strictEqual(t.brand.team_name, 'Best Deal On');
 });
 test('bestdealon tenant holds no secret values, only env references', () => {
@@ -48,10 +49,10 @@ test('bestdealon: taken message is emailed to the owner from support@bestdealon.
   assert.strictEqual(r.emailed, true); assert.strictEqual(sent.length, 1);
   assert.strictEqual(sent[0].from, 'Best Deal On <support@bestdealon.app>'); assert.match(sent[0].text, /Call me/);
 });
-test('bestdealon: email on, SMS off; caller email tools offered', () => {
-  assert.strictEqual(t.email_enabled, true); assert.strictEqual(t.sms_enabled, false);
+test('bestdealon: email and SMS on; caller email and text tools offered', () => {
+  assert.strictEqual(t.email_enabled, true); assert.strictEqual(t.sms_enabled, true);
   const names = mk(t, []).definitions().map((d) => d.name);
-  assert.ok(names.includes('set_email_address') && names.includes('send_email')); assert.ok(!names.includes('set_text_number'));
+  assert.ok(names.includes('set_email_address') && names.includes('send_email')); assert.ok(names.includes('set_text_number'));
 });
 test('RF Safe keeps its sender and take_message unchanged', () => {
   assert.strictEqual(E.senderFor(read('rfsafe.tenant.json')), 'RF Safe <rfsafe@callbots.org>');
@@ -82,16 +83,15 @@ test('bestdealon: owner is support@bestdealon.app (also the sender); pricing = t
   assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', 'pricing.jsonl'), 'utf8').trim(), '');
 });
 
-const GREETING = "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. Right now I can help by voice and email; texting is a feature that turns on after a one-time carrier approval. Are you a business owner, or calling about a business page?";
+const GREETING = "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. I can help by voice, text and email. Are you a business owner, or calling about a business page?";
 test('bestdealon greeting is the call-script greeting, exactly', () => { assert.strictEqual(t.disclosure, GREETING); });
-test('bestdealon: voice and email today, texting after carrier approval; never offers texts or outbound calls', () => {
+test('bestdealon: voice, text and email; texts only on request to the calling number; never promises outbound calls', () => {
   const { buildInstructions } = require('../src/xai');
   const { TenantRegistry } = require('../src/tenants'); const ins = buildInstructions(new TenantRegistry(null).add({ ...t }), { afterHours: false });
-  assert.match(t.extra_instructions, /only voice and email work today; texting is a feature that turns on after a one-time carrier approval/); assert.match(t.extra_instructions, /Do not offer to text yet/);
-  assert.ok(!/coming soon/i.test(t.disclosure + t.extra_instructions + ins), 'no coming soon in greeting or prompt');
-  assert.match(t.extra_instructions, /Never offer, promise or send a text/); assert.match(t.extra_instructions, /never promise that you or anyone will place an outbound call/);
-  assert.match(ins, /texting is NOT switched on/); assert.match(ins, /only voice and email work today/);
-  const names = mk(t, []).definitions().map((d) => d.name); assert.ok(!names.includes('set_text_number'));
+  assert.match(t.extra_instructions, /voice, text and email all work/); assert.match(t.extra_instructions, /only to the number they are calling from, after they say yes/);
+  assert.ok(!/coming soon|carrier approval|Do not offer to text/i.test(t.disclosure + t.extra_instructions + ins), 'no stale texting-off wording');
+  assert.match(t.extra_instructions, /never promise that you or anyone will place an outbound call/i);
+  assert.doesNotMatch(ins, /texting is NOT switched on/);
   const kbText = fs.readdirSync(path.join(__dirname, '..', 'kb', 'bestdealon')).map((f) => fs.readFileSync(path.join(__dirname, '..', 'kb', 'bestdealon', f), 'utf8')).join('\n');
   assert.ok(!/opt in by checking|calls and texts|TODO|coming soon/i.test(kbText));
 });

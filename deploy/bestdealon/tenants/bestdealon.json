@@ -31,7 +31,7 @@
       "../../../kb/bestdealon"
     ]
   },
-  "sms_enabled": false,
+  "sms_enabled": true,
   "approval_mode": true,
   "instant_link_reply": false,
   "order_lookup_enabled": false,
@@ -54,14 +54,17 @@
     "record_audio": false,
     "deliver": "email"
   },
-  "disclosure": "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. Right now I can help by voice and email; texting is a feature that turns on after a one-time carrier approval. Are you a business owner, or calling about a business page?",
+  "disclosure": "Best Deal On AI, featuring the Bizinator, Best Deal On Pages, email, text, inbound and outbound calls. Best Deal On does it all. I'm the AI assistant. I can help by voice, text and email. Are you a business owner, or calling about a business page?",
   "returning_caller_greeting": true,
   "returning_caller_include_unconfirmed": true,
   "bdo_caller_lookup": true,
   "callback_offer": true,
   "welcome_back": "Welcome back{name}! This is the Best Deal On AI assistant. How can I help?",
-  "extra_instructions": "Channels: only voice and email work today; texting is a feature that turns on after a one-time carrier approval (usually about 4 to 24 hours depending on carrier acceptance). Do not offer to text yet. Never offer, promise or send a text message, and never promise that you or anyone will place an outbound call (the only exception: the automated verification code call that a business owner starts by pressing Verify by call on bestdealon.app); say the team gets messages by email. Pricing: do not quote or estimate any price. If a caller asks about pricing, say pricing is not available on this line and offer to take a message for the Best Deal On team. Never invent prices, features, stats, customer counts or results; if it is not in the knowledge base, say you do not have that yet and offer to take a message. Never say Best Deal On is made by, affiliated with or endorsed by xAI. Never give out John's personal contact; refer to Quanta X Technology staff. Never say the extension is in the Chrome Web Store. Never read out sample data from the Bizinator test page. Never quote provider costs as fixed prices.",
+  "extra_instructions": "Channels: voice, text and email all work. You may text a caller an official bestdealon.app link when they ask or agree, only to the number they are calling from, after they say yes to receiving a text. Never promise that you or anyone will place an outbound call (the only exception: the automated verification code call that a business owner starts by pressing Verify by call on bestdealon.app); say the team gets messages by email. Pricing: do not quote or estimate any price. If a caller asks about pricing, say pricing is not available on this line and offer to take a message for the Best Deal On team. Never invent prices, features, stats, customer counts or results; if it is not in the knowledge base, say you do not have that yet and offer to take a message. Never say Best Deal On is made by, affiliated with or endorsed by xAI. Never give out John's personal contact; refer to Quanta X Technology staff. Never say the extension is in the Chrome Web Store. Never read out sample data from the Bizinator test page. Never quote provider costs as fixed prices.",
   "twilio": {
+    "account_sid_env": "BDO_TWILIO_ACCOUNT_SID",
+    "api_key_sid_env": "BDO_TWILIO_API_KEY_SID",
+    "messaging_service_sid": "MGbffe879b3cbc03744a86df88e1170bea",
     "webhook_keys": {
       "webhooks_sharedkey_01m6j24x74eeas0hjy2hk36h4t": "twilio_webhook_key"
     },

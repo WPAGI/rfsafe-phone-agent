@@ -15,10 +15,14 @@ test('bdo service: no-phone-bot 404 points to Best Deal On support, no Quanta X 
   assert.equal(status, 404); assert.equal(j.error, 'no_phone_bot');
   assert.equal(j.message, 'Your business does not have a phone bot connected yet. Best Deal On support (support@bestdealon.app) can set one up.');
 });
-test('bdo service: texting note names Best Deal On support', async () => {
-  const { status, j } = await run([{ ...bdo }], String(bdo.bizinator_phone).replace(/\D/g, ''));
+test('bdo service: texting note names Best Deal On support (while texting is off)', async () => {
+  const { status, j } = await run([{ ...bdo, sms_enabled: false }], String(bdo.bizinator_phone).replace(/\D/g, ''));
   assert.equal(status, 200); assert.match(j.channels.sms_note, /Best Deal On support \(support@bestdealon\.app\) turns it on\./);
   assert.doesNotMatch(JSON.stringify(j), /Quanta X Technology staff|coming soon/);
+});
+test('bdo service: texting on, no texting note', async () => {
+  const { status, j } = await run([{ ...bdo }], String(bdo.bizinator_phone).replace(/\D/g, ''));
+  assert.equal(status, 200); assert.strictEqual(j.channels.sms, true); assert.strictEqual(j.channels.sms_note, null);
 });
 test('unbranded service (RF Safe): 404 wording unchanged', async () => {
   const { status, j } = await run(null, '8135550100');

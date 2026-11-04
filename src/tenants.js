@@ -51,6 +51,8 @@ function validateTenant(t) {
     else {
       if (tw.account_sid != null && !/^AC[0-9a-f]{32}$/.test(tw.account_sid)) errs.push('twilio.account_sid must be AC + 32 hex');
       if (tw.api_key_sid != null && !/^SK[0-9a-f]{32}$/.test(tw.api_key_sid)) errs.push('twilio.api_key_sid must be SK + 32 hex');
+      for (const k of ['account_sid_env', 'api_key_sid_env']) if (tw[k] != null && !/^[A-Z][A-Z0-9_]{2,63}$/.test(tw[k])) errs.push(`twilio.${k} must be an env var name`);
+      if (tw.api_key_sid_env != null && !(t.secrets || {}).twilio_api_key_secret) errs.push('twilio.api_key_sid_env needs secrets.twilio_api_key_secret');
       if (tw.api_key_sid != null && !(t.secrets || {}).twilio_api_key_secret) errs.push('twilio.api_key_sid needs secrets.twilio_api_key_secret');
       if (tw.webhook_keys != null) {
         if (typeof tw.webhook_keys !== 'object' || Array.isArray(tw.webhook_keys)) errs.push('twilio.webhook_keys must map sharedKeyId -> secret name');
