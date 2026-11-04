@@ -9,6 +9,7 @@ services:
     buildCommand: "npm test"
     startCommand: "node bin/server.js"
     healthCheckPath: /health
+    maxShutdownDelaySeconds: 300 # let live calls drain on deploy (src/shutdown.js)
     disk:
       name: data
       mountPath: /var/data

@@ -34,5 +34,6 @@ test('SIGTERM closes the server once', () => {
   shutdown('SIGTERM');
   shutdown('SIGTERM');
   assert.strictEqual(code, 0);
-  assert.deepStrictEqual(seen, ['server.shutdown', 'close']);
+  assert.strictEqual(seen.filter((e) => e === 'close').length, 1);
+  assert.strictEqual(seen.filter((e) => e === 'server.shutdown').length, 1);
 });

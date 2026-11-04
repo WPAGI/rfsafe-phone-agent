@@ -27,6 +27,7 @@ function createApp(d) {
   const verifier = new WebhookVerifier({ now: d.clock });
   const approvals = d.approvals || new Approvals();
   const calls = new Map();
+  let draining = false; // set on SIGTERM: refuse new calls, report unhealthy, keep live calls running
   const now = () => (d.now ? d.now() : new Date());
   // Inbound texts: per-sender memory, and one Tools instance per tenant so a multi-text email flow keeps its state.
   const smsMemory = d.smsMemory || new SmsMemory({ now: () => +now() }); const smsTools = new WeakMap();
@@ -79,6 +80,7 @@ function createApp(d) {
       return json(res, 200, { ok: true });
     }
     if (ev.type !== 'realtime.call.incoming') return json(res, 200, { ignored: ev.type });
+    if (draining) { log('call.refused_draining', { tenant: tenant.id, call: callId || null }); return json(res, 503, { error: 'draining' }); }
     // Outbound owner briefing bridged to Grok: only with a valid one-time token; otherwise normal inbound.
     const oc = owner.claimGrokCall(tenant, ev.data || {});
     if (oc && oc.ok) {
@@ -491,7 +493,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
       if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
-      if (req.method === 'GET' && u.pathname === '/health') return json(res, 200, { ok: true, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
+      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
@@ -509,7 +511,7 @@ function createApp(d) {
       return json(res, 404, { error: 'not_found' });
     } catch (e) { log('http.error', { path: u.pathname, err: redactSecrets(e.message) }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
   };
-  return { handler, approvals, calls, owner, smsIdle: () => Promise.all([...smsJobs]) };
+  return { handler, approvals, calls, owner, startDrain: () => { draining = true; }, isDraining: () => draining, smsIdle: () => Promise.all([...smsJobs]) };
 }
 
 function readGaps(f) { try { return require('fs').readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } }
