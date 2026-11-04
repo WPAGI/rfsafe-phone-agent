@@ -91,9 +91,21 @@ function liveStatusLine(tenant) {
 }
 
 // Returning subscriber (matched on caller ID). Greeting only; caller ID can be spoofed or shared.
+function siteCallerLines(returning, tenant = {}) {
+  const sp = returning && returning.site; if (!sp) return [];
+  const out = [`Caller ID also matches a ${tenant.name || 'Best Deal On'} account${sp.name ? ' (name on the account: ' + sp.name + '; you greeted them with it. If a first name is on file above, prefer it; otherwise do NOT ask for their name unless you need it for a message)' : ''}. This is caller ID only: they are NOT verified and NOT confirmed as the account owner. Never read back or confirm any email address, phone number, username or account detail; never change, reset or verify anything on the account, start a claim, or skip any check because of this match. Account changes happen only on bestdealon.app after sign-in. If they say it is not them, apologize lightly and continue as a normal caller.`];
+  if (sp.emailLabel && !returning.emailDomainSpoken) out.push(`Their account has a ${sp.emailLabel} email on file, but this phone line cannot see or send to that address. Refer to it only as "your ${sp.emailLabel} email" and never guess, say or spell any address. If they want something emailed, say "I can't see the full address here, so what address should I use?" and use the normal email steps.`);
+  return out;
+}
+function followUpLine(returning, tenant = {}) {
+  if (!returning || tenant.callback_offer !== true) return [];
+  const em = returning.emailDomainSpoken ? `your ${returning.emailDomainSpoken} email on file` : returning.site && returning.site.emailLabel ? `your ${returning.site.emailLabel} email` : 'email';
+  return [`Follow-up for this recognized caller: ask "Should someone from our team call you back at this number, or should I email you at ${em}?" A call back is a message for the team: use take_message with the caller's own number (do not say the number; refer to it as "this number") and never promise a time. Ask only for what is missing; do not ask for a name or number you already have.`];
+}
 function returningCallerLines(returning, tenant = {}, known = null) {
   if (!returning) return [];
-  return [`Caller ID matches a${known ? 'n RF Safe subscriber entry' : ' returning RF Safe subscriber'}${returning.firstName ? ' (first name on file: ' + returning.firstName + '; use this name for them and as recipient_name for any email, and do NOT ask for their name' + (known ? '; it takes priority over the known-caller name' : '') + ')' : ''}; you already greeted them. Caller ID can be spoofed or shared, so: never read back or confirm any email, phone number, name beyond the first name, or other account detail from caller ID alone; only confirm a detail if the caller states it first. Give no extra access and skip no checks. If the caller says it is not them, apologize lightly (for example "Sorry about that!") and continue as a normal caller; do not change any record.`].concat(returning.emailDomainSpoken && tenant.email_enabled ? [`Email on file: this caller has a confirmed email on file at the domain "${returning.emailDomainSpoken}". When they want something emailed, do NOT ask for their email address or their name. Ask only: "Should I send it to your ${returning.emailDomainSpoken} email on file, or a different one?" On a yes, call set_email_address with email_on_file true (no email), then follow the usual email steps; the server uses the stored address. Never say, spell or guess the part before the @ or the full address, even after they say yes; refer to it only as "your ${returning.emailDomainSpoken} email on file". If they want a different address, use the normal flow: ask for it, spell it back, and call set_email_address with it.`] : []);
+  if (returning.site && returning.fromNewsletter === false) return [...siteCallerLines(returning, tenant), ...followUpLine(returning, tenant)];
+  return [`Caller ID matches a${known ? 'n RF Safe subscriber entry' : ' returning RF Safe subscriber'}${returning.firstName ? ' (first name on file: ' + returning.firstName + '; use this name for them and as recipient_name for any email, and do NOT ask for their name' + (known ? '; it takes priority over the known-caller name' : '') + ')' : ''}; you already greeted them. Caller ID can be spoofed or shared, so: never read back or confirm any email, phone number, name beyond the first name, or other account detail from caller ID alone; only confirm a detail if the caller states it first. Give no extra access and skip no checks. If the caller says it is not them, apologize lightly (for example "Sorry about that!") and continue as a normal caller; do not change any record.`].concat(returning.emailDomainSpoken && tenant.email_enabled ? [`Email on file: this caller has a confirmed email on file at the domain "${returning.emailDomainSpoken}". When they want something emailed, do NOT ask for their email address or their name. Ask only: "Should I send it to your ${returning.emailDomainSpoken} email on file, or a different one?" On a yes, call set_email_address with email_on_file true (no email), then follow the usual email steps; the server uses the stored address. Never say, spell or guess the part before the @ or the full address, even after they say yes; refer to it only as "your ${returning.emailDomainSpoken} email on file". If they want a different address, use the normal flow: ask for it, spell it back, and call set_email_address with it.`] : []).concat(siteCallerLines(returning, tenant), followUpLine(returning, tenant));
 }
 
 function buildInstructions(tenant, { afterHours, callerLast4 = null, known = null, returning = null }) {
@@ -143,15 +155,28 @@ function knownCallerFor(tenant, caller) {
   return { name: k.name, role: k.role || null, greeting: k.greeting || null, isTransferTarget: !!target && target === caller };
 }
 
-const welcomeBack = (r) => `Welcome back${r && r.firstName ? ', ' + r.firstName : ''}! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?`;
-function returningCallerFor(tenant, caller, newsletter) {
-  if (!caller || !newsletter || tenant.returning_caller_greeting === false) return null;
-  try { return newsletter.returningCaller(tenant.id, caller); } catch { return null; }
+const welcomeBack = (r, tenant = {}) => typeof tenant.welcome_back === 'string' && tenant.welcome_back.includes('{name}')
+  ? tenant.welcome_back.replace('{name}', r && r.firstName ? ', ' + r.firstName : '')
+  : `Welcome back${r && r.firstName ? ', ' + r.firstName : ''}! Just so you know, this call may be recorded and is answered by an AI assistant. How can I help?`;
+function returningCallerFor(tenant, caller, newsletter, siteProfile = null) {
+  if (!caller || tenant.returning_caller_greeting === false) return null;
+  let r = null;
+  if (newsletter) { try { r = newsletter.returningCaller(tenant.id, caller, tenant.returning_caller_include_unconfirmed === true ? { includeUnconfirmed: true } : undefined); } catch { r = null; } }
+  // Best Deal On only: bestdealon.app account/listing match (signed lookup; name + booleans + email label, never an address).
+  const sp = tenant.id === 'bestdealon' && tenant.bdo_caller_lookup === true && siteProfile && siteProfile.known === true ? siteProfile : null;
+  if (!sp) return r;
+  const name = typeof sp.name === 'string' ? sp.name.replace(/[^\p{L}\p{N} '&.\-]/gu, '').trim().slice(0, 60) : '';
+  const label = typeof sp.email_label === 'string' && !sp.email_label.includes('@') ? sp.email_label.replace(/[^\p{L}\p{N} '&.\-]/gu, '').trim().slice(0, 60) : '';
+  return { ...(r ? { ...r, fromNewsletter: true } : { firstName: null, emailDomain: null, emailDomainSpoken: null, fromNewsletter: false }), site: { name: name || null, account: sp.account === true, emailLabel: label || null } };
+}
+async function bdoSiteProfile(tenant, caller, site, timeoutMs = 1500) {
+  if (!caller || tenant.id !== 'bestdealon' || tenant.bdo_caller_lookup !== true || !site || !site.configured || !site.configured()) return null;
+  let timer; try { const r = await Promise.race([site.callerProfile(caller), new Promise((res) => { timer = setTimeout(() => res(null), timeoutMs); })]); return r && r.known === true ? r : null; } catch { return null; } finally { clearTimeout(timer); }
 }
 
 // Bridges one call: ws is any object with send(string), and on('message'|'close'). Tests inject a mock.
 class CallSession {
-  constructor({ ws, tenant, callId, caller, tools, afterHours, log, onEnd, maxSeconds, newsletter, ownerMode = null }) {
+  constructor({ ws, tenant, callId, caller, tools, afterHours, log, onEnd, maxSeconds, newsletter, ownerMode = null, siteProfile = null }) {
     Object.assign(this, { ws, tenant, callId, caller, tools, log, onEnd }); this.channel = 'voice';
     this.transcript = []; this.events = []; this.pending = []; this.started = Date.now(); this.closed = false;
     if (ownerMode) {
@@ -167,12 +192,12 @@ class CallSession {
     }
     const known = knownCallerFor(tenant, caller);
     // Subscriber lookup runs for every caller with valid caller ID, including known callers and owners.
-    this.returning = returningCallerFor(tenant, caller, newsletter);
+    this.returning = returningCallerFor(tenant, caller, newsletter, siteProfile);
     const returning = this.returning;
     this.knownTransfer = !!(known && known.isTransferTarget);
     const defs = tools.definitions().filter((d) => !(known && known.isTransferTarget && d.name === 'transfer_to_human'));
     this.ws.send(JSON.stringify(sessionUpdate(tenant, defs, { afterHours, callerLast4: last4(caller), known, returning })));
-    this.ws.send(JSON.stringify(forceMessage(known ? (returning && returning.firstName ? `Hi ${returning.firstName}, how can I help you?` : known.greeting || `Hi ${known.name}, how can I help you?`) : returning ? welcomeBack(returning) : tenant.disclosure.replace('{name}', tenant.name))));
+    this.ws.send(JSON.stringify(forceMessage(known ? (returning && returning.firstName ? `Hi ${returning.firstName}, how can I help you?` : known.greeting || `Hi ${known.name}, how can I help you?`) : returning ? welcomeBack(returning.firstName ? returning : { firstName: returning.site && returning.site.name }, tenant) : tenant.disclosure.replace('{name}', tenant.name))));
     this.ws.send(JSON.stringify({ type: 'response.create' }));
     this.timer = setTimeout(() => this.tools.ctxCall(this).run('end_call', { reason: 'max_call_length' }), (maxSeconds || tenant.max_call_seconds) * 1000); this.timer.unref?.();
     ws.on('message', (m) => this.onMessage(m).catch((e) => log('call.error', { call: callId, err: e.message })));
@@ -219,4 +244,4 @@ function toolDetail(name, args, out) {
   return e;
 }
 
-module.exports = { welcomeBack, returningCallerFor, liveStatusLine, toolDetail, knownCallerFor, WebhookVerifier, signWebhook, sipHeader, callerIdFromSip, last4, sessionUpdate, buildInstructions, forceMessage, XaiCallControl, CallSession };
+module.exports = { welcomeBack, returningCallerFor, bdoSiteProfile, liveStatusLine, toolDetail, knownCallerFor, WebhookVerifier, signWebhook, sipHeader, callerIdFromSip, last4, sessionUpdate, buildInstructions, forceMessage, XaiCallControl, CallSession };

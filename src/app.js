@@ -8,7 +8,7 @@ const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructi
 const { verifyTenantTwilio, parseSignatureSettings, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
 const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory } = require('./sms');
-const { knownCallerFor, returningCallerFor } = require('./xai');
+const { knownCallerFor, returningCallerFor, bdoSiteProfile } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
 const { DEMO_ADMIN } = require('./readiness');
@@ -114,10 +114,12 @@ function createApp(d) {
     const caller = callerIdFromSip(ev.data); // null when blocked/anonymous
     if (caller) d.consent.record(tenant.id, caller, 'inbound'); // calling first = opt-in to replies with requested links
     json(res, 200, { accepted: true });
+    const profileP = bdoSiteProfile(tenant, caller, bdoSite); // Best Deal On only; runs while the realtime socket opens
     const ws = await d.openRealtime(tenant, callId);
+    const siteProfile = await profileP;
     const afterHours = !inHours(tenant.hours, now());
     const cc = d.callControlFor(tenant);
-    const session = new CallSession({ ws, tenant, callId, caller, tools: owner.wrapTools(tenant, caller, toolsFor(tenant, cc)), afterHours, log, newsletter: d.newsletter,
+    const session = new CallSession({ ws, tenant, callId, caller, tools: owner.wrapTools(tenant, caller, toolsFor(tenant, cc)), afterHours, log, newsletter: d.newsletter, siteProfile,
       onEnd: (summary, transcript) => {
         calls.delete(callId);
         transcript = owner.onCallEnd(tenant, caller, summary, transcript);

@@ -53,6 +53,8 @@ class BdoSite {
     const j = await r.json().catch(() => ({})); return { status: r.status, ...j };
   }
   callerLookup(caller) { return this.post('/api/callbot/caller-lookup', { caller }); }
+  /** Recognition only: { known, name, booleans, email_label }. Never an address or number. */
+  callerProfile(caller) { return this.post('/api/callbot/caller-profile', { caller }); }
   claim(caller) { return this.post('/api/callbot/claim', { caller, said_yes: true }); }
   verifyCheck(listing_phone, code) { return this.post('/api/callbot/verify-check', { listing_phone, code }); }
 }

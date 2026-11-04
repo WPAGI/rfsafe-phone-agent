@@ -30,6 +30,9 @@ function validateTenant(t) {
       if (v && Object.keys(v).some((k) => !['name', 'role', 'greeting'].includes(k))) errs.push(`known_callers.${n} allows only name, role, greeting`);
     }
   }
+  for (const k of ['returning_caller_include_unconfirmed', 'bdo_caller_lookup', 'callback_offer']) if (t[k] != null && typeof t[k] !== 'boolean') errs.push(`${k} must be true/false`);
+  if (t.welcome_back != null && (typeof t.welcome_back !== 'string' || !t.welcome_back.includes('{name}') || t.welcome_back.length > 200 || /[\r\n<>]/.test(t.welcome_back))) errs.push('welcome_back must be one line with {name}, max 200');
+  if (t.bdo_caller_lookup === true && t.id !== 'bestdealon') errs.push('bdo_caller_lookup is only for the bestdealon tenant');
   if (t.support_email != null && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(t.support_email)) errs.push('support_email must be an email address');
   errs.push(...validateBrand(t.brand));
   if (t.take_message != null) {
