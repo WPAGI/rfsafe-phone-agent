@@ -165,6 +165,8 @@ function createApp(d) {
     if (d.sentMessages) { try { d.sentMessages.addInbound({ tenant: tenant.id, call: smsConvoId(from, +now()), from, text: text.slice(0, 1000) }); } catch { /* never block a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
+    // Texting off (no approved A2P campaign yet): keywords above still answer; nothing else gets an AI reply, a hold text or any outbound SMS.
+    if (!tenant.sms_enabled) { log('sms.ignored_texting_off', { tenant: tenant.id, from: fp(from) }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml('')); }
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(''));
     const instructions = buildSmsInstructions(tenant, { known: knownCallerFor(tenant, from), returning: returningCallerFor(tenant, from, d.newsletter) });
     const archive = d.sentMessages ? (r) => d.sentMessages.add(r) : null;
