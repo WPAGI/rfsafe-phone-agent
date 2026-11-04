@@ -156,7 +156,12 @@ class Tools {
     const lim = this.d.rateLimit || (this._lim ||= new SmsRateLimit());
     const gate = lim.allow({ tenant: t.id, caller: to, callId: ctx.callId });
     if (!gate.ok) return { ok: false, error: gate.reason, say: 'I have already texted the links I can send on this call. I can read a link aloud or take a message.' };
-    if (queued) { const id = this.d.approvals.queue({ tenant: t.id, to, body: g.body }); return { ok: true, queued_for_approval: id, say: 'I have sent that to the team to text you shortly.' }; }
+    if (queued) {
+      const id = this.d.approvals.queue({ tenant: t.id, to, body: g.body });
+      log('sms.queued_for_approval', { tenant: t.id, call: ctx.callId || null, id, to: fp(to) });
+      this.emailOwnerQueuedText({ id, to, body: g.body, call: ctx.callId || null }).catch(() => {});
+      return { ok: true, queued_for_approval: id, say: 'I have sent that to the team to text you shortly.' };
+    }
     const nl = this.d.newsletter; let body = g.body; let newsInvite = false;
     if (ctx.channel === 'voice' && args.news_optin === true && nl) {
       let st = { status: 'none' }; try { st = nl.smsState(t.id, to); } catch { /* ignore */ }
@@ -170,6 +175,15 @@ class Tools {
   // Where a gap came from, for the owner briefing: channel, conversation id, caller last 4 only.
   gapCtx(ctx) { return { channel: ctx && ctx.channel, call: (ctx && ctx.callId) || null, from_last4: ctx && ctx.caller ? String(ctx.caller).replace(/\D/g, '').slice(-4) || null : null }; }
   // Owner gets taken messages by email (tenant.take_message.deliver = 'email'), e.g. while SMS waits on A2P.
+  /** A text was held for staff approval: tell the owner by email so it is never lost silently. Only for tenants with email on. */
+  async emailOwnerQueuedText(q) {
+    const t = this.tenant; const E = require('./email'); const log = this.d.log || (() => {});
+    if (t.email_enabled !== true || !t.owner_email || !E.validEmail(t.owner_email) || !this.d.emailFor) { log('sms.queued_owner_email', { tenant: t.id, ok: false, reason: 'email_off' }); return false; }
+    const text = `A text from the ${t.name} phone assistant is waiting for approval and has NOT been sent.\n\nTo: number ending in ${last4(q.to)}\nCall: ${q.call || '(none)'}\nApproval id: ${q.id}\nAt: ${new Date().toISOString()}\n\nText:\n${q.body}\n\nThe waiting list is kept in memory only and clears when the service restarts, so please send this text yourself or approve it soon.\n`;
+    let r; try { r = await this.d.emailFor(t).send({ to: t.owner_email, subject: `Text waiting for approval - ${t.name}`, text, from: E.senderFor(t) }); } catch { r = { ok: false }; }
+    log('sms.queued_owner_email', { tenant: t.id, ok: !!(r && r.ok), reason: (r && r.reason) || null });
+    return !!(r && r.ok);
+  }
   async emailOwnerMessage(msg) {
     const t = this.tenant; const E = require('./email');
     if (!t.owner_email || !E.validEmail(t.owner_email) || !this.d.emailFor) return false;

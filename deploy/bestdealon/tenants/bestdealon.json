@@ -33,7 +33,7 @@
   },
   "sms_enabled": true,
   "approval_mode": true,
-  "instant_link_reply": false,
+  "instant_link_reply": true,
   "order_lookup_enabled": false,
   "brand": {
     "team_name": "Best Deal On",
