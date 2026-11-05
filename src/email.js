@@ -1,6 +1,7 @@
 'use strict';
 // Email the caller the links they asked for, via Resend. Link-only, no marketing.
 const { checkUrl } = require('./linkguard');
+const { rebrand } = require('./brand');
 const SUMMARY_MAX = 4000;
 const TOPIC_MAX = 80;
 const FROM = 'RF Safe <rfsafe@callbots.org>';
@@ -25,8 +26,10 @@ function cleanSummary(raw, allowlist) {
   return t;
 }
 function cleanTopic(raw) { return String(raw || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/[\r\n\t]+/g, ' ').replace(/[^\p{L}\p{N} ,.'&()\/-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, TOPIC_MAX).trim(); }
-function subjectFor(topic, hasSummary) { const tp = cleanTopic(topic); return tp ? (hasSummary ? 'Your RF Safe info: ' : 'Your RF Safe links: ') + tp : (hasSummary ? 'Your RF Safe info' : SUBJECT); }
-function buildEmail({ links, note, summary, name, newsletter }) {
+function subjectFor(topic, hasSummary, tenant) { return rebrand(subjectBase(topic, hasSummary), tenant); }
+function subjectBase(topic, hasSummary) { const tp = cleanTopic(topic); return tp ? (hasSummary ? 'Your RF Safe info: ' : 'Your RF Safe links: ') + tp : (hasSummary ? 'Your RF Safe info' : SUBJECT); }
+function buildEmail(args) { const r = buildBase(args); return args.tenant && args.tenant.brand ? { text: rebrand(r.text, args.tenant), html: rebrand(r.html, args.tenant) } : r; }
+function buildBase({ links, note, summary, name, newsletter }) {
   const lines = links.map((l) => (l.title ? l.title + ': ' : '') + l.url);
   const paras = summary ? summary.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean) : [];
   const sub = !!(newsletter && newsletter.subscriber);
@@ -51,9 +54,9 @@ function checkLinks(urls, allowlist) {
 }
 class ResendEmail {
   constructor({ apiKey, fetchImpl = globalThis.fetch }) { this.key = apiKey; this.fetch = fetchImpl; }
-  async send({ to, replyTo, subject, text, html }) {
+  async send({ to, replyTo, subject, text, html, from }) {
     if (!this.key) return { ok: false, reason: 'email_not_configured' };
-    const r = await this.fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
+    const r = await this.fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ from: from || FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
     if (!r.ok) return { ok: false, reason: 'provider_' + r.status };
     const j = await r.json().catch(() => ({})); return { ok: true, id: j.id || null };
   }

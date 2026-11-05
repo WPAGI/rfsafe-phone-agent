@@ -1,4 +1,5 @@
 'use strict';
+const { brandFor, rebrandDeep } = require('./brand');
 // Tool definitions + dispatcher. Every tool runs with a tenant context; a tool can only touch that
 // tenant's KB, Shopify client, numbers, allowlist and consent records (tenant isolation).
 const { checkOutboundSms, checkUrl, looksLikeCard } = require('./linkguard');
@@ -47,11 +48,12 @@ class Tools {
     if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
     if (this.tenant.sms_enabled) names.splice(names.indexOf('send_link'), 0, 'set_text_number');
     if (this.tenant.email_enabled && this.d.emailFor) names.splice(names.indexOf('take_message'), 0, 'set_email_address', 'send_email');
-    return names.map((n) => ({ type: 'function', name: n, ...DEFS[n] }));
+    return rebrandDeep(names.map((n) => ({ type: 'function', name: n, ...DEFS[n] })), this.tenant);
   }
   // ctx: { channel: 'voice'|'sms', callId?, caller }
   ctxCall(ctx) { return { run: (name, args) => this.run(name, args || {}, ctx) }; }
-  async run(name, args, ctx) {
+  async run(name, args, ctx) { return rebrandDeep(await this.runRaw(name, args, ctx), this.tenant); }
+  async runRaw(name, args, ctx) {
     const t = this.tenant; const log = this.d.log || (() => {});
     if (name === 'send_link') name = 'send_link_sms';
     if (!this.definitions().some((x) => x.name === name || (name === 'send_link_sms' && x.name === 'send_link'))) return { ok: false, error: 'unknown_tool' };
@@ -204,10 +206,10 @@ class Tools {
     let isSub = false; try { isSub = !!(this.d.newsletter && this.d.newsletter.isSubscriber(t.id, to)); } catch { isSub = false; }
     const nl = isSub ? { subscriber: true, unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : args.newsletter_optin === true && this.d.newsletter ? { confirmUrl: this.d.newsletter.confirmUrl({ email: to, name, tenant: t.id }), unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : null;
     if (nl && ctx.caller && this.d.newsletter && !(isSub && this.d.newsletter.emailOnFile && this.d.newsletter.emailOnFile(t.id, ctx.caller) === to)) { try { this.d.newsletter.linkPhone({ tenant: t.id, email: to, phone: ctx.caller, call: ctx.callId }); } catch { /* ignore */ } }
-    const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl });
-    const subject = subjectFor(args.topic, !!summary);
+    const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl, tenant: t });
+    const subject = subjectFor(args.topic, !!summary, t);
     counts.set(key, n + 1); sigs.add(sig); sent.set(key, sigs); // count attempts, so a failing provider cannot be retried without limit
-    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
+    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html, ...(t.brand ? { from: brandFor(t).email_from } : {}) }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
     this.archive({ channel: 'email', tenant: t.id, call: ctx.callId, to, subject, text, html, links: g.links.map((l) => l.url).concat(require('./messages').extractLinks(text, html)).filter((x, i, a) => a.indexOf(x) === i), provider_id: r.id || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     const masked = maskEmail(to);
     log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, summary_chars: summary.length, named: !!name, newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, reason: r.ok ? undefined : r.reason });

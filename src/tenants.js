@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { validateBrand } = require('./brand');
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 const ID = /^[a-z0-9][a-z0-9-]{1,40}$/;
@@ -30,6 +31,7 @@ function validateTenant(t) {
     }
   }
   if (t.support_email != null && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(t.support_email)) errs.push('support_email must be an email address');
+  errs.push(...validateBrand(t.brand));
   return errs;
 }
 
