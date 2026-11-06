@@ -393,3 +393,35 @@ test('email: rfsafe lets new addresses join after the link; emailWebSignup:false
     await c.post('/preferences/save', { csrf, newsletter: 'on', name: 'Old' }, cookie); assert.strictEqual(c.nl.isSubscriber('rfsafe', 'old@example.com'), true, 'listed address may turn it back on');
   } finally { await c.close(); }
 });
+
+test('email session picks up the number linked on a call; call-approved link + news texts show as on; thanks banner lists them', async () => {
+  const m = await mk({ sms: true });
+  try {
+    const PH = '+17275550142';
+    m.nl.append({ kind: 'confirmed', tenant: 'rfsafe', email: 'jane@example.com', name: 'Jane' });
+    m.nl.linkPhone({ tenant: 'rfsafe', email: 'jane@example.com', phone: PH, call: 'c1' });
+    m.consent.record('rfsafe', PH, 'verbal_call');
+    m.nl.requestSms({ tenant: 'rfsafe', phone: PH, call: 'c1', wording: 'w' }); assert.ok(m.nl.confirmSms('rfsafe', PH, 'YES'));
+    const { cookie } = await m.login(); const page = await (await m.get('/preferences/manage', cookie)).text();
+    assert.doesNotMatch(page, /Text options are not available right now/);
+    assert.match(page, /name=support_sms checked/); assert.match(page, /name=news_sms checked/); assert.match(page, /\+1•••0142/);
+    assert.match(page, /id=thanks-banner/); assert.match(page, /Thanks for being subscribed to RF Safe!/); assert.match(page, /You&#39;re getting: monthly newsletter, link texts, RF Safe news texts\./);
+    m.consent.record('rfsafe', PH, 'stop'); const p2 = await (await m.get('/preferences/manage', cookie)).text();
+    assert.doesNotMatch(p2, /name=support_sms checked/, 'STOP list wins over call consent');
+  } finally { await m.close(); }
+});
+
+test('email session with no linked number: texts offer an add-your-number code form, not "not available"; no banner when not subscribed', async () => {
+  const m = await mk({ sms: true });
+  try {
+    const { cookie } = await m.login('new@example.com'); const page = await (await m.get('/preferences/manage', cookie)).text();
+    assert.match(page, /id=sms-add-phone/); assert.match(page, /<form method=post action="\/preferences\/start" id=add-phone><\/form>/); assert.doesNotMatch(page, /Text options are not available/);
+    assert.doesNotMatch(page, /id=thanks-banner/);
+  } finally { await m.close(); }
+});
+
+test('thanks banner is per-site: a site without thanksBanner shows none', async () => {
+  const cfg = { ...site }; delete cfg.thanksBanner; const m = await mk({ cfg });
+  try { m.nl.append({ kind: 'confirmed', tenant: 'rfsafe', email: 'jane@example.com' }); const { cookie } = await m.login(); assert.doesNotMatch(await (await m.get('/preferences/manage', cookie)).text(), /thanks-banner/); }
+  finally { await m.close(); }
+});

@@ -19,6 +19,8 @@ module.exports = {
   // Texts: full web flow (John, Nov 6 2026 6:29 AM EST): number -> confirmation text -> reply YES -> enrolled.
   // false = manage-only (codes only to numbers with call consent, texts can be turned off but not on).
   smsWebOptIn: true,
+  // Banner at the top of the manage page when the person is already subscribed to anything (John, Nov 6 6:39 AM EST).
+  thanksBanner: { title: 'Thanks for being subscribed to RF Safe!', lead: "You're getting:", items: { newsletter: 'monthly newsletter', support_sms: 'link texts', news_sms: 'RF Safe news texts' } },
   callNumber: '(727) 677-5572',
   callNumberE164: '+17276775572',
   theme: { inBg: '#10241e', inInk: '#f6f3ec', inPh: '#d5e6df', focus: '#2a9d84', disBg: '#1a2b26', disInk: '#9fb3ab', disLine: '#3c4e47', disPh: '#c5d1cb' },

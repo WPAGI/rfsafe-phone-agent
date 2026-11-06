@@ -32,6 +32,14 @@ function createPrefs(d, site, { log = () => {} } = {}) {
   const form = async (req) => new URLSearchParams(await readBody(req, 8192));
 
   // Current consent state from the site's existing stores (newsletter list, consent ledger, news-text list).
+  // Email sessions pick up the number the phone flow linked to this email on a call (newsletter 'link' events), so
+  // numbers already approved by phone show their real text state. Turning texts on still needs a YES reply from that number.
+  function linkedPhone(email) {
+    const nl = d.newsletter; if (!email || !nl || typeof nl.events !== 'function') return null; const e = String(email).toLowerCase();
+    const l = nl.events().filter((r) => r.kind === 'link' && r.tenant === site.tenant && String(r.email || '').toLowerCase() === e && r.phone);
+    return l.length ? l[l.length - 1].phone : null;
+  }
+  function withLinkedPhone(s) { if (!s || s.phone || !s.email) return s; const phone = linkedPhone(s.email); return phone ? { ...s, phone, phone_linked: true } : s; }
   function stateFor(s) { return { ...stateFor0(s), can_rejoin_email: !!(s.email && knownEmail(s.email)) }; }
   function stateFor0(s) {
     const t = tenant(); const nl = d.newsletter; const p = core.person(s);
@@ -43,7 +51,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
       const callOk = !!(s.phone && knownPhone(s.phone));
       return { name: (pn && pn.name) || '', newsletter, news_sms: news, support_sms: !!(s.phone && d.consent && d.consent.canText(site.tenant, s.phone) && d.consent.hasCallConsent(site.tenant, s.phone)), support_pending: false, news_freq: FREQS.includes(p.news_freq) ? p.news_freq : 'monthly', sms_available: smsOn() && !!t && callOk, manage_only: true };
     }
-    return { name: (pn && pn.name) || '', newsletter, news_sms: news, support_sms: !!(s.phone && p.support_sms && !optedOut), support_pending: !!p.support_pending, news_freq: FREQS.includes(p.news_freq) ? p.news_freq : 'monthly', sms_available: smsOn() && !!t };
+    return { name: (pn && pn.name) || '', newsletter, news_sms: news, support_sms: !!(s.phone && !optedOut && (p.support_sms || (d.consent && d.consent.hasCallConsent && d.consent.canText(site.tenant, s.phone) && d.consent.hasCallConsent(site.tenant, s.phone)))), support_pending: !!p.support_pending && !optedOut, news_freq: FREQS.includes(p.news_freq) ? p.news_freq : 'monthly', sms_available: smsOn() && !!t };
   }
   // Per-site sign-up switches (both default to open, as on QuantaDose):
   //  site.emailWebSignup === false -> email manage-only: links only to addresses already on the newsletter list, no new web subscribers.
@@ -175,7 +183,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
       core.audit({ who: phone, channel: 'session', from: 'out', to: 'in', method: 'sms', source: 'web:/preferences/code', ip_fp: fp(ip) });
       return redirect(res, '/preferences/manage', [cookie(sid)]), true;
     }
-    const sid = sidOf(req); const s = core.session(sid);
+    const sid = sidOf(req); const s = withLinkedPhone(core.session(sid));
     if (p === '/preferences/manage' && req.method === 'GET') {
       if (!s) return redirect(res, '/preferences'), true;
       return send(res, 200, manageBody(site, { s, st: stateFor(s), csrf: s.csrf, saved: u.searchParams.get('saved'), err: u.searchParams.get('err') })), true;
@@ -200,6 +208,6 @@ function createPrefs(d, site, { log = () => {} } = {}) {
     }
     return send(res, 404, msgBody(site, 'Not found', '<a href="/preferences">Preferences</a>')), true;
   }
-  return { route, core, smsOn, confirmSupportYes, stateFor, unsubscribeScope };
+  return { route, core, smsOn, withLinkedPhone, confirmSupportYes, stateFor, unsubscribeScope };
 }
 module.exports = { createPrefs, GENERIC_EMAIL, GENERIC_CODE };
