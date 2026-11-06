@@ -14,10 +14,18 @@ module.exports = {
   // Texting program for the RF Safe line is the existing one (callbots' Messaging Service, consent ledger, STOP list).
   // Text controls show by default; PREFS_SMS_ENABLED=0 hides them, and they only ever show while the tenant has sms_enabled.
   smsDefaultOn: true,
+  // Email: new web sign-ups allowed (John, Nov 6 6:19 AM EST), verified by the one-time email link.
+  emailWebSignup: true,
+  // Texts: manage-only until RF Safe's campaign covers web opt-in (draft: a2p-rfsafe-mixed-draft.md). While false, codes go only to
+  // numbers with call consent, texts can be turned off / frequency changed but never turned on, and there is no web YES enrollment.
+  // true = full web flow: number -> confirmation text -> reply YES -> enrolled.
+  smsWebOptIn: false,
+  callNumber: '(727) 677-5572',
+  callNumberE164: '+17276775572',
   theme: { inBg: '#10241e', inInk: '#f6f3ec', inPh: '#d5e6df', focus: '#2a9d84', disBg: '#1a2b26', disInk: '#9fb3ab', disLine: '#3c4e47', disPh: '#c5d1cb' },
   layout: ({ title, css, body }) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>${CSS}${LAYOUT_CSS}${css}</style></head><body>`
     + `<header class="site-header"><div class="wrap bar">\n${BRAND}\n</div></header><main id="content" class="prefs-main">${body}</main>\n${siteFooter()}\n</body></html>`,
-  entryIntro: "Manage RF Safe's monthly newsletter, link texts and RF Safe news texts.",
+  entryIntro: "Join or manage RF Safe's monthly newsletter, and manage RF Safe link texts and news texts.",
   supportEmail: 'support@quantaxtechnology.com',
   emailSubject: 'Your RF Safe preferences link',
   topics: {

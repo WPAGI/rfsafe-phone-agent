@@ -5,18 +5,20 @@ const test = require('node:test'); const assert = require('node:assert');
 const fs = require('fs'); const os = require('os'); const path = require('path'); const http = require('http');
 const { createPrefs, GENERIC_EMAIL } = require('../src/prefs');
 const { PrefsCore, TOKEN_TTL_MS } = require('../src/prefs/core');
-const site = require('../src/prefs/sites/rfsafe');
+const rfsafe = require('../src/prefs/sites/rfsafe');
+// Generic core tests run the shared module in open mode (how QuantaDose uses it); manage-only rules for rfsafe are tested below.
+const site = { ...rfsafe, smsWebOptIn: true };
 const { Newsletter } = require('../src/newsletter');
 const { Consent, MockTwilio } = require('../src/twilio');
 const { MockEmail, listUnsubscribeHeaders } = require('../src/email');
 
-async function mk({ sms = false } = {}) {
+async function mk({ sms = false, cfg = site } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prefs-')); let t = Date.parse('2026-11-06T10:00:00Z');
   const tenant = { id: 'rfsafe', name: 'RF Safe', numbers: ['+17276775572'], sms_enabled: sms, twilio: { messaging_service_sid: 'MG' + '0'.repeat(32) } };
   const mail = new MockEmail(); const tw = new MockTwilio(); const consent = new Consent(null);
   const nl = new Newsletter({ secret: 'x'.repeat(32), file: path.join(dir, 'newsletter.jsonl'), now: () => t });
   const d = { dataDir: dir, env: sms ? { PREFS_SMS_ENABLED: '1' } : {}, tenants: { list: () => [tenant] }, newsletter: nl, consent, emailFor: () => mail, smsFor: () => tw, publicBaseUrl: 'https://callbots.org', now: () => t };
-  const p = createPrefs(d, site); const srv = http.createServer(async (req, res) => { const u = new URL(req.url, 'http://x'); if (!(await p.route(req, res, u))) { res.writeHead(404); res.end(); } });
+  const p = createPrefs(d, cfg); const srv = http.createServer(async (req, res) => { const u = new URL(req.url, 'http://x'); if (!(await p.route(req, res, u))) { res.writeHead(404); res.end(); } });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r)); const base = 'http://127.0.0.1:' + srv.address().port;
   const post = (pth, body, cookie, ip = '1.1.1.1') => fetch(base + pth, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip, ...(cookie ? { cookie } : {}) }, body: new URLSearchParams(body).toString() });
   const get = (pth, cookie) => fetch(base + pth, { redirect: 'manual', headers: cookie ? { cookie } : {} });
@@ -313,4 +315,80 @@ test('rfsafe STOP list: dropdown text opt-out writes to the callbots consent led
     const { cookie, csrf } = await m.login(); await m.post('/preferences/unsubscribe', { csrf, scope: 'texts', phone: '(727) 555-0199' }, cookie);
     assert.strictEqual(m.consent.isOptedOut('rfsafe', '+17275550199'), true); assert.strictEqual(m.tw.sent.length, 0);
   } finally { await m.close(); }
+});
+
+// ---- rfsafe manage-only texts (smsWebOptIn: false) and email sign-up switch ----
+async function phoneLogin(m, phone = '+17275550142') {
+  const n = m.tw.sent.length; await m.post('/preferences/start', { phone }); const code = m.tw.sent[n].body.match(/code is (\d{6})/)[1];
+  const v = await m.post('/preferences/code', { phone, code }); const cookie = v.headers.get('set-cookie').split(';')[0];
+  const page = await (await m.get('/preferences/manage', cookie)).text(); return { cookie, page, csrf: page.match(/name=csrf value="([^"]+)"/)[1] };
+}
+test('rfsafe live config: email web sign-up on, texts manage-only, real call number', () => {
+  assert.strictEqual(rfsafe.emailWebSignup, true); assert.strictEqual(rfsafe.smsWebOptIn, false); assert.strictEqual(rfsafe.callNumber, '(727) 677-5572'); assert.strictEqual(rfsafe.callNumberE164, '+17276775572');
+});
+test('manage-only texts: codes only to numbers with call consent; identical answer for known and unknown numbers', async () => {
+  const m = await mk({ sms: true, cfg: rfsafe });
+  try {
+    m.consent.record('rfsafe', '+17275550142', 'verbal_call');
+    const a = await (await m.post('/preferences/start', { phone: '(727) 555-0199' }, null, '2.2.2.2')).text(); assert.strictEqual(m.tw.sent.length, 0, 'no code to an unknown number');
+    m.consent.record('rfsafe', '+17275550188', 'inbound'); await m.post('/preferences/start', { phone: '7275550188' }, null, '2.2.2.3'); assert.strictEqual(m.tw.sent.length, 0, 'inbound text alone is not call consent');
+    const b = await (await m.post('/preferences/start', { phone: '(727) 555-0142' }, null, '2.2.2.4')).text(); assert.strictEqual(m.tw.sent.length, 1);
+    assert.strictEqual(a.replace(/value="[^"]*"/g, ''), b.replace(/value="[^"]*"/g, ''), 'same page apart from the echoed number');
+    assert.doesNotMatch(m.tw.sent[0].body, /YES/); assert.match(m.tw.sent[0].body, /^RF Safe: /);
+  } finally { await m.close(); }
+});
+test('manage-only texts: only off + frequency; no turning on, no consent form, no confirmation text, call note shown', async () => {
+  const m = await mk({ sms: true, cfg: rfsafe });
+  try {
+    const ph = '+17275550142'; m.consent.record('rfsafe', ph, 'verbal_call'); m.nl.requestSms({ tenant: 'rfsafe', phone: ph }); m.nl.confirmSms('rfsafe', ph, 'YES');
+    const { cookie, page, csrf } = await phoneLogin(m); const sent0 = m.tw.sent.length;
+    assert.match(page, /name=support_sms checked/); assert.match(page, /name=news_sms checked/); assert.match(page, /name=news_freq value="up4"/);
+    assert.match(page, /To sign up for texts, call <a href="tel:\+17276775572">\(727\) 677-5572<\/a> and ask\./); assert.doesNotMatch(page, /id=sms-consent/);
+    await m.post('/preferences/save', { csrf, support_sms: 'on', news_sms: 'on', news_freq: 'up4' }, cookie);
+    assert.ok(m.p.core.auditLog().some((x) => x.channel === 'news_sms_frequency' && x.to === 'up4'));
+    await m.post('/preferences/save', { csrf, support_sms: 'on', news_freq: 'daily' }, cookie); // news off; bogus frequency ignored
+    assert.strictEqual(m.nl.smsState('rfsafe', ph).status, 'unsubscribed'); assert.strictEqual(m.consent.isOptedOut('rfsafe', ph), false);
+    assert.ok(!m.p.core.auditLog().some((x) => x.to === 'daily'));
+    let r = await m.post('/preferences/save', { csrf, support_sms: 'on', news_sms: 'on', consent: 'yes' }, cookie); // try to turn news back on
+    assert.strictEqual(r.headers.get('location'), '/preferences/manage?err=sms_signup_by_phone'); assert.notStrictEqual(m.nl.smsState('rfsafe', ph).status, 'pending');
+    await m.post('/preferences/save', { csrf }, cookie); assert.strictEqual(m.consent.isOptedOut('rfsafe', ph), true, 'link texts off = STOP');
+    const after = await (await m.get('/preferences/manage', cookie)).text(); assert.match(after, /name=support_sms disabled/); assert.match(after, /name=news_sms disabled/);
+    r = await m.post('/preferences/save', { csrf, support_sms: 'on', consent: 'yes' }, cookie); // re-enable from web is refused
+    assert.strictEqual(r.headers.get('location'), '/preferences/manage?err=sms_signup_by_phone'); assert.strictEqual(m.consent.isOptedOut('rfsafe', ph), true);
+    assert.match(await (await m.get('/preferences/manage?err=sms_signup_by_phone', cookie)).text(), /Texts can only be turned on by phone\. To sign up for texts, call \(727\) 677-5572 and ask\./);
+    assert.strictEqual(m.tw.sent.length, sent0, 'no texts sent by any of this');
+    assert.strictEqual(m.p.confirmSupportYes(ph), false, 'no web YES enrollment');
+    await m.post('/preferences/unsubscribe', { csrf, scope: 'texts' }, cookie); assert.strictEqual(m.consent.isOptedOut('rfsafe', ph), true);
+  } finally { await m.close(); }
+});
+test('manage-only texts: email-only session sees the call note, no text controls; posted text fields ignored', async () => {
+  const m = await mk({ sms: true, cfg: rfsafe });
+  try {
+    const { cookie, csrf } = await m.login(); const page = await (await m.get('/preferences/manage', cookie)).text();
+    assert.match(page, /Sign in with your mobile number to manage texts\./); assert.match(page, /call <a href="tel:\+17276775572">/); assert.doesNotMatch(page, /name=support_sms/);
+    await m.post('/preferences/save', { csrf, support_sms: 'on', news_sms: 'on', consent: 'yes' }, cookie); assert.strictEqual(m.tw.sent.length, 0);
+  } finally { await m.close(); }
+});
+test('smsWebOptIn: true on rfsafe = full web flow: number -> confirmation text -> YES -> enrolled', async () => {
+  const m = await mk({ sms: true, cfg: { ...rfsafe, smsWebOptIn: true } });
+  try {
+    const n = 0; await m.post('/preferences/start', { phone: '7275550177' }); assert.strictEqual(m.tw.sent.length, n + 1, 'any number can get a code when web opt-in is on');
+    const { cookie, csrf } = await phoneLogin(m, '+17275550177'); const sent = m.tw.sent.length;
+    await m.post('/preferences/save', { csrf, news_sms: 'on', support_sms: 'on', consent: 'yes' }, cookie);
+    assert.strictEqual(m.tw.sent.length, sent + 1); assert.strictEqual(m.tw.sent.at(-1).body, rfsafe.smsConfirmText);
+    assert.strictEqual(m.nl.smsState('rfsafe', '+17275550177').status, 'pending'); assert.strictEqual(m.p.confirmSupportYes('+17275550177'), true);
+    m.nl.confirmSms('rfsafe', '+17275550177', 'YES'); assert.strictEqual(m.nl.smsState('rfsafe', '+17275550177').status, 'subscribed');
+  } finally { await m.close(); }
+});
+test('email: rfsafe lets new addresses join after the link; emailWebSignup:false sends links only to listed addresses, same answer', async () => {
+  const m = await mk({ cfg: rfsafe });
+  try { const { cookie, csrf } = await m.login('new@example.com'); await m.post('/preferences/save', { csrf, newsletter: 'on', name: 'Ann' }, cookie); assert.strictEqual(m.nl.isSubscriber('rfsafe', 'new@example.com'), true); } finally { await m.close(); }
+  const c = await mk({ cfg: { ...rfsafe, emailWebSignup: false } });
+  try {
+    const a = await (await c.post('/preferences/start', { email: 'stranger@example.com' })).text(); assert.strictEqual(c.mail.sent.length, 0);
+    c.nl.append({ kind: 'confirmed', tenant: 'rfsafe', email: 'old@example.com', name: 'Old' }); c.nl.append({ kind: 'unsubscribed', tenant: 'rfsafe', email: 'old@example.com' });
+    const b = await (await c.post('/preferences/start', { email: 'old@example.com' })).text(); assert.strictEqual(c.mail.sent.length, 1); assert.strictEqual(a, b);
+    const r = await c.post('/preferences/verify', { t: c.tokOf() }); const cookie = r.headers.get('set-cookie').split(';')[0]; const csrf = (await (await c.get('/preferences/manage', cookie)).text()).match(/name=csrf value="([^"]+)"/)[1];
+    await c.post('/preferences/save', { csrf, newsletter: 'on', name: 'Old' }, cookie); assert.strictEqual(c.nl.isSubscriber('rfsafe', 'old@example.com'), true, 'listed address may turn it back on');
+  } finally { await c.close(); }
 });

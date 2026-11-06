@@ -74,6 +74,11 @@ class Newsletter {
   }
   stopSms(tenant, phone) { if (this.smsState(tenant, phone).status !== 'none') this.append({ kind: 'sms_stopped', tenant, phone }); }
   linkPhone({ tenant, email, phone, call }) { if (email && phone) this.append({ kind: 'link', tenant, email: String(email).toLowerCase(), phone, call: call || null }); }
+  // True if this address was ever a confirmed subscriber (still on the list, possibly unsubscribed). Used by /preferences manage-only mode.
+  everConfirmed(tenant, email) {
+    const e = String(email || '').trim().toLowerCase(); if (!e) return false;
+    return this.events().some((r) => r.tenant === tenant && r.kind === 'confirmed' && String(r.email || '').trim().toLowerCase() === e);
+  }
   isSubscriber(tenant, email) {
     const e = String(email || '').trim().toLowerCase(); if (!e) return false;
     return this.subscribers().some((s) => s.tenant === tenant && String(s.email || '').trim().toLowerCase() === e);

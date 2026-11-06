@@ -24,17 +24,20 @@ Status: built on branch `feature/preferences-page`, NOT deployed.
 - Newsletter emails now carry RFC 8058 `List-Unsubscribe` + `List-Unsubscribe-Post` headers; one-click POSTs are audited. Greetings use the first word of the stored name ("Hi John,"), else "Hi there,".
 - STOP/START/HELP replies, the SMS wording, campaign text and Twilio settings are unchanged.
 
-## Text controls flag
-`sites/rfsafe.js` sets `smsDefaultOn: true` (John, Nov 6 6:11 AM EST: texting options stay on for RF Safe/callbots). Text controls show only while
-the rfsafe tenant has `sms_enabled` true. `PREFS_SMS_ENABLED=0` is a kill switch that hides them. QuantaDose-style sites (no `smsDefaultOn`) still need `PREFS_SMS_ENABLED=1`.
+## Per-site modes (site config)
+- `smsDefaultOn` - text controls show without `PREFS_SMS_ENABLED=1` (still need tenant `sms_enabled`; `PREFS_SMS_ENABLED=0` hides them).
+- `emailWebSignup` - default open. `false` = email manage-only: links only to addresses ever confirmed on the newsletter list (identical answer for everyone); listed addresses may turn the newsletter back on, new ones cannot join.
+- `smsWebOptIn` - default open. `true` = full web flow: number -> 6-digit code -> tick texts + "I agree" -> confirmation text -> reply YES -> enrolled.
+  `false` = text manage-only: codes go only to numbers with call consent (`verbal_call` in the consent ledger, or a news-text record), with an identical answer for every number;
+  the page can turn a text type off and change frequency (max 4/mo), never turn one on; an off type is disabled with "To sign up for texts, call <callNumber> and ask.";
+  no web YES enrollment. Unticking link texts = STOP for the number (ledger is per number).
+- rfsafe (beta test config): `emailWebSignup: true`, `smsWebOptIn: false`, `callNumber (727) 677-5572`.
 
-## Env (names only)
-- `RESEND_API_KEY` (existing; sends from `RF Safe <rfsafe@callbots.org>` like the call emails) - live mode only; demo uses the mock.
-- `PUBLIC_BASE_URL` (existing) - base of the magic link.
-- `PREFS_SECRET` (optional, >= 32 chars). `PREFS_SMS_ENABLED` (optional, `0` = hide text controls).
-- Texts use the tenant's existing Twilio number / Messaging Service and `RFSAFE_TWILIO_AUTH_TOKEN` through `smsFor`.
+## Scope
+Beta / programming test on callbots' codebase only (John, Nov 6 6:21 AM EST). Not for deploy on callbots.org; nothing submitted to Twilio; Privacy/terms unchanged.
+RF Safe will move to rfsafe.app; see "Porting" below.
 
-## A2P risk (read before deploy)
-The local campaign draft `deploy/a2p-campaign.draft.md` describes only verbal opt-in on an inbound call, Customer Care only, "No marketing".
-It does not describe a web opt-in or the news texts. Web text opt-in on /preferences is the same gap that got QuantaDose rejected (30907/30544).
-Draft wording to add (not applied) is in the PR description / report: Privacy SMS section bullet + campaign message flow sentence.
+## Porting to another site (e.g. rfsafe.app)
+Copy `src/prefs/` + `sites/<id>.js`; the host app must provide: `dataDir`, `tenants.list()`, `newsletter` (isSubscriber, everConfirmed, profileName, append, smsState, requestSms, confirmSms, stopSms),
+`consent` (record, isOptedOut, canText, hasCallConsent), `emailFor(tenant).send({to,subject,text,html,headers})`, `smsFor(tenant).sendSms(...)`, `publicBaseUrl`,
+route `/preferences*` to `prefs.route`, call `prefs.confirmSupportYes(from)` on inbound YES, and add the footer link. Then update that site's privacy/SMS terms and its A2P campaign before enabling web text opt-in.

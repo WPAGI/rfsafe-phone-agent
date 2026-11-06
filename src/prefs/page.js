@@ -35,7 +35,17 @@ const msgBody = (site, title, html) => `<h1>${h(title)}</h1><p>${html}</p>`;
 function manageBody(site, { s, st, csrf, saved, err }) {
   const T = site.topics; const chk = (b) => (b ? ' checked' : '');
   const who = [s.email ? h(s.email) : '', s.phone ? h(s.phone.replace(/^(\+\d)\d+(\d{4})$/, '$1•••$2')) : ''].filter(Boolean).join(' · ');
-  const smsBlock = st.sms_available && s.phone
+  const smsMO = site.smsWebOptIn === false; const callNote = smsMO ? `<p class=mut id=call-to-join>To sign up for texts, call <a href="tel:${h(site.callNumberE164)}">${h(site.callNumber)}</a> and ask.</p>` : '';
+  const moSms = () => { // manage-only: a type can only be switched off; an off type is shown disabled with the call note
+    const on = (b) => (b ? ' checked' : ' disabled'); const newsOn = ['subscribed', 'pending'].includes(st.news_sms);
+    return `<fieldset><label><input type=checkbox name=support_sms${on(st.support_sms)}> ${h(T.support_sms.label)}</label><p class=mut>${h(T.support_sms.help)}</p>`
+      + `<label><input type=checkbox name=news_sms${on(newsOn)}> ${h(T.news_sms.label)}</label><p class=mut>${h(T.news_sms.help)}</p>`
+      + (newsOn ? `<p>How often:</p>${Object.entries(site.freqLabels).map(([k, v]) => `<label><input type=radio name=news_freq value="${k}"${chk(st.news_freq === k)}> ${h(v)}</label>`).join('')}` : '')
+      + `<p class=mut>Unticking link texts stops all texts to this number, the same as replying STOP.</p></fieldset>${callNote}`;
+  };
+  const smsBlock = smsMO
+    ? (st.sms_available && s.phone ? moSms() : `<p class=mut>${s.phone ? 'This number has no text subscriptions from a call.' : 'Sign in with your mobile number to manage texts.'}</p>${callNote}`)
+    : st.sms_available && s.phone
     ? `<fieldset><label><input type=checkbox name=support_sms${chk(st.support_sms || st.support_pending)}> ${h(T.support_sms.label)}${st.support_pending ? ' <em>(waiting for your YES reply)</em>' : ''}</label><p class=mut>${h(T.support_sms.help)}</p>`
       + `<label><input type=checkbox name=news_sms${chk(['subscribed', 'pending'].includes(st.news_sms))}> ${h(T.news_sms.label)}${st.news_sms === 'pending' ? ' <em>(waiting for your YES reply)</em>' : ''}</label><p class=mut>${h(T.news_sms.help)}</p>`
       + `<p>How often:</p>${Object.entries(site.freqLabels).map(([k, v]) => `<label><input type=radio name=news_freq value="${k}"${chk(st.news_freq === k)}> ${h(v)}</label>`).join('')}`
@@ -45,9 +55,11 @@ function manageBody(site, { s, st, csrf, saved, err }) {
     + (saved === 'all' ? '<p class=ok>You are unsubscribed from everything.</p>' : saved === 'texts' ? '<p class=ok>Done. That number will not get any more texts from us. Reply START to a text from us if you change your mind.</p>' : saved === 'all-email' ? '<p class=ok>You are unsubscribed from all emails. No mobile number was given, so to also stop texts, enter your number above and choose texts.</p>' : saved === 'emails' ? '<p class=ok>Done. You will not get any more newsletter emails from us.</p>' : saved ? '<p class=ok>Saved.</p>' : '')
     + (err === 'phone' ? '<p class=err>Enter a valid mobile number to stop texts.</p>' : err === 'limit' ? '<p class=err>Too many requests. Please try again in 15 minutes.</p>' : err === 'pick' ? '<p class=err>Choose an option first.</p>' : '')
     + (err === 'name' ? '<p class=err>Please enter your name to get the newsletter.</p>' : '')
+    + (err === 'sms_signup_by_phone' ? `<p class=err>Texts can only be turned on by phone. To sign up for texts, call ${h(site.callNumber)} and ask.</p>` : '')
+    + (err === 'email_signup_by_phone' ? '<p class=err>This address is not on the newsletter list. To join, ask on a call.</p>' : '')
     + (err === 'consent_required' ? '<p class=err>To turn on texts, read the text terms and tick &ldquo;I agree&rdquo;.</p>' : '')
     + `<form method=post action="/preferences/save" class=card><input type=hidden name=csrf value="${h(csrf)}"><h2>Email</h2>`
-    + (s.email ? `<label><input type=checkbox name=newsletter id=nl-box${chk(st.newsletter)}> ${h(T.newsletter.label)}</label><p class=mut>${h(T.newsletter.help)}</p>`
+    + (s.email && site.emailWebSignup === false && !st.newsletter && !st.can_rejoin_email ? '<p class=mut>This address is not on the newsletter list. To join, ask on a call.</p>' : s.email ? `<label><input type=checkbox name=newsletter id=nl-box${chk(st.newsletter)}> ${h(T.newsletter.label)}</label><p class=mut>${h(T.newsletter.help)}</p>`
       + `<div id=nl-names${st.newsletter || err === 'name' ? '' : ' hidden'}><label for=nl-name>Name (required)</label><input type=text name=name id=nl-name maxlength=80 autocomplete=name value="${h(st.name)}"${st.newsletter || err === 'name' ? ' required' : ''}><button type=submit>Save</button></div>`
       + `<script>(function(){var b=document.getElementById('nl-box'),n=document.getElementById('nl-names'),f=document.getElementById('nl-name');if(!b)return;function u(){n.hidden=!b.checked;f.required=b.checked;}b.addEventListener('change',u);})();</script>` : '<p class=mut>Sign in with your email to manage the newsletter.</p>')
     + `<h2>Texts</h2>${smsBlock}<button type=submit>Save preferences</button></form>`

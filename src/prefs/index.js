@@ -32,14 +32,26 @@ function createPrefs(d, site, { log = () => {} } = {}) {
   const form = async (req) => new URLSearchParams(await readBody(req, 8192));
 
   // Current consent state from the site's existing stores (newsletter list, consent ledger, news-text list).
-  function stateFor(s) {
+  function stateFor(s) { return { ...stateFor0(s), can_rejoin_email: !!(s.email && knownEmail(s.email)) }; }
+  function stateFor0(s) {
     const t = tenant(); const nl = d.newsletter; const p = core.person(s);
     const newsletter = !!(s.email && nl && nl.isSubscriber(site.tenant, s.email));
     const news = s.phone && nl ? nl.smsState(site.tenant, s.phone).status : 'none';
     const optedOut = s.phone && d.consent ? d.consent.isOptedOut(site.tenant, s.phone) : false;
     const pn = s.email && nl && nl.profileName ? nl.profileName(site.tenant, s.email) : null;
+    if (MO) { // link texts = the call consent in the ledger (not a web setting); text controls only for numbers with call consent
+      const callOk = !!(s.phone && knownPhone(s.phone));
+      return { name: (pn && pn.name) || '', newsletter, news_sms: news, support_sms: !!(s.phone && d.consent && d.consent.canText(site.tenant, s.phone) && d.consent.hasCallConsent(site.tenant, s.phone)), support_pending: false, news_freq: FREQS.includes(p.news_freq) ? p.news_freq : 'monthly', sms_available: smsOn() && !!t && callOk, manage_only: true };
+    }
     return { name: (pn && pn.name) || '', newsletter, news_sms: news, support_sms: !!(s.phone && p.support_sms && !optedOut), support_pending: !!p.support_pending, news_freq: FREQS.includes(p.news_freq) ? p.news_freq : 'monthly', sms_available: smsOn() && !!t };
   }
+  // Per-site sign-up switches (both default to open, as on QuantaDose):
+  //  site.emailWebSignup === false -> email manage-only: links only to addresses already on the newsletter list, no new web subscribers.
+  //  site.smsWebOptIn === false    -> text manage-only: controls and codes only for numbers with call consent; texts can be
+  //                                   turned off and frequency changed, never turned on; no web YES enrollment.
+  const MO_EMAIL = site.emailWebSignup === false; const MO = site.smsWebOptIn === false;
+  const knownEmail = (email) => { const nl = d.newsletter; return !!(nl && (nl.isSubscriber(site.tenant, email) || (nl.everConfirmed && nl.everConfirmed(site.tenant, email)))); };
+  const knownPhone = (phone) => { if (!phone) return false; const c = d.consent; const nl = d.newsletter; if (c && c.hasCallConsent && c.hasCallConsent(site.tenant, phone)) return true; const st = nl ? nl.smsState(site.tenant, phone).status : 'none'; return st === 'subscribed' || st === 'pending'; };
   function change(s, what, from, to, method, req) { core.audit({ who: s.email || s.phone, channel: what, from, to, method, source: 'web:/preferences', ip_fp: fp(clientIp(req)) }); log('prefs.change', { site: site.id, channel: what, to, method }); }
 
   async function sendConfirmText(phone) {
@@ -53,6 +65,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
       const want = f.get('newsletter') === 'on';
       const name = cleanPersonName(f.get('name'));
       if (want && !name) return 'name'; // name required when email is on; nothing is changed
+      if (MO_EMAIL && want && !before.newsletter && !knownEmail(s.email)) return 'email_signup_by_phone'; // manage-only: no new web subscribers
       if (want !== before.newsletter) { nl.append({ kind: want ? 'confirmed' : 'unsubscribed', tenant: site.tenant, email: s.email, name: want ? name : null, ...(want ? { last_name: null } : {}), source: 'web-preferences' }); change(s, 'email_newsletter', before.newsletter ? 'on' : 'off', want ? 'on' : 'off', 'web', req); }
       if (want && name !== before.name) {
         if (before.newsletter) nl.append({ kind: 'profile', tenant: site.tenant, email: s.email, name, last_name: null, source: 'web-preferences' });
@@ -60,6 +73,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
       }
     }
     if (!s.phone || !smsOn()) return; // text controls hidden/disabled: ignore any posted SMS fields
+    if (MO) return applyManageOnlyTexts(s, f, req, before);
     const freq = FREQS.includes(f.get('news_freq')) ? f.get('news_freq') : before.news_freq;
     if (freq !== before.news_freq) { core.setPerson(s, { news_freq: freq }); change(s, 'news_sms_frequency', before.news_freq, freq, 'web', req); }
     const wantSupport = f.get('support_sms') === 'on'; const wantNews = f.get('news_sms') === 'on';
@@ -73,6 +87,23 @@ function createPrefs(d, site, { log = () => {} } = {}) {
     if (!wantNews && ['subscribed', 'pending'].includes(before.news_sms)) { nl.stopSms(site.tenant, s.phone); change(s, 'news_sms', before.news_sms, 'off', 'web', req); }
     if (!wantSupport && (before.support_sms || before.support_pending)) { core.setPerson(s, { support_sms: false, support_pending: false }); change(s, 'support_sms', 'on', 'off', 'web', req); }
     if (!wantSupport && !wantNews && d.consent && (before.support_sms || ['subscribed', 'pending'].includes(before.news_sms))) d.consent.record(site.tenant, s.phone, 'stop');
+  }
+  // Manage-only texts: only turning a type off and changing frequency. Nothing here can turn texts on or send a text.
+  function applyManageOnlyTexts(s, f, req, before) {
+    if (!before.sms_available) return;
+    const nl = d.newsletter; let blocked = false;
+    const wantSupport = f.get('support_sms') === 'on'; const wantNews = f.get('news_sms') === 'on';
+    if (wantSupport && !before.support_sms) blocked = true;
+    if (wantNews && !['subscribed', 'pending'].includes(before.news_sms)) blocked = true;
+    const newsOn = ['subscribed', 'pending'].includes(before.news_sms) && wantNews;
+    const freq = FREQS.includes(f.get('news_freq')) ? f.get('news_freq') : before.news_freq; // FREQS tops out at 4/mo
+    if (newsOn && freq !== before.news_freq) { core.setPerson(s, { news_freq: freq }); change(s, 'news_sms_frequency', before.news_freq, freq, 'web', req); }
+    if (!wantNews && ['subscribed', 'pending'].includes(before.news_sms)) { nl.stopSms(site.tenant, s.phone); change(s, 'news_sms', before.news_sms, 'off', 'web', req); }
+    if (!wantSupport && before.support_sms) { // the ledger is per number: link texts off = STOP for this number (news stops too)
+      if (nl && newsOn) { nl.stopSms(site.tenant, s.phone); change(s, 'news_sms', before.news_sms, 'off', 'web', req); }
+      if (d.consent) d.consent.record(site.tenant, s.phone, 'stop'); change(s, 'support_sms', 'on', 'off', 'web', req);
+    }
+    return blocked ? 'sms_signup_by_phone' : undefined;
   }
   function unsubscribeAll(s, req) {
     const before = stateFor(s); const nl = d.newsletter;
@@ -104,7 +135,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
     log('prefs.unsubscribe', { site: site.id, scope, email: out.email, texts: out.texts }); return out;
   }
   // Called by the SMS handler when a YES reply confirms a pending web opt-in (support texts).
-  function confirmSupportYes(phone) { const s = { phone }; const p = core.person(s); if (!p.support_pending) return false; core.setPerson(s, { support_sms: true, support_pending: false }); core.audit({ who: phone, channel: 'support_sms', from: 'pending_yes', to: 'on', method: 'sms', source: 'sms:YES' }); return true; }
+  function confirmSupportYes(phone) { if (MO) return false; /* manage-only: no web YES enrollment */ const s = { phone }; const p = core.person(s); if (!p.support_pending) return false; core.setPerson(s, { support_sms: true, support_pending: false }); core.audit({ who: phone, channel: 'support_sms', from: 'pending_yes', to: 'on', method: 'sms', source: 'sms:YES' }); return true; }
 
   async function route(req, res, u) {
     const p = u.pathname; if (p !== '/preferences' && !p.startsWith('/preferences/')) return false;
@@ -114,7 +145,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
       const f = await form(req); const email = normEmail(f.get('email')); const phone = smsOn() ? normPhone(f.get('phone')) : null;
       if (!email && !phone) return send(res, 400, entryBody(site, { smsOn: smsOn(), error: 'Enter a valid email address' + (smsOn() ? ' or mobile number.' : '.') })), true;
       const ipOk = core.allowIp(ip);
-      if (email && ipOk && core.allowId('e:' + email)) {
+      if (email && ipOk && core.allowId('e:' + email) && (!MO_EMAIL || knownEmail(email))) {
         const tok = core.issueToken(email); const link = base() + '/preferences/verify?t=' + tok;
         let first = ''; try { first = d.newsletter && d.newsletter.profileName ? firstWord((d.newsletter.profileName(site.tenant, email) || {}).name) : ''; } catch { first = ''; }
         const greet = 'Hi ' + (first || 'there') + ',';
@@ -123,7 +154,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
         try { const r = await d.emailFor(tenant()).send({ to: email, subject: site.emailSubject, text, html }); log('prefs.link_sent', { site: site.id, to: fp(email), ok: !!(r && r.ok) }); } catch (e) { log('prefs.link_error', { site: site.id, err: String(e.message).slice(0, 80) }); }
       } else if (email) log('prefs.rate_limited', { site: site.id, kind: ipOk ? 'id' : 'ip' });
       if (phone && !email) {
-        if (ipOk && core.allowId('p:' + phone)) { const code = core.issueCode(phone); const t = tenant(); try { await d.smsFor(t).sendSms({ from: t.numbers[0], to: phone, body: site.smsCodeText(code), messagingServiceSid: t.twilio && t.twilio.messaging_service_sid }); } catch (e) { log('prefs.sms_error', { site: site.id, err: String(e.message).slice(0, 80) }); } }
+        if (ipOk && core.allowId('p:' + phone) && (!MO || knownPhone(phone))) { const code = core.issueCode(phone); const t = tenant(); try { await d.smsFor(t).sendSms({ from: t.numbers[0], to: phone, body: site.smsCodeText(code), messagingServiceSid: t.twilio && t.twilio.messaging_service_sid }); } catch (e) { log('prefs.sms_error', { site: site.id, err: String(e.message).slice(0, 80) }); } }
         return send(res, 200, codeBody(site, { phone: f.get('phone'), msg: GENERIC_CODE })), true;
       }
       return send(res, 200, sentBody(site, GENERIC_EMAIL)), true;
