@@ -16,10 +16,9 @@ module.exports = {
   smsDefaultOn: true,
   // Email: new web sign-ups allowed (John, Nov 6 6:19 AM EST), verified by the one-time email link.
   emailWebSignup: true,
-  // Texts: manage-only until RF Safe's campaign covers web opt-in (draft: a2p-rfsafe-mixed-draft.md). While false, codes go only to
-  // numbers with call consent, texts can be turned off / frequency changed but never turned on, and there is no web YES enrollment.
-  // true = full web flow: number -> confirmation text -> reply YES -> enrolled.
-  smsWebOptIn: false,
+  // Texts: full web flow (John, Nov 6 2026 6:29 AM EST): number -> confirmation text -> reply YES -> enrolled.
+  // false = manage-only (codes only to numbers with call consent, texts can be turned off but not on).
+  smsWebOptIn: true,
   callNumber: '(727) 677-5572',
   callNumberE164: '+17276775572',
   theme: { inBg: '#10241e', inInk: '#f6f3ec', inPh: '#d5e6df', focus: '#2a9d84', disBg: '#1a2b26', disInk: '#9fb3ab', disLine: '#3c4e47', disPh: '#c5d1cb' },

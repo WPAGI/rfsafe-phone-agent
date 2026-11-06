@@ -40,4 +40,4 @@ RF Safe will move to rfsafe.app; see "Porting" below.
 ## Porting to another site (e.g. rfsafe.app)
 Copy `src/prefs/` + `sites/<id>.js`; the host app must provide: `dataDir`, `tenants.list()`, `newsletter` (isSubscriber, everConfirmed, profileName, append, smsState, requestSms, confirmSms, stopSms),
 `consent` (record, isOptedOut, canText, hasCallConsent), `emailFor(tenant).send({to,subject,text,html,headers})`, `smsFor(tenant).sendSms(...)`, `publicBaseUrl`,
-route `/preferences*` to `prefs.route`, call `prefs.confirmSupportYes(from)` on inbound YES, and add the footer link. Then update that site's privacy/SMS terms and its A2P campaign before enabling web text opt-in.
+route `/preferences*` to `prefs.route`, call `prefs.confirmSupportYes(from)` on inbound YES, and add the footer link.

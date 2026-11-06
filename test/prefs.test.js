@@ -8,6 +8,7 @@ const { PrefsCore, TOKEN_TTL_MS } = require('../src/prefs/core');
 const rfsafe = require('../src/prefs/sites/rfsafe');
 // Generic core tests run the shared module in open mode (how QuantaDose uses it); manage-only rules for rfsafe are tested below.
 const site = { ...rfsafe, smsWebOptIn: true };
+const rfsafeMO = { ...rfsafe, smsWebOptIn: false }; // manage-only mode, still supported by config
 const { Newsletter } = require('../src/newsletter');
 const { Consent, MockTwilio } = require('../src/twilio');
 const { MockEmail, listUnsubscribeHeaders } = require('../src/email');
@@ -323,11 +324,11 @@ async function phoneLogin(m, phone = '+17275550142') {
   const v = await m.post('/preferences/code', { phone, code }); const cookie = v.headers.get('set-cookie').split(';')[0];
   const page = await (await m.get('/preferences/manage', cookie)).text(); return { cookie, page, csrf: page.match(/name=csrf value="([^"]+)"/)[1] };
 }
-test('rfsafe live config: email web sign-up on, texts manage-only, real call number', () => {
-  assert.strictEqual(rfsafe.emailWebSignup, true); assert.strictEqual(rfsafe.smsWebOptIn, false); assert.strictEqual(rfsafe.callNumber, '(727) 677-5572'); assert.strictEqual(rfsafe.callNumberE164, '+17276775572');
+test('rfsafe live config: email web sign-up on, web text opt-in on, real call number', () => {
+  assert.strictEqual(rfsafe.emailWebSignup, true); assert.strictEqual(rfsafe.smsWebOptIn, true); assert.strictEqual(rfsafe.callNumber, '(727) 677-5572'); assert.strictEqual(rfsafe.callNumberE164, '+17276775572');
 });
 test('manage-only texts: codes only to numbers with call consent; identical answer for known and unknown numbers', async () => {
-  const m = await mk({ sms: true, cfg: rfsafe });
+  const m = await mk({ sms: true, cfg: rfsafeMO });
   try {
     m.consent.record('rfsafe', '+17275550142', 'verbal_call');
     const a = await (await m.post('/preferences/start', { phone: '(727) 555-0199' }, null, '2.2.2.2')).text(); assert.strictEqual(m.tw.sent.length, 0, 'no code to an unknown number');
@@ -338,7 +339,7 @@ test('manage-only texts: codes only to numbers with call consent; identical answ
   } finally { await m.close(); }
 });
 test('manage-only texts: only off + frequency; no turning on, no consent form, no confirmation text, call note shown', async () => {
-  const m = await mk({ sms: true, cfg: rfsafe });
+  const m = await mk({ sms: true, cfg: rfsafeMO });
   try {
     const ph = '+17275550142'; m.consent.record('rfsafe', ph, 'verbal_call'); m.nl.requestSms({ tenant: 'rfsafe', phone: ph }); m.nl.confirmSms('rfsafe', ph, 'YES');
     const { cookie, page, csrf } = await phoneLogin(m); const sent0 = m.tw.sent.length;
@@ -362,7 +363,7 @@ test('manage-only texts: only off + frequency; no turning on, no consent form, n
   } finally { await m.close(); }
 });
 test('manage-only texts: email-only session sees the call note, no text controls; posted text fields ignored', async () => {
-  const m = await mk({ sms: true, cfg: rfsafe });
+  const m = await mk({ sms: true, cfg: rfsafeMO });
   try {
     const { cookie, csrf } = await m.login(); const page = await (await m.get('/preferences/manage', cookie)).text();
     assert.match(page, /Sign in with your mobile number to manage texts\./); assert.match(page, /call <a href="tel:\+17276775572">/); assert.doesNotMatch(page, /name=support_sms/);
@@ -381,7 +382,7 @@ test('smsWebOptIn: true on rfsafe = full web flow: number -> confirmation text -
   } finally { await m.close(); }
 });
 test('email: rfsafe lets new addresses join after the link; emailWebSignup:false sends links only to listed addresses, same answer', async () => {
-  const m = await mk({ cfg: rfsafe });
+  const m = await mk({ cfg: rfsafeMO });
   try { const { cookie, csrf } = await m.login('new@example.com'); await m.post('/preferences/save', { csrf, newsletter: 'on', name: 'Ann' }, cookie); assert.strictEqual(m.nl.isSubscriber('rfsafe', 'new@example.com'), true); } finally { await m.close(); }
   const c = await mk({ cfg: { ...rfsafe, emailWebSignup: false } });
   try {

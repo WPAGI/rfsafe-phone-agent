@@ -45,7 +45,7 @@ const csrfOf = (html) => html.match(/name=csrf value="([^"]+)"/)[1];
     await sms(ph, 'START'); assert.ok(!a.deps.consent.isOptedOut('rfsafe-demo', ph)); const stop = await (await sms(ph, 'STOP')).text(); assert.ok(a.deps.consent.isOptedOut('rfsafe-demo', ph)); ok('STOP reply still works unchanged: ' + stop.replace(/<[^>]+>/g, '').trim());
   });
   // B: rfsafe beta config (manage-only texts)
-  await run('manage-only texts (rfsafe config)', { ...rfsafe, tenant: 'rfsafe-demo' }, async ({ a, tw, post, snap }) => {
+  await run('manage-only texts (smsWebOptIn false)', { ...rfsafe, tenant: 'rfsafe-demo', smsWebOptIn: false }, async ({ a, tw, post, snap }) => {
     const n0 = tw.sent.length; const r1 = await (await post('/preferences/start', { phone: '7275550199' })).text(); assert.strictEqual(tw.sent.length, n0); ok('unknown number: no code sent');
     a.deps.consent.record('rfsafe-demo', '+17275550142', 'verbal_call');
     const r2 = await (await post('/preferences/start', { phone: '7275550142' })).text(); assert.strictEqual(tw.sent.length, n0 + 1); assert.strictEqual(r1.replace(/value="[^"]*"/g, ''), r2.replace(/value="[^"]*"/g, '')); ok('call-consent number: code sent; identical page for both');
