@@ -20,6 +20,9 @@ module.exports = {
   // false = manage-only (codes only to numbers with call consent, texts can be turned off but not on).
   smsWebOptIn: true,
   // Banner at the top of the manage page when the person is already subscribed to anything (John, Nov 6 6:39 AM EST).
+  // Section toggles on the manage page: each opens its own form; email and texts save independently.
+  sections: { emailToggle: "Get RF Safe's monthly newsletter by email", textsToggle: 'Get texts from RF Safe' },
+  phoneCountry: 'US',
   thanksBanner: { title: 'Thanks for being subscribed to RF Safe!', lead: "You're getting:", items: { newsletter: 'monthly newsletter', support_sms: 'link texts', news_sms: 'RF Safe news texts' } },
   callNumber: '(727) 677-5572',
   callNumberE164: '+17276775572',

@@ -209,17 +209,17 @@ test('name: one Name field expands server-side when email is on, required, clean
   try {
     const { cookie, csrf } = await m.login();
     let page = await (await m.get('/preferences/manage', cookie)).text();
-    assert.match(page, /<div id=nl-names hidden><label for=nl-name>Name \(required\)<\/label><input type=text name=name id=nl-name maxlength=80 autocomplete=name/, 'one field, collapsed while email is off');
-    assert.doesNotMatch(page, /first_name|last_name|Last name|First name/); assert.match(page, /n\.hidden=!b\.checked/, 'JS expands on check');
+    assert.match(page, /<div class=sec-body data-for=nl-box>.*<label for=nl-name>Name \(required for the newsletter\)<\/label><input type=text name=name id=nl-name maxlength=80 autocomplete=name/, 'one field, inside the newsletter toggle');
+    assert.doesNotMatch(page, /first_name|last_name|Last name|First name/); assert.match(page, /d\.hidden=!b\.checked/, 'JS expands on check');
     let r = await m.post('/preferences/save', { csrf, newsletter: 'on', name: '  \u0007 ' }, cookie);
     assert.strictEqual(r.headers.get('location'), '/preferences/manage?err=name'); assert.ok(!m.nl.isSubscriber('rfsafe', 'jane@example.com'));
     page = await (await m.get('/preferences/manage?err=name', cookie)).text();
-    assert.match(page, /<div id=nl-names>/, 'no-JS: field shown with the error'); assert.match(page, /enter your name/);
+    assert.match(page, /id=nl-box data-toggle checked/, 'no-JS: field shown with the error'); assert.match(page, /enter your name/);
     r = await m.post('/preferences/save', { csrf, newsletter: 'on', name: '  <b>Jane</b>\r\nBcc: x@evil.com ' + 'a'.repeat(120) }, cookie);
     assert.strictEqual(r.headers.get('location'), '/preferences/manage?saved=1'); assert.ok(m.nl.isSubscriber('rfsafe', 'jane@example.com'));
     const pn = m.nl.profileName('rfsafe', 'jane@example.com'); assert.ok(pn.name.length <= 80); assert.doesNotMatch(pn.name, /[\r\n]/);
     page = await (await m.get('/preferences/manage', cookie)).text();
-    assert.match(page, /<div id=nl-names>/); assert.ok(page.includes('value="&lt;b&gt;Jane&lt;/b&gt; Bcc: x@evil.com'), 'escaped + prefilled'); assert.ok(!page.includes('<b>Jane</b>'));
+    assert.match(page, /id=nl-box data-toggle checked/); assert.ok(page.includes('value="&lt;b&gt;Jane&lt;/b&gt; Bcc: x@evil.com'), 'escaped + prefilled'); assert.ok(!page.includes('<b>Jane</b>'));
     await m.post('/preferences/save', { csrf, newsletter: 'on', name: "Janet O'Neil" }, cookie);
     assert.deepStrictEqual(m.nl.profileName('rfsafe', 'jane@example.com'), { name: "Janet O'Neil", first: 'Janet', last: null });
     assert.strictEqual(m.nl.subscribers().find((x) => x.email === 'jane@example.com').name, "Janet O'Neil");
@@ -404,10 +404,10 @@ test('email session picks up the number linked on a call; call-approved link + n
     m.nl.requestSms({ tenant: 'rfsafe', phone: PH, call: 'c1', wording: 'w' }); assert.ok(m.nl.confirmSms('rfsafe', PH, 'YES'));
     const { cookie } = await m.login(); const page = await (await m.get('/preferences/manage', cookie)).text();
     assert.doesNotMatch(page, /Text options are not available right now/);
-    assert.match(page, /name=support_sms checked/); assert.match(page, /name=news_sms checked/); assert.match(page, /\+1•••0142/);
+    assert.match(page, /class=tx-type name=support_sms checked/); assert.match(page, /class=tx-type name=news_sms checked/); assert.match(page, /\+1•••0142/);
     assert.match(page, /id=thanks-banner/); assert.match(page, /Thanks for being subscribed to RF Safe!/); assert.match(page, /You&#39;re getting: monthly newsletter, link texts, RF Safe news texts\./);
     m.consent.record('rfsafe', PH, 'stop'); const p2 = await (await m.get('/preferences/manage', cookie)).text();
-    assert.doesNotMatch(p2, /name=support_sms checked/, 'STOP list wins over call consent');
+    assert.doesNotMatch(p2, /class=tx-type name=support_sms checked/, 'STOP list wins over call consent');
   } finally { await m.close(); }
 });
 
@@ -415,7 +415,7 @@ test('email session with no linked number: texts offer an add-your-number code f
   const m = await mk({ sms: true });
   try {
     const { cookie } = await m.login('new@example.com'); const page = await (await m.get('/preferences/manage', cookie)).text();
-    assert.match(page, /id=sms-add-phone/); assert.match(page, /<form method=post action="\/preferences\/start" id=add-phone><\/form>/); assert.doesNotMatch(page, /Text options are not available/);
+    assert.match(page, /<form method=post action="\/preferences\/start" class=card id=texts-sec><input type=hidden name=from value=manage>/); assert.match(page, /id=tx-phone/); assert.doesNotMatch(page, /Text options are not available/);
     assert.doesNotMatch(page, /id=thanks-banner/);
   } finally { await m.close(); }
 });
@@ -424,4 +424,59 @@ test('thanks banner is per-site: a site without thanksBanner shows none', async 
   const cfg = { ...site }; delete cfg.thanksBanner; const m = await mk({ cfg });
   try { m.nl.append({ kind: 'confirmed', tenant: 'rfsafe', email: 'jane@example.com' }); const { cookie } = await m.login(); assert.doesNotMatch(await (await m.get('/preferences/manage', cookie)).text(), /thanks-banner/); }
   finally { await m.close(); }
+});
+
+test('v2 sections: email-only save needs no phone; texts section never touched by an email save', async () => {
+  const m = await mk({ sms: true });
+  try {
+    const { cookie, csrf } = await m.login('solo@example.com'); const page = await (await m.get('/preferences/manage', cookie)).text();
+    assert.match(page, /Get RF Safe&#39;s monthly newsletter by email/); assert.match(page, /name=section value=email/); assert.match(page, /Save email preferences/);
+    assert.doesNotMatch(page, /Save preferences</, 'old double-save layout gone'); assert.doesNotMatch(page, /<input[^>]*name=phone[^>]*required/, 'phone never required in HTML');
+    const r = await m.post('/preferences/save', { csrf, section: 'email', newsletter: 'on', name: 'Solo' }, cookie);
+    assert.strictEqual(r.headers.get('location'), '/preferences/manage?saved=1'); assert.ok(m.nl.isSubscriber('rfsafe', 'solo@example.com')); assert.strictEqual(m.tw.sent.length, 0);
+  } finally { await m.close(); }
+});
+
+test('v2 sections: phone-only flow with no email; texts save alone; email section offers a link, never required', async () => {
+  const m = await mk({ sms: true });
+  try {
+    await m.post('/preferences/start', { phone: '(727) 555-0142' }); const code = m.tw.sent.at(-1).body.match(/(\d{6})/)[1];
+    const v = await m.post('/preferences/code', { phone: '+17275550142', code }); const cookie = v.headers.get('set-cookie').split(';')[0];
+    const page = await (await m.get('/preferences/manage', cookie)).text(); const csrf = page.match(/name=csrf value="([^"]+)"/)[1];
+    assert.match(page, /Get texts from RF Safe/); assert.match(page, /name=section value=texts/); assert.match(page, /id=nl-email/); assert.doesNotMatch(page, /name=name/);
+    const r = await m.post('/preferences/save', { csrf, section: 'texts', support_sms: 'on', news_sms: 'on', news_freq: 'monthly', consent: 'yes' }, cookie);
+    assert.strictEqual(r.headers.get('location'), '/preferences/manage?saved=1'); assert.strictEqual(m.nl.smsState('rfsafe', '+17275550142').status, 'pending'); assert.strictEqual(m.tw.sent.at(-1).body, site.smsConfirmText);
+    assert.strictEqual(m.mail.sent.length, 0);
+  } finally { await m.close(); }
+});
+
+test('v2 sections: both — email save leaves texts alone and texts save leaves email alone; email link keeps the phone session', async () => {
+  const m = await mk({ sms: true });
+  try {
+    const PH = '+17275550142'; m.nl.append({ kind: 'confirmed', tenant: 'rfsafe', email: 'jane@example.com', name: 'Jane' }); m.nl.linkPhone({ tenant: 'rfsafe', email: 'jane@example.com', phone: PH }); m.consent.record('rfsafe', PH, 'verbal_call');
+    const { cookie, csrf } = await m.login();
+    await m.post('/preferences/save', { csrf, section: 'email' }, cookie); assert.ok(!m.nl.isSubscriber('rfsafe', 'jane@example.com')); assert.ok(m.consent.canText('rfsafe', PH), 'texts untouched by email save');
+    await m.post('/preferences/save', { csrf, section: 'texts', support_sms: 'on' }, cookie); assert.ok(!m.nl.isSubscriber('rfsafe', 'jane@example.com'), 'email untouched by texts save');
+    // phone session, then email link: session keeps both
+    await m.post('/preferences/start', { phone: '7275550142' }); const code = m.tw.sent.at(-1).body.match(/(\d{6})/)[1];
+    const v = await m.post('/preferences/code', { phone: PH, code }); const pc = v.headers.get('set-cookie').split(';')[0];
+    await m.post('/preferences/start', { email: 'jane@example.com', from: 'manage' }, pc);
+    const r = await m.post('/preferences/verify', { t: m.tokOf() }, pc); const both = r.headers.get('set-cookie').split(';')[0];
+    assert.match(await (await m.get('/preferences/manage', both)).text(), /jane@example\.com · \+1•••0142/);
+  } finally { await m.close(); }
+});
+
+test('v2 sections: invalid phone is rejected on the server with an inline error; nothing sent; client pattern present', async () => {
+  const m = await mk({ sms: true });
+  try {
+    const { cookie } = await m.login('solo@example.com');
+    for (const bad of ['123', '(127) 555-0142', '727-155-0142', '+44 20 7946 0958', 'abcdefghij']) {
+      const r = await m.post('/preferences/start', { phone: bad, from: 'manage' }, cookie); assert.strictEqual(r.headers.get('location'), '/preferences/manage?err=badphone', bad);
+    }
+    assert.strictEqual(m.tw.sent.length, 0);
+    const page = await (await m.get('/preferences/manage?err=badphone', cookie)).text();
+    assert.match(page, /id=tx-box data-toggle checked/); assert.match(page, /<p class="err" id=tx-phone-err>Enter a valid US mobile number/); assert.match(page, /pattern="/); assert.match(page, /s\.disabled=!ok/);
+    const e = await m.post('/preferences/start', { phone: '12' }); assert.strictEqual(e.status, 400); assert.match(await e.text(), /valid US mobile number/);
+    const { normUsPhone } = require('../src/prefs/core'); assert.strictEqual(normUsPhone('1 (727) 555-0142'), '+17275550142'); assert.strictEqual(normUsPhone('+1 727.555.0142'), '+17275550142'); assert.strictEqual(normUsPhone('(027) 555-0142'), null);
+  } finally { await m.close(); }
 });

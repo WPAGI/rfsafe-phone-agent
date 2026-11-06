@@ -4,7 +4,7 @@
 // newsletter, support texts and news-and-sales texts, or unsubscribe from everything. Every sign-in request gets
 // the same generic answer, so nobody can tell which addresses or numbers are on file.
 const { readBody, fp } = require('../util');
-const { PrefsCore, normEmail, normPhone, FREQS, cleanPersonName, firstWord } = require('./core');
+const { PrefsCore, normEmail, normPhone: normAnyPhone, normUsPhone, FREQS, cleanPersonName, firstWord } = require('./core');
 const { h, pageHtml, entryBody, sentBody, codeBody, continueBody, manageBody, msgBody } = require('./page');
 
 const GENERIC_EMAIL = 'If that address is on file or can receive email, we sent a sign-in link. It works once, for 15 minutes.';
@@ -16,6 +16,7 @@ const HDR = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-s
 
 // d: app deps (tenants, newsletter, consent, emailFor, smsFor, env, publicBaseUrl, dataDir, now). site: sites/<id>.js
 function createPrefs(d, site, { log = () => {} } = {}) {
+  const normPhone = site.phoneCountry === 'US' ? normUsPhone : normAnyPhone;
   const env = d.env || process.env; const nowMs = () => { const n = d.now ? d.now() : Date.now(); return typeof n === 'number' ? n : n.getTime(); };
   const core = d.prefsCore || new PrefsCore({ dir: d.dataDir, site, env, now: nowMs });
   const tenant = () => d.tenants.list().find((t) => t.id === site.tenant) || null;
@@ -68,8 +69,8 @@ function createPrefs(d, site, { log = () => {} } = {}) {
   }
 
   async function apply(s, f, req) {
-    const before = stateFor(s); const nl = d.newsletter;
-    if (s.email && nl) {
+    const before = stateFor(s); const nl = d.newsletter; const section = f.get('section'); // 'email' | 'texts' | absent = both
+    if (s.email && nl && section !== 'texts') {
       const want = f.get('newsletter') === 'on';
       const name = cleanPersonName(f.get('name'));
       if (want && !name) return 'name'; // name required when email is on; nothing is changed
@@ -80,10 +81,12 @@ function createPrefs(d, site, { log = () => {} } = {}) {
         core.audit({ who: s.email, channel: 'name', from: before.name ? 'set' : 'none', to: 'updated', method: 'web', source: 'web:/preferences', ip_fp: fp(clientIp(req)) }); // never the name values
       }
     }
+    if (section === 'email') return;
     if (!s.phone || !smsOn()) return; // text controls hidden/disabled: ignore any posted SMS fields
     if (MO) return applyManageOnlyTexts(s, f, req, before);
     const freq = FREQS.includes(f.get('news_freq')) ? f.get('news_freq') : before.news_freq;
     if (freq !== before.news_freq) { core.setPerson(s, { news_freq: freq }); change(s, 'news_sms_frequency', before.news_freq, freq, 'web', req); }
+    // The 'Get texts' toggle is display only: unticking it (JS) also unticks the types below, so the server reads the types alone (works without JS).
     const wantSupport = f.get('support_sms') === 'on'; const wantNews = f.get('news_sms') === 'on';
     const turningOn = (wantSupport && !before.support_sms && !before.support_pending) || (wantNews && !['subscribed', 'pending'].includes(before.news_sms));
     if (turningOn) {
@@ -151,6 +154,9 @@ function createPrefs(d, site, { log = () => {} } = {}) {
     if (req.method === 'GET' && (p === '/preferences' || p === '/preferences/')) return send(res, 200, entryBody(site, { smsOn: smsOn() })), true;
     if (req.method === 'POST' && p === '/preferences/start') {
       const f = await form(req); const email = normEmail(f.get('email')); const phone = smsOn() ? normPhone(f.get('phone')) : null;
+      const fromManage = f.get('from') === 'manage' && core.session(sidOf(req));
+      if (fromManage && !email && !phone) return redirect(res, '/preferences/manage?err=' + (String(f.get('email') || '').trim() ? 'bademail' : 'badphone')), true;
+      if (!email && !phone && String(f.get('phone') || '').trim() && smsOn()) return send(res, 400, entryBody(site, { smsOn: true, error: 'Enter a valid US mobile number, like (727) 555-0123.' })), true;
       if (!email && !phone) return send(res, 400, entryBody(site, { smsOn: smsOn(), error: 'Enter a valid email address' + (smsOn() ? ' or mobile number.' : '.') })), true;
       const ipOk = core.allowIp(ip);
       if (email && ipOk && core.allowId('e:' + email) && (!MO_EMAIL || knownEmail(email))) {
@@ -172,7 +178,7 @@ function createPrefs(d, site, { log = () => {} } = {}) {
       if (req.method === 'POST') {
         const email = core.consumeToken((await form(req)).get('t'));
         if (!email) return send(res, 400, msgBody(site, 'Link expired or already used', 'Sign-in links work once, for 15 minutes. <a href="/preferences">Get a new link</a>.')), true;
-        const { sid } = core.newSession({ email }); core.audit({ who: email, channel: 'session', from: 'out', to: 'in', method: 'email-link', source: 'web:/preferences/verify', ip_fp: fp(ip) });
+        const cur = core.session(sidOf(req)); const { sid } = core.newSession({ email, ...(cur && cur.phone ? { phone: cur.phone } : {}) }); if (cur) core.endSession(sidOf(req)); core.audit({ who: email, channel: 'session', from: 'out', to: 'in', method: 'email-link', source: 'web:/preferences/verify', ip_fp: fp(ip) });
         return redirect(res, '/preferences/manage', [cookie(sid)]), true;
       }
     }
