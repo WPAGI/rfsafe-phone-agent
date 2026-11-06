@@ -80,9 +80,20 @@ class Newsletter {
   }
   subscribers() {
     let lines = []; try { lines = fs.readFileSync(this.file, 'utf8').split('\n').filter(Boolean); } catch { return []; }
-    const m = new Map();
-    for (const l of lines) { let r; try { r = JSON.parse(l); } catch { continue; } const k = r.tenant + '|' + String(r.email || '').trim().toLowerCase(); if (r.kind === 'confirmed') m.set(k, r); else if (r.kind === 'unsubscribed') m.delete(k); }
-    return [...m.values()].map(({ email, name, tenant, at, source }) => ({ email, name, tenant, confirmed_at: at, source }));
+    const m = new Map(); const names = new Map(); // newest name wins, from a confirm with a name or a 'profile' event
+    for (const l of lines) {
+      let r; try { r = JSON.parse(l); } catch { continue; } const k = r.tenant + '|' + String(r.email || '').trim().toLowerCase();
+      if (r.kind === 'profile' && r.email) names.set(k, { name: r.name ?? null, last_name: r.last_name ?? null });
+      else if (r.kind === 'confirmed') { if (r.name) names.set(k, { name: r.name, last_name: r.last_name ?? null }); m.set(k, r); }
+      else if (r.kind === 'unsubscribed') m.delete(k);
+    }
+    return [...m.entries()].map(([k, r]) => { const n = names.get(k) || {}; return { email: r.email, name: [n.name, n.last_name].map((x) => String(x || '').trim()).filter(Boolean).join(' ') || null, tenant: r.tenant, confirmed_at: r.at, source: r.source }; });
+  }
+  // Profile name for an address (newest 'profile' event wins, else the name on the confirm). Never used in headers.
+  profileName(tenant, email) {
+    const e = String(email || '').trim().toLowerCase(); let out = null;
+    for (const r of this.events()) if (r.tenant === tenant && String(r.email || '').toLowerCase() === e && (r.kind === 'profile' || (r.kind === 'confirmed' && r.name))) { const full = [r.name, r.last_name].map((x) => String(x || '').trim()).filter(Boolean).join(' '); out = { name: full || null, first: full ? full.split(/\s+/)[0] : null, last: null }; }
+    return out;
   }
 }
 // Domain part only, said naturally: "quantaxtechnology.com" -> "Quanta X Technology", "gmail.com" -> "Gmail".

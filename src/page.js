@@ -325,6 +325,7 @@ function siteFooter() {
     <ul class="foot-links">
       <li><a href="/privacy">Privacy Policy</a></li>
       <li><a href="/terms">Terms of Service</a></li>
+      <li><a href="/preferences">Email &amp; text preferences</a></li>
     </ul>
   </div>
 </footer>`;

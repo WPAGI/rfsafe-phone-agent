@@ -200,14 +200,15 @@ class Tools {
     const note = String(args.note || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/\s+/g, ' ').trim().slice(0, 140);
     const summary = cleanSummary(args.summary, t.link_allowlist);
     if (summary && looksLikeCard(summary)) return { ok: false, error: 'blocked_content', say: 'I cannot email that. I can send just the links instead.' };
-    const name = cleanName(args.recipient_name) || (this._onFileName || new Map()).get(key) || '';
+    let profFirst = ''; try { profFirst = this.d.newsletter && this.d.newsletter.profileName ? cleanName((this.d.newsletter.profileName(t.id, to) || {}).first) : ''; } catch { profFirst = ''; }
+    const name = cleanName(args.recipient_name) || (this._onFileName || new Map()).get(key) || profFirst || '';
     let isSub = false; try { isSub = !!(this.d.newsletter && this.d.newsletter.isSubscriber(t.id, to)); } catch { isSub = false; }
     const nl = isSub ? { subscriber: true, unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : args.newsletter_optin === true && this.d.newsletter ? { confirmUrl: this.d.newsletter.confirmUrl({ email: to, name, tenant: t.id }), unsubscribeUrl: this.d.newsletter.unsubscribeUrl({ email: to, name, tenant: t.id }) } : null;
     if (nl && ctx.caller && this.d.newsletter && !(isSub && this.d.newsletter.emailOnFile && this.d.newsletter.emailOnFile(t.id, ctx.caller) === to)) { try { this.d.newsletter.linkPhone({ tenant: t.id, email: to, phone: ctx.caller, call: ctx.callId }); } catch { /* ignore */ } }
     const { text, html } = buildEmail({ links: g.links, note, summary, name, newsletter: nl });
     const subject = subjectFor(args.topic, !!summary);
     counts.set(key, n + 1); sigs.add(sig); sent.set(key, sigs); // count attempts, so a failing provider cannot be retried without limit
-    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
+    let r; try { r = await this.d.emailFor(t).send({ to, replyTo: t.support_email || undefined, subject, text, html, ...(nl && nl.unsubscribeUrl ? { headers: require('./email').listUnsubscribeHeaders(nl.unsubscribeUrl) } : {}) }); } catch (e) { r = { ok: false, reason: 'provider_error' }; }
     this.archive({ channel: 'email', tenant: t.id, call: ctx.callId, to, subject, text, html, links: g.links.map((l) => l.url).concat(require('./messages').extractLinks(text, html)).filter((x, i, a) => a.indexOf(x) === i), provider_id: r.id || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     const masked = maskEmail(to);
     log('email.sent', { tenant: t.id, call: ctx.callId, ok: !!r.ok, to: masked, links: g.links.length, summary_chars: summary.length, named: !!name, newsletter_link: !!(nl && nl.confirmUrl), subscriber: isSub, reason: r.ok ? undefined : r.reason });

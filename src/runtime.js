@@ -90,6 +90,7 @@ function buildDeps({ mode, env = process.env, tenantsDir, dataDir, log }) {
     readiness, callLog: path.join(dataDir, 'calls.jsonl'),
     callRecords, usage, usageTokens, usageSnapshotFile: path.join(dataDir, 'usage-snapshot.json'),
     newsletterFile: path.join(dataDir, 'newsletter.jsonl'),
+    dataDir,
     adminAuth: new (require('./admin').AdminAuth)({ secret: require('./admin').adminSecret(env), email: env.ADMIN_LOGIN_EMAIL }),
     rateLimit: new SmsRateLimit({ file: path.join(dataDir, 'sms-rate.json') }),
     websiteFetch: mode === 'live' ? liveFetch : null, kbReset, emailFor, emailLogFile: path.join(dataDir, 'email.jsonl'), sentMessages, kbGapFile: path.join(dataDir, 'kb-gaps.jsonl'), channelLogFile: path.join(dataDir, 'channel-changes.jsonl'), kbBundleDir: path.join(dataDir, 'kb'),

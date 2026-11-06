@@ -26,7 +26,8 @@ function cleanSummary(raw, allowlist) {
 }
 function cleanTopic(raw) { return String(raw || '').replace(/https?:\/\/\S+|www\.\S+/gi, '').replace(/[\r\n\t]+/g, ' ').replace(/[^\p{L}\p{N} ,.'&()\/-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, TOPIC_MAX).trim(); }
 function subjectFor(topic, hasSummary) { const tp = cleanTopic(topic); return tp ? (hasSummary ? 'Your RF Safe info: ' : 'Your RF Safe links: ') + tp : (hasSummary ? 'Your RF Safe info' : SUBJECT); }
-function buildEmail({ links, note, summary, name, newsletter }) {
+function buildEmail({ links, note, summary, name: fullName, newsletter }) {
+  const name = String(fullName || '').trim().split(/\s+/)[0] || ''; // greet by first word: 'Hi John,'
   const lines = links.map((l) => (l.title ? l.title + ': ' : '') + l.url);
   const paras = summary ? summary.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean) : [];
   const sub = !!(newsletter && newsletter.subscriber);
@@ -51,12 +52,14 @@ function checkLinks(urls, allowlist) {
 }
 class ResendEmail {
   constructor({ apiKey, fetchImpl = globalThis.fetch }) { this.key = apiKey; this.fetch = fetchImpl; }
-  async send({ to, replyTo, subject, text, html }) {
+  async send({ to, replyTo, subject, text, html, headers }) {
     if (!this.key) return { ok: false, reason: 'email_not_configured' };
-    const r = await this.fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
+    const r = await this.fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.key, 'content-type': 'application/json' }, body: JSON.stringify({ from: FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}), ...(headers ? { headers } : {}) }) });
     if (!r.ok) return { ok: false, reason: 'provider_' + r.status };
     const j = await r.json().catch(() => ({})); return { ok: true, id: j.id || null };
   }
 }
 class MockEmail { constructor() { this.sent = []; } async send(m) { this.sent.push(m); return { ok: true, id: 'mock_' + this.sent.length }; } }
-module.exports = { ResendEmail, MockEmail, buildEmail, cleanSummary, cleanTopic, subjectFor, SUMMARY_MAX, checkLinks, maskEmail, validEmail, FROM, SUBJECT, AI_NOTE };
+// RFC 8058 one-click unsubscribe headers for any newsletter/marketing email (POST List-Unsubscribe=One-Click to the URL).
+function listUnsubscribeHeaders(url, mailto) { return { 'List-Unsubscribe': `<${url}>` + (mailto ? `, <mailto:${mailto}?subject=unsubscribe>` : ''), 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }; }
+module.exports = { listUnsubscribeHeaders, ResendEmail, MockEmail, buildEmail, cleanSummary, cleanTopic, subjectFor, SUMMARY_MAX, checkLinks, maskEmail, validEmail, FROM, SUBJECT, AI_NOTE };

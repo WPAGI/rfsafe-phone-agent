@@ -32,6 +32,9 @@ function createApp(d) {
   // Inbound texts: per-sender memory, and one Tools instance per tenant so a multi-text email flow keeps its state.
   const smsMemory = d.smsMemory || new SmsMemory({ now: () => +now() }); const smsTools = new WeakMap();
   const smsToolsFor = (t) => { if (!smsTools.has(t)) smsTools.set(t, toolsFor(t)); return smsTools.get(t); };
+  // Public subscription preferences (/preferences). Site config picks branding, topics and legal text.
+  const prefsSite = (() => { try { return require('./prefs/sites/' + String(d.prefsSite || 'rfsafe').replace(/[^a-z0-9-]/g, '')); } catch { return null; } })();
+  const prefs = d.dataDir && prefsSite ? require('./prefs').createPrefs(d, prefsSite, { log }) : null;
   const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -148,6 +151,7 @@ function createApp(d) {
     if (!ok) { log('twilio.webhook_rejected', { route: 'sms' }); res.writeHead(403); return res.end(); }
     const from = normNumber(params.From); const text = String(params.Body || '').trim();
     if (d.sentMessages) { try { d.sentMessages.addInbound({ tenant: tenant.id, call: smsConvoId(from, +now()), from, text: text.slice(0, 1000) }); } catch { /* never block a reply */ } }
+    if (prefs && tenant.id === prefs.core.site.tenant && /^\s*yes\s*[.!]?\s*$/i.test(text || '')) { try { if (prefs.confirmSupportYes(from)) d.consent.record(tenant.id, from, 'start'); } catch { /* never break a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(''));
@@ -261,8 +265,10 @@ function createApp(d) {
       return page(200, unsub ? nlp.formPage({ title: 'Unsubscribe', text: "Press the button to stop receiving RF Safe's monthly newsletter.", button: 'Unsubscribe me', action: '/newsletter/unsubscribe', tok }) : nlp.formPage({ title: 'Confirm your subscription', text: "Press the button to confirm you want RF Safe's monthly newsletter. You can unsubscribe at any time.", button: 'Confirm my newsletter subscription', action: '/newsletter/confirm', tok }));
     }
     if (req.method === 'POST') {
-      const tok = new URLSearchParams(await readBody(req, 8192)).get('t') || u.searchParams.get('t') || '';
+      const bodyQ = new URLSearchParams(await readBody(req, 8192)); const oneClick = bodyQ.get('List-Unsubscribe') === 'One-Click';
+      const tok = bodyQ.get('t') || u.searchParams.get('t') || '';
       const o = nl.verify(tok, action); if (!o) return page(400, nlp.page('Link expired or invalid', '<p>This link is invalid or has expired.</p>'));
+      if (prefs) { try { prefs.core.audit({ who: o.e, channel: 'email_newsletter', from: unsub ? 'on' : 'pending', to: unsub ? 'off' : 'on', method: 'email-link', source: oneClick ? 'email:list-unsubscribe-one-click' : 'email:' + u.pathname }); } catch { /* audit is best effort */ } }
       nl.record(o, unsub ? 'unsubscribed' : 'confirmed', unsub ? {} : { ip: clientIp(req), ua: req.headers['user-agent'] || '' }); log(unsub ? 'newsletter.unsubscribed' : 'newsletter.confirmed', { tenant: o.t, to: fp(o.e) });
       return page(200, unsub ? nlp.page('You are unsubscribed', "<p>You will not receive RF Safe's newsletter. Thank you.</p>") : nlp.page('Thank you!', "<p>You are subscribed to RF Safe's monthly newsletter. Every issue has an unsubscribe link.</p>"));
     }
@@ -486,6 +492,7 @@ function createApp(d) {
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
     try {
+      if (prefs && (u.pathname === '/preferences' || u.pathname.startsWith('/preferences/')) && await prefs.route(req, res, u)) return;
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding());
       if (req.method === 'GET' && (u.pathname === '/privacy' || u.pathname === '/privacy-policy')) return html(res, 200, require('./legal').renderPrivacy());
       if (req.method === 'GET' && (u.pathname === '/terms' || u.pathname === '/terms-of-service')) return html(res, 200, require('./legal').renderTerms());
