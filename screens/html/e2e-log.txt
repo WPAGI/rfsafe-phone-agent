@@ -1,0 +1,17 @@
+PASS email entry -> generic answer
+PASS magic link "sent" via mock Resend, greeting Hi there,
+PASS GET link shows Continue (not consumed)
+PASS Continue -> signed in
+PASS newsletter joined from web with Name
+PASS phone entry -> mock code text: "RF Safe: Your RF Safe preferences code is 638383. It expires in 15 minutes. If you did not ask for it, ignore this text."
+PASS code accepted -> signed in by phone
+PASS text consent wording shown in full
+PASS opt-in -> mock confirmation text, status pending (not enrolled yet)
+PASS simulated YES via signed /twilio/sms -> enrolled; reply: RF Safe (DEMO) News: you&apos;re subscribed to RF Safe news texts. About once a month, plus breaking news. Up to 4 msgs/mo. Msg &amp; data rates may apply. Reply HELP for help, STOP to cancel.
+PASS frequency changed to up to 4/mo
+PASS dropdown "Unsubscribe from all texts" -> number on STOP list
+PASS STOP reply still works unchanged: You are unsubscribed from RF Safe (DEMO) texts. No more messages will be sent. Reply START to resubscribe.
+PASS unknown number: no code sent
+PASS call-consent number: code sent; identical page for both
+PASS manage-only page: no consent form, call note shown
+PASS turning news texts on refused, nothing sent

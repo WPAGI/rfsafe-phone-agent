@@ -1,0 +1,183 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Email &amp; text preferences · RF Safe</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>  :root {
+    color-scheme: light;
+    --bg: #f4f1ea;
+    --bg-2: #fffcf7;
+    --ink: #14211c;
+    --muted: #3c4e47;
+    --line: #e3dcd0;
+    --accent: #0d5c4d;
+    --accent-ink: #f5fffb;
+    --tint: #e7f3ee;
+    --hero: #10241e;
+    --hero-ink: #f6f3ec;
+    --hero-muted: #d5e6df;
+    --signal: #f0c36a;
+    --mint: #9ee7d4;
+    --shadow: 0 24px 60px rgba(16, 36, 30, 0.14);
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0c100e;
+      --bg-2: #151c19;
+      --ink: #f3f6f4;
+      --muted: #c5d1cb;
+      --line: #2c3b35;
+      --accent: #8ee0cb;
+      --accent-ink: #06241c;
+      --tint: #1a2b26;
+      --hero: #101916;
+      --hero-ink: #f6f3ec;
+      --hero-muted: #d5e6df;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 1.0625rem; line-height: 1.55; }
+  img, svg { max-width: 100%; }
+  a { color: var(--accent); }
+  a:focus-visible, summary:focus-visible, .cta:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .skip { position: absolute; left: 1rem; top: -3.2rem; background: var(--bg-2); color: var(--ink); padding: 0.55rem 0.8rem; z-index: 40; border-radius: 8px; }
+  .skip:focus { top: 0.75rem; }
+  .wrap { width: min(70rem, calc(100% - 2rem)); margin: 0 auto; }
+  .site-header { position: sticky; top: 0; z-index: 30; background: var(--bg); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(16px); border-bottom: 1px solid var(--line); }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 4.25rem; }
+  .brand { display: inline-flex; align-items: center; gap: 0.65rem; color: var(--ink); text-decoration: none; font-weight: 650; letter-spacing: -0.02em; }
+  .brand svg { width: 2rem; height: 2rem; flex: none; }
+  .nav-end { display: flex; align-items: center; gap: 0.5rem; }
+  .nav-pop { position: relative; }
+  .nav-pop > summary { list-style: none; cursor: pointer; min-height: 44px; padding: 0 0.9rem; display: inline-flex; align-items: center; gap: 0.45rem; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-2); color: var(--ink); font: inherit; }
+  .nav-pop > summary::-webkit-details-marker { display: none; }
+  .nav-panel { display: flex; }
+  .nav-links { display: flex; gap: 0.15rem; list-style: none; margin: 0; padding: 0; }
+  .nav-links a { color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; padding: 0 0.7rem; border-radius: 999px; }
+  .nav-links a:hover { background: var(--tint); }
+  .cta { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0.65rem 1.05rem; border-radius: 999px; text-decoration: none; font-weight: 650; letter-spacing: -0.01em; }
+  .cta.solid { background: var(--accent); color: var(--accent-ink); }
+  .cta.solid:hover { filter: brightness(1.08); }
+  .cta.ghost { color: var(--hero-ink); border: 1px solid color-mix(in srgb, var(--hero-ink) 45%, transparent); }
+  .cta.nav-cta { padding-inline: 0.9rem; }
+  .narrow { display: none; }
+  .hero { padding: 1.25rem 0 3.5rem; }
+  .hero-panel { display: grid; gap: 2rem; background: radial-gradient(120% 90% at 100% 0%, #1d4a3d 0%, var(--hero) 52%); color: var(--hero-ink); border-radius: 28px; padding: clamp(1.4rem, 4vw, 3.25rem); box-shadow: var(--shadow); overflow: hidden; }
+  .eyebrow { margin: 0 0 0.85rem; color: var(--signal); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  h1 { margin: 0 0 0.9rem; font-size: clamp(2.15rem, 5vw, 3.75rem); line-height: 1.04; letter-spacing: -0.045em; font-weight: 620; max-width: 16ch; }
+  .lede { margin: 0 0 1.4rem; max-width: 38rem; color: var(--hero-muted); font-size: 1.12rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.7rem; }
+  .hero-art { margin: 0; }
+  .hero-art svg { width: 100%; height: auto; display: block; }
+  .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  main section { padding: 4.5rem 0; }
+  h2 { margin: 0 0 0.7rem; font-size: clamp(1.8rem, 3vw, 2.6rem); letter-spacing: -0.04em; line-height: 1.08; font-weight: 620; }
+  h3 { margin: 0 0 0.35rem; font-size: 1.12rem; letter-spacing: -0.02em; }
+  .intro { margin: 0; max-width: 40rem; color: var(--muted); }
+  .steps { list-style: none; margin: 2rem 0 0; padding: 0; display: grid; gap: 0.9rem; }
+  .steps li { background: var(--bg-2); border: 1px solid var(--line); border-radius: 20px; padding: 1.15rem 1.15rem 1.2rem; }
+  .step-no { width: 2rem; height: 2rem; display: grid; place-items: center; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem; }
+  .steps p, .card p { margin: 0; color: var(--muted); }
+  .grid { margin-top: 1.6rem; display: grid; gap: 0.9rem; grid-template-columns: 1fr; }
+  .card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 20px; padding: 1.15rem; }
+  .ico-wrap { width: 2.5rem; height: 2.5rem; display: grid; place-items: center; border-radius: 12px; background: var(--tint); color: var(--accent); margin-bottom: 0.8rem; }
+  .ico { width: 1.35rem; height: 1.35rem; }
+  .table-wrap { margin-top: 1.4rem; }
+  table { width: 100%; border-collapse: collapse; background: var(--bg-2); }
+  caption { text-align: left; color: var(--muted); margin-bottom: 0.7rem; }
+  th, td { border: 1px solid var(--line); padding: 0.8rem 0.85rem; vertical-align: top; text-align: left; }
+  th { background: var(--tint); }
+  .price { padding-top: 0; }
+  .price-panel { background: var(--hero); color: var(--hero-ink); border-radius: 28px; padding: clamp(1.4rem, 4vw, 2.6rem); }
+  .price-panel p { color: var(--hero-muted); max-width: 40rem; }
+  .price-panel a:not(.cta) { color: var(--signal); }
+  .faq-item { border-top: 1px solid var(--line); }
+  .faq-item:last-child { border-bottom: 1px solid var(--line); }
+  .faq-item summary { cursor: pointer; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-weight: 650; letter-spacing: -0.02em; list-style: none; }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after { content: "+"; font-weight: 500; font-size: 1.3rem; color: var(--accent); }
+  .faq-item[open] summary::after { content: "–"; }
+  .faq-item p { margin: 0 0 1rem; color: var(--muted); max-width: 46rem; }
+  footer { border-top: 1px solid var(--line); padding: 2.2rem 0 2.8rem; color: var(--muted); }
+  footer strong { color: var(--ink); }
+  address { font-style: normal; margin-top: 0.4rem; }
+  .wave rect { transform-box: fill-box; transform-origin: center bottom; animation: eq 1.5s ease-in-out infinite; }
+  .wave rect:nth-child(2) { animation-delay: 0.12s; }
+  .wave rect:nth-child(3) { animation-delay: 0.28s; }
+  .wave rect:nth-child(4) { animation-delay: 0.08s; }
+  .flow-dash { stroke-dasharray: 8 10; animation: march 1.4s linear infinite; }
+  @keyframes eq { 0%, 100% { transform: scaleY(0.45); } 50% { transform: scaleY(1); } }
+  @keyframes march { to { stroke-dashoffset: -36; } }
+  @media (min-width: 700px) {
+    .grid.features { grid-template-columns: 1fr 1fr; }
+    .grid.uses { grid-template-columns: 1fr 1fr; }
+  }
+  @media (min-width: 768px) {
+    .steps { grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .hero { padding-top: 1.75rem; }
+  }
+  @media (max-width: 420px) {
+    .wide { display: none; }
+    .narrow { display: inline; }
+  }
+  @media (min-width: 900px) {
+    .nav-pop > summary { display: none; }
+    details.nav-pop > .nav-panel { display: flex !important; align-items: center; gap: 0.35rem; position: static; width: auto; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  }
+  @media (max-width: 899px) {
+    .nav-panel { position: absolute; right: 0; top: calc(100% + 0.45rem); width: min(18.5rem, calc(100vw - 2rem)); flex-direction: column; align-items: stretch; gap: 0.15rem; padding: 0.55rem; background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+    .nav-links { flex-direction: column; }
+    .nav-links a { width: 100%; }
+  }
+  @media (min-width: 1024px) {
+    .hero-panel { grid-template-columns: 1.05fr 0.95fr; align-items: center; gap: 2.5rem; }
+    .grid.features { grid-template-columns: repeat(4, 1fr); }
+    .grid.uses { grid-template-columns: repeat(3, 1fr); }
+    main section { padding: 5.5rem 0; }
+  }
+  @media (max-width: 740px) {
+    table, thead, tbody, tr, th, td { display: block; width: auto; }
+    thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+    tbody tr { margin: 0 0 0.85rem; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg-2); }
+    tbody th, tbody td { border: 0; border-top: 1px solid var(--line); }
+    tbody th { border-top: 0; background: var(--tint); }
+    td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .actions .cta { flex: 1 1 12rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .wave rect, .flow-dash { animation: none; }
+  }
+  .legal { max-width: 760px; padding: 2.4rem 0 3rem; }
+  .legal h1 { margin-bottom: .4rem; }
+  .legal h2 { margin-top: 2rem; font-size: 1.25rem; }
+  .legal .eff { color: var(--muted); }
+  .legal ul { padding-left: 1.2rem; }
+  .foot-links { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: .8rem 0 0; padding: 0; list-style: none; }
+.prefs-main{max-width:640px;margin:0 auto;padding:2rem 20px 3rem}.prefs-main h1{margin-bottom:.4rem}.prefs-main a{color:var(--accent)}:root{--pf-in-bg:#10241e;--pf-in-ink:#f6f3ec;--pf-in-ph:#d5e6df;--pf-focus:#2a9d84;--pf-dis-bg:#1a2b26;--pf-dis-ink:#9fb3ab;--pf-dis-line:#3c4e47;--pf-dis-ph:#c5d1cb}main{max-width:640px;margin:40px auto;padding:0 20px}.card{border:1px solid rgba(127,127,127,.35);border-radius:12px;padding:18px 20px;margin:16px 0}label{display:block;margin:10px 0}input[type=email],input[type=tel],input[type=text]{-webkit-appearance:none;appearance:none;box-sizing:border-box;display:block;width:100%;padding:10px;font:inherit;font-size:16px;line-height:1.4;border-radius:8px;border:1px solid #888;background-color:var(--pf-in-bg);color:var(--pf-in-ink);color-scheme:dark;caret-color:var(--pf-in-ink)}input[type=email]::placeholder,input[type=tel]::placeholder,input[type=text]::placeholder{color:var(--pf-in-ph);opacity:1}input[type=email]:focus,input[type=tel]:focus,input[type=text]:focus{outline:none}input[type=email]:focus-visible,input[type=tel]:focus-visible,input[type=text]:focus-visible{outline:3px solid var(--pf-focus);outline-offset:2px;border-color:var(--pf-focus)}input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{-webkit-text-fill-color:var(--pf-in-ink);-webkit-box-shadow:0 0 0 1000px var(--pf-in-bg) inset;box-shadow:0 0 0 1000px var(--pf-in-bg) inset;caret-color:var(--pf-in-ink);transition:background-color 9999s ease-out 0s}input[type=email]:disabled,input[type=tel]:disabled,input[type=text]:disabled{background-color:var(--pf-dis-bg);color:var(--pf-dis-ink);border-style:dashed;border-color:var(--pf-dis-line);cursor:not-allowed;opacity:1}input[type=tel]:disabled::placeholder{color:var(--pf-dis-ph)}button{font-size:16px;padding:10px 18px;border:0;border-radius:8px;background:#0b5;color:#fff;cursor:pointer;margin-top:10px}button.out{background:#b33}.mut{opacity:.75;font-size:14px}.soon{font-weight:600}fieldset{border:0;padding:0;margin:0}fieldset[disabled]{opacity:.55}.err{color:#d33}.ok{color:#0a5}.sel-label{display:block;margin:12px 0 6px;font-weight:600}select.pref-select{-webkit-appearance:none;-moz-appearance:none;appearance:none;box-sizing:border-box;display:block;width:100%;padding:10px 42px 10px 10px;font:inherit;font-size:16px;line-height:1.4;border-radius:8px;border:1px solid #888;background-color:var(--pf-in-bg);color:var(--pf-in-ink);color-scheme:dark;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M3 6l5 5 5-5%27 fill=%27none%27 stroke=%27%23f6f3ec%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:16px 16px}select.pref-select::-ms-expand{display:none}select.pref-select option{background-color:var(--pf-in-bg);color:var(--pf-in-ink)}select.pref-select option:disabled{color:var(--pf-in-ph)}select.pref-select:focus{outline:none}select.pref-select:focus-visible{outline:3px solid var(--pf-focus);outline-offset:2px;border-color:var(--pf-focus)}</style></head><body><header class="site-header"><div class="wrap bar">
+    <a class="brand" href="https://callbots.org/">
+      <svg viewBox="0 0 32 32" role="img" aria-label="CallBots logo for the AI call bot">
+        <rect width="32" height="32" rx="8" fill="#10241e"/>
+        <rect x="6" y="14" width="3" height="8" rx="1.5" fill="#f0c36a"/>
+        <rect x="11.5" y="8" width="3" height="16" rx="1.5" fill="#9ee7d4"/>
+        <rect x="17" y="11" width="3" height="13" rx="1.5" fill="#f6f3ec"/>
+        <rect x="22.5" y="15" width="3" height="7" rx="1.5" fill="#f0c36a"/>
+      </svg>
+      <span>CallBots</span>
+    </a>
+</div></header><main id="content" class="prefs-main"><h1>Your preferences</h1><p class=mut>Signed in as +1•••0142</p><form method=post action="/preferences/save" class=card><input type=hidden name=csrf value="-JxrtEF9BMCsKuLrq1vna47v"><h2>Email</h2><p class=mut>Sign in with your email to manage the newsletter.</p><h2>Texts</h2><fieldset><label><input type=checkbox name=support_sms> Link texts</label><p class=mut>Texts with the links you ask for, such as a product page or an article, and replies to texts you send us.</p><label><input type=checkbox name=news_sms> RF Safe news texts</label><p class=mut>Optional. About once a month, plus breaking news, up to 4 msgs/mo.</p><p>How often:</p><label><input type=radio name=news_freq value="sales"> Breaking news only</label><label><input type=radio name=news_freq value="monthly" checked> Monthly</label><label><input type=radio name=news_freq value="up4"> Up to 4 per month</label><div class=card id=sms-consent><p>By turning on texts, you agree to receive recurring automated texts from RF Safe (Quanta X Technology LLC) at the number above: the links you ask for and, if selected, RF Safe news texts (about once a month, plus breaking news, up to 4 msgs/mo). Consent to receive texts is not a condition of any purchase. Message frequency varies. Msg &amp; data rates may apply. Reply STOP at any time to opt out, HELP for help. We will text you to confirm; you are signed up only when you reply YES. See https://callbots.org/privacy#sms and https://callbots.org/terms.</p><label><input type=checkbox name=consent value=yes> I agree</label></div></fieldset><button type=submit>Save preferences</button></form><form method=post action="/preferences/unsubscribe" class=card id=unsubscribe><input type=hidden name=csrf value="-JxrtEF9BMCsKuLrq1vna47v"><h2>Unsubscribe</h2><label for=unsub-scope class=sel-label>What would you like to stop?</label><select id=unsub-scope name=scope class=pref-select required><option value="" disabled selected>Select an option</option><option value=texts>Unsubscribe from all texts</option><option value=emails>Unsubscribe from all emails</option><option value=all>Unsubscribe from everything (texts and email)</option></select><button class=out type=submit>Confirm unsubscribe</button></form><form method=post action="/preferences/unsubscribe-all" class=card><input type=hidden name=csrf value="-JxrtEF9BMCsKuLrq1vna47v"><p>Stop every RF Safe email newsletter and text.</p><button class=out type=submit>Unsubscribe from everything</button></form><form method=post action="/preferences/logout"><input type=hidden name=csrf value="-JxrtEF9BMCsKuLrq1vna47v"><button type=submit style="background:#666">Sign out</button></form></main>
+<footer>
+  <div class="wrap">
+    <p><strong>CallBots</strong> is a product of Quanta X Technology LLC.</p>
+    <address>
+      Quanta X Technology LLC<br>
+      8134 122nd St N, Seminole, FL 33772<br>
+      <a href="mailto:support@quantaxtechnology.com">support@quantaxtechnology.com</a>
+    </address>
+    <ul class="foot-links">
+      <li><a href="/privacy">Privacy Policy</a></li>
+      <li><a href="/terms">Terms of Service</a></li>
+      <li><a href="/preferences">Email &amp; text preferences</a></li>
+    </ul>
+  </div>
+</footer>
+</body></html>

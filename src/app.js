@@ -33,7 +33,7 @@ function createApp(d) {
   const smsMemory = d.smsMemory || new SmsMemory({ now: () => +now() }); const smsTools = new WeakMap();
   const smsToolsFor = (t) => { if (!smsTools.has(t)) smsTools.set(t, toolsFor(t)); return smsTools.get(t); };
   // Public subscription preferences (/preferences). Site config picks branding, topics and legal text.
-  const prefsSite = (() => { try { return require('./prefs/sites/' + String(d.prefsSite || 'rfsafe').replace(/[^a-z0-9-]/g, '')); } catch { return null; } })();
+  const prefsSite = d.prefsSiteConfig || (() => { try { return require('./prefs/sites/' + String(d.prefsSite || 'rfsafe').replace(/[^a-z0-9-]/g, '')); } catch { return null; } })();
   const prefs = d.dataDir && prefsSite ? require('./prefs').createPrefs(d, prefsSite, { log }) : null;
   const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
