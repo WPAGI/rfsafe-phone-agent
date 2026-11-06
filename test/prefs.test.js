@@ -480,3 +480,20 @@ test('v2 sections: invalid phone is rejected on the server with an inline error;
     const { normUsPhone } = require('../src/prefs/core'); assert.strictEqual(normUsPhone('1 (727) 555-0142'), '+17275550142'); assert.strictEqual(normUsPhone('+1 727.555.0142'), '+17275550142'); assert.strictEqual(normUsPhone('(027) 555-0142'), null);
   } finally { await m.close(); }
 });
+
+test('signed-in visitors to /preferences go straight to manage; no/expired session sees entry; Not you? Sign out; Lax cookie; CSRF still required', async () => {
+  const m = await mk({ sms: true });
+  try {
+    let r = await m.get('/preferences'); assert.strictEqual(r.status, 200); assert.match(await r.text(), /Send my sign-in link/);
+    await m.post('/preferences/start', { email: 'jane@example.com' }); const v = await m.post('/preferences/verify', { t: m.tokOf() });
+    const sc = v.headers.get('set-cookie'); assert.match(sc, /HttpOnly/); assert.match(sc, /Secure/); assert.match(sc, /SameSite=Lax/); assert.match(sc, /Max-Age=1800/); assert.match(sc, /Path=\/preferences/);
+    const cookie = sc.split(';')[0];
+    for (const pth of ['/preferences', '/preferences/']) { r = await m.get(pth, cookie); assert.strictEqual(r.status, 303); assert.strictEqual(r.headers.get('location'), '/preferences/manage'); }
+    const page = await (await m.get('/preferences/manage', cookie)).text(); assert.match(page, /id=not-you/); assert.match(page, /Not you\? Sign out/);
+    assert.strictEqual((await m.post('/preferences/logout', { csrf: 'bad' }, cookie)).status, 403, 'CSRF on every POST');
+    assert.strictEqual((await m.get('/preferences', 'prefs_sid=bogus')).status, 200, 'unknown session -> entry');
+    m.adv(31 * 60 * 1000); r = await m.get('/preferences', cookie); assert.strictEqual(r.status, 200, 'expired session -> entry');
+    const { cookie: c2, csrf } = await m.login(); r = await m.post('/preferences/logout', { csrf }, c2); assert.strictEqual(r.headers.get('location'), '/preferences'); assert.match(r.headers.get('set-cookie'), /Max-Age=0/);
+    assert.strictEqual((await m.get('/preferences', c2)).status, 200, 'after sign out -> entry');
+  } finally { await m.close(); }
+});

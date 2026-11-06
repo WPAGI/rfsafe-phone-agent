@@ -28,8 +28,8 @@ function createPrefs(d, site, { log = () => {} } = {}) {
   const send = (res, code, body, cookies) => { res.writeHead(code, { ...HDR, ...(cookies ? { 'set-cookie': cookies } : {}) }); res.end(pageHtml(site, body)); };
   const redirect = (res, loc, cookies) => { res.writeHead(303, { location: loc, 'cache-control': 'no-store', ...(cookies ? { 'set-cookie': cookies } : {}) }); res.end(); };
   const sidOf = (req) => parseCookies(req.headers.cookie)[COOKIE];
-  const cookie = (sid) => `${COOKIE}=${sid}; HttpOnly; Secure; SameSite=Strict; Path=/preferences; Max-Age=1800`;
-  const clear = `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/preferences; Max-Age=0`;
+  const cookie = (sid) => `${COOKIE}=${sid}; HttpOnly; Secure; SameSite=Lax; Path=/preferences; Max-Age=1800`;
+  const clear = `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/preferences; Max-Age=0`;
   const form = async (req) => new URLSearchParams(await readBody(req, 8192));
 
   // Current consent state from the site's existing stores (newsletter list, consent ledger, news-text list).
@@ -151,6 +151,8 @@ function createPrefs(d, site, { log = () => {} } = {}) {
   async function route(req, res, u) {
     const p = u.pathname; if (p !== '/preferences' && !p.startsWith('/preferences/')) return false;
     const ip = clientIp(req);
+    // Signed in already (valid, unexpired session): the entry page and footer link go straight to the manage page.
+    if (req.method === 'GET' && (p === '/preferences' || p === '/preferences/') && core.session(sidOf(req))) return redirect(res, '/preferences/manage'), true;
     if (req.method === 'GET' && (p === '/preferences' || p === '/preferences/')) return send(res, 200, entryBody(site, { smsOn: smsOn() })), true;
     if (req.method === 'POST' && p === '/preferences/start') {
       const f = await form(req); const email = normEmail(f.get('email')); const phone = smsOn() ? normPhone(f.get('phone')) : null;
