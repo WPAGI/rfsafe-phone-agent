@@ -15,7 +15,7 @@ test('without the curated card, Li-Fi is a gap (regression guard)', () => {
 });
 test('curated cards carry an allowlisted source link', () => {
   const dir = path.join(__dirname, '../kb/curated/rfsafe');
-  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.md'))) assert.match(fs.readFileSync(path.join(dir, f), 'utf8'), /^source: https:\/\/(www\.)?(rfsafe\.org|quantacase\.com)\//m, f);
+  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.md'))) assert.match(fs.readFileSync(path.join(dir, f), 'utf8'), /^source: https:\/\/(www\.)?(rfsafe\.org|rfsafe\.app|quantacase\.com)\//m, f);
 });
 test('unanswered questions go to the gap log', async () => {
   const gap = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gap-')), 'g.jsonl');
