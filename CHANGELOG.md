@@ -1,4 +1,8 @@
 # Changelog
+## Owner email and feedback (unreleased, review only)
+- Verified-owner `owner_send_email` uses validated `tenant.owner_email` and fails closed when that value is missing, invalid, or still `SET_AT_DEPLOY`. It no longer requires a newsletter subscriber. Caller-supplied recipients are denied. Provider acceptance is not described as delivery.
+- PIN-gated `owner_leave_feedback` appends unreviewed feedback (`approval: false`) for one tenant after a read-back, and says it was saved only after the append is durable. It does not edit the knowledge base or send email. `GET /admin/owner-feedback` (session) and `GET /admin/owner-feedback.json` (scoped review token, not the admin token) are read-only. See `docs/OWNER_EMAIL_FEEDBACK.md`. Live `owner_email` is still a deploy setting.
+
 ## Owner briefing module (unreleased)
 - New isolated `src/owner/` module, off unless `owner_briefing.enabled` is true for the tenant. It adds the daily PIN-gated briefing call, urgent alerts with rate limits and quiet hours, the on-demand briefing for owner numbers, transfer fallback and an optional Twilio transfer bridge, and owner-call archive and audit logs. Admin: `owner_briefing` in the PATCH list, plus `/owner-pin` and `/owner-briefing`. See GO-LIVE.md.
 
