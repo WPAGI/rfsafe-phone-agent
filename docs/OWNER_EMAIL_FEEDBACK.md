@@ -63,9 +63,52 @@ Do this only in a later deploy review. This branch does not do it.
 1. Set the live RF Safe tenant `owner_email` to the address the owner should receive. The requested address is `support@quantaxtechnology.com`. Put it in the live tenant config. Do not rely on this repository: the template value is still `SET_AT_DEPLOY`, and the code will not assume that address.
 2. Confirm `owner_briefing.enabled` and the owner PIN stay as they are. Owner numbers stay the configured owner numbers. Caller ID is not enough.
 3. Leave `copy_email` and `copy_sms` as they are unless a separate change turns copies on. This fix does not send automatic copies.
-4. For the JSON review feed, set `PA_OWNER_REVIEW_SECRET` to a new random value that is not `PA_ADMIN_TOKEN`, `PA_MASTER_KEY`, or `PA_STATE_SECRET`. Mint one `owner_feedback:read` token per tenant with `mintReviewToken` and give it only to the review reader. Do not put the admin token in that job. Until the secret is set, the JSON feed stays closed.
-5. No Resend, Twilio, or xAI call was made for this change. A provider accept on a future live send still does not prove delivery.
+4. For the JSON review feed, set `PA_OWNER_REVIEW_SECRET` on the service to a new random value of at least 16 characters that is not `PA_ADMIN_TOKEN`, `PA_MASTER_KEY`, or `PA_STATE_SECRET`. The process reads that env value only (`d.env.PA_OWNER_REVIEW_SECRET`). It does not read a secret file. Mint one `owner_feedback:read` token per tenant with the call below and give the token file only to the review reader. Do not put the admin token in that job. Until the secret is set, the JSON feed stays closed.
+5. No Resend, Twilio, or xAI call was made for this change. A provider accept on a future live send still does not prove delivery. Production steps wait for owner approval received directly by Jarvis. This repository change does not merge, deploy, write live config, or place a call, email, or text.
+
+## Minting a review token
+
+There is no CLI wrapper. The exported function is `mintReviewToken(secret, tenant, expMs)` from `src/owner/feedback.js`.
+
+| Argument | Required | Meaning |
+|---|---|---|
+| `secret` | string, length at least 16 | Same value the server has in `PA_OWNER_REVIEW_SECRET`. Throws `review_secret_not_configured` when missing or shorter. |
+| `tenant` | non-empty string | Tenant id bound into the token, such as `rfsafe`. Must match the `tenant` query. Throws `invalid` when missing. |
+| `expMs` | number | Absolute expiry in Unix milliseconds. A numeric string throws `invalid`. The feed rejects the token when `expMs` is less than the server clock. |
+
+It returns `rv1.<base64url json>.<base64url hmac>`. The JSON is `{ "v": 1, "t": "<tenant>", "exp": <expMs>, "s": "owner_feedback:read" }`. The HMAC is SHA-256 over the JSON segment, keyed by `secret`. Send it only as `Authorization: Bearer` on `GET /admin/owner-feedback.json?tenant=<same id>`. A `token` query parameter is rejected. The admin token is rejected.
+
+Operator recipe, from the repo root, after the secret already exists. It reads `PA_OWNER_REVIEW_SECRET` or a mode-600 file named by `PA_OWNER_REVIEW_SECRET_FILE`. It writes the token to a new mode-600 file and prints the path and expiry only. Do not enable `set -x`. Do not print the secret or the token. Do not use this recipe to create the secret.
+
+```bash
+umask 077
+export REVIEW_TENANT=rfsafe
+export REVIEW_TOKEN_DAYS=7
+export REVIEW_TOKEN_FILE="$HOME/owner-feedback-review-token-${REVIEW_TENANT}"
+# Use the env var, or point at an existing mode-600 file. Do not set both to different values.
+# export PA_OWNER_REVIEW_SECRET_FILE=/path/to/pa-owner-review-secret
+node <<'EOF'
+const fs = require('fs');
+const { mintReviewToken } = require('./src/owner/feedback');
+function fail(msg) { process.stderr.write(msg + '\n'); process.exit(1); }
+let secret = process.env.PA_OWNER_REVIEW_SECRET || '';
+const file = process.env.PA_OWNER_REVIEW_SECRET_FILE;
+if (!secret && file) secret = fs.readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+if (typeof secret !== 'string' || secret.length < 16) fail('secret missing or shorter than 16 characters');
+const tenant = process.env.REVIEW_TENANT;
+if (!tenant) fail('REVIEW_TENANT missing');
+const days = Number(process.env.REVIEW_TOKEN_DAYS || '7');
+if (!Number.isFinite(days) || days <= 0) fail('REVIEW_TOKEN_DAYS invalid');
+const expMs = Date.now() + Math.round(days * 24 * 60 * 60 * 1000);
+const token = mintReviewToken(secret, tenant, expMs);
+const out = process.env.REVIEW_TOKEN_FILE;
+if (!out) fail('REVIEW_TOKEN_FILE missing');
+fs.writeFileSync(out, token + '\n', { mode: 0o600, flag: 'wx' });
+fs.chmodSync(out, 0o600);
+process.stdout.write('wrote ' + out + ' mode 600 expires ' + new Date(expMs).toISOString() + '\n');
+EOF
+```
 
 ## Tests
 
-`node --test ./test/owner-send.test.js ./test/owner-feedback.test.js` and the full `npm test` suite. All mail and SMS in these tests use the in-process mocks. No live send.
+`npm test`: 290 passed, 0 failed, 2 skipped. The skips are the optional knowledge-base bundle checks (`KB_BUNDLE` unset, and the brain-wiki export absent on the machine). `node --test ./test/owner-send.test.js ./test/owner-feedback.test.js` is included in that run. Mail and SMS in those tests are in-process mocks. No live send.
