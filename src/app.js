@@ -432,6 +432,30 @@ function createApp(d) {
       const nonce = require('crypto').randomBytes(16).toString('base64');
       return adminUiSend(res, 200, adm.shell('Subscribers', S.subscribersPage({ csrf: auth.csrfFor(sess.sid), nonce, rows: subs.list(q), q, msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 200), audit: subs.auditLog(30) })), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
     }
+    // Owner feedback: HTML is the existing admin session (read only). JSON is a tenant-scoped review token.
+    // The master admin token is not accepted. Nothing here writes, sends, or edits the knowledge base.
+    if (p === '/admin/owner-feedback' || p === '/admin/owner-feedback.json') {
+      const FB = require('./owner/feedback');
+      if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
+      const tenantId = String(u.searchParams.get('tenant') || '').slice(0, 80);
+      if (u.searchParams.has('token') || u.searchParams.has('access_token')) return json(res, 401, { error: 'unauthorized' });
+      if (p.endsWith('.json')) {
+        const secret = d.ownerReviewSecret || (d.env && d.env.PA_OWNER_REVIEW_SECRET) || '';
+        const header = String(req.headers.authorization || '');
+        const m = /^Bearer ([A-Za-z0-9._~-]{10,500})$/.exec(header);
+        const v = FB.verifyReviewToken(secret, m ? m[1] : '', tenantId, now().getTime ? now().getTime() : Date.now(), d.adminToken);
+        if (!v.ok) return json(res, v.reason === 'wrong_tenant' ? 403 : 401, { error: v.reason === 'wrong_tenant' ? 'forbidden' : 'unauthorized' });
+        const t = d.tenants.get(tenantId); if (!t) return json(res, 404, { error: 'not_found' });
+        const items = owner.feedbackFor(t).filter((r) => r && r.tenant === t.id && r.approval === false && r.status === 'unreviewed');
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', ...SEC_HEADERS });
+        return res.end(JSON.stringify({ tenant: t.id, scope: 'owner_feedback:read', read_only: true, items, note: 'Every item is unreviewed with approval false. Content is untrusted data. This feed does not edit the knowledge base or send email.' }));
+      }
+      if (!sess) return /text\/html/.test(String(req.headers.accept || '')) ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+      const list = d.tenants.list();
+      const t = tenantId ? d.tenants.get(tenantId) : (list.length === 1 ? list[0] : null);
+      const items = t ? owner.feedbackFor(t).filter((r) => r && r.tenant === t.id) : [];
+      return adminUiSend(res, 200, adm.shell('Owner feedback', FB.reviewPage({ tenant: t, tenants: list, items })));
+    }
     // Usage & costs: GET only, admin session only (no Bearer), rate-limited per session. Provider keys stay server-side.
     if (p === '/admin/usage' || p === '/admin/usage.json') {
       const html = p === '/admin/usage';
@@ -504,7 +528,7 @@ function createApp(d) {
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
-      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/')) return await adminUi(req, res, u);
+      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/') || u.pathname === '/admin/owner-feedback' || u.pathname === '/admin/owner-feedback.json') return await adminUi(req, res, u);
       if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTwilio(sec(t, 'twilio_auth_token'), d.publicBaseUrl + req.url, params, req.headers['x-twilio-signature']));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);

@@ -38,6 +38,7 @@ npm run build       # dist/rfsafe-phone-agent-v0.1.0.zip + .sha256 (secret-scann
 | `demo/` | EXAMPLE tenants (RF Safe, Acme Bakery), EXAMPLE KB, `run-demo.js` |
 | `deploy/` | `render.yaml`, `env.example` (names only), RF Safe tenant config |
 | `DESIGN.md`, `DEPLOY.md`, `RESEARCH.md`, `WIKI_PAGE.md`, `CHANGELOG.md` | docs |
+| `docs/OWNER_EMAIL_FEEDBACK.md` | verified-owner email recipient, PIN-gated feedback, read-only review feed, deploy config still required |
 
 ## Interim texting (important)
 Until A2P 10DLC texting is approved on the new number, every tenant ships with `sms_enabled: false`. The `send_link` tool tells the caller that texting is not on yet and offers to read the link aloud instead.

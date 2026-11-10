@@ -87,7 +87,7 @@ const ET = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year
 function etTime(iso) { const t = Date.parse(iso); return Number.isFinite(t) ? ET.format(new Date(t)) : String(iso || ''); }
 const label = (ch) => (ch === 'email' ? 'emails' : 'texts');
 function preview(r) { if (r.legacy) return '(sent before the archive existed; content not stored)'; const s = r.channel === 'email' ? (r.subject || '') : String(r.text || '').replace(/\s+/g, ' '); return s.length > 120 ? s.slice(0, 117) + '...' : s; }
-function statusCell(r) { return r.status === 'sent' ? 'sent' : `<span style="color:#b00">${esc(r.status)}${r.error ? ': ' + esc(r.error) : ''}</span>`; }
+function statusCell(r) { if (r.status === 'accepted') return 'accepted by provider (delivery not confirmed)'; return r.status === 'sent' ? 'sent' : `<span style="color:#b00">${esc(r.status)}${r.error ? ': ' + esc(r.error) : ''}</span>`; }
 
 function listPage({ shell, channel, rows, page }) {
   const total = rows.length; const pages = Math.max(1, Math.ceil(total / PAGE_SIZE)); const p = Math.min(Math.max(1, page || 1), pages);
