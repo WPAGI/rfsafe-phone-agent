@@ -7,6 +7,7 @@
 const API_VERSION = '2025-07'; // Storefront API
 const ADMIN_API_VERSION = '2026-10'; // Admin GraphQL (order lookup)
 const DETAIL_COUNT = 3; const DETAIL_TIMEOUT_MS = 2500;
+const SUGGEST_LIMIT = 10; // Shopify /search/suggest.json maximum
 
 function assertReadOnlyQuery(q) {
   const s = String(q).replace(/#[^\n]*/g, '').trim();
@@ -32,25 +33,43 @@ class ShopifyClient {
     return r.json();
   }
   productUrl(handle) { return `https://${this.publicDomain}/products/${encodeURIComponent(handle)}`; }
-  async searchProducts(query, limit = 5) {
+  async searchProducts(query, limit = SUGGEST_LIMIT) {
     query = String(query || '').slice(0, 100);
+    const cap = Math.min(SUGGEST_LIMIT, Math.max(1, Number(limit) || SUGGEST_LIMIT));
     if (this.mode === 'storefront') {
-      const j = await this._gql('query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle availableForSale priceRange{ minVariantPrice{ amount currencyCode } } options{ name values } variants(first:20){ nodes{ id title availableForSale price{ amount } } } } } } }', { q: query, n: limit });
-      return (j.data?.products?.edges || []).map(({ node: n }) => ({ title: n.title, price: n.priceRange.minVariantPrice.amount, currency: n.priceRange.minVariantPrice.currencyCode, available: n.availableForSale, url: this.productUrl(n.handle), handle: n.handle,
+      const j = await this._gql('query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle availableForSale priceRange{ minVariantPrice{ amount currencyCode } } options{ name values } variants(first:20){ nodes{ id title availableForSale price{ amount } } } } } } }', { q: query, n: cap });
+      const items = (j.data?.products?.edges || []).map(({ node: n }) => ({ title: n.title, price: n.priceRange.minVariantPrice.amount, currency: n.priceRange.minVariantPrice.currencyCode, available: n.availableForSale, url: this.productUrl(n.handle), handle: n.handle,
         options: (n.options || []).map((o) => ({ name: o.name, values: o.values || [] })),
         variants: (n.variants?.nodes || []).map((v) => ({ id: variantId(v.id), title: v.title, available: !!v.availableForSale, price: Number(v.price?.amount) })) }));
+      return rankProducts(items, query).slice(0, cap);
     }
-    const j = await this._get(`https://${this.shop}/search/suggest.json?q=${encodeURIComponent(query)}&resources[type]=product&resources[limit]=${limit}`);
-    const items = (j.resources?.results?.products || []).slice(0, limit).map((p) => ({ title: p.title, price: p.price, currency: 'USD', available: p.available, url: this.productUrl(p.handle), handle: p.handle }));
-    // Colors/options: the public product .js for the top 3, in parallel, short timeout; a miss keeps the base result.
-    await Promise.all(items.slice(0, DETAIL_COUNT).map(async (it) => {
-      try {
-        const d = await this._getTimeout(`https://${this.publicDomain}/products/${encodeURIComponent(it.handle)}.js`, DETAIL_TIMEOUT_MS);
-        if (Array.isArray(d?.options)) it.options = d.options.map((o) => (typeof o === 'string' ? { name: o, values: [] } : { name: o.name, values: o.values || [] }));
-        if (Array.isArray(d?.variants)) it.variants = d.variants.slice(0, 50).map((v) => ({ id: variantId(v.id), title: v.title, available: !!v.available, price: Number(v.price) / 100 }));
-      } catch { /* skip quietly */ }
+    // Always ask for Shopify's maximum. The old top-5 cut hid exact models that suggest ranks later (iPhone 14 is 9th).
+    const j = await this._get(`https://${this.shop}/search/suggest.json?q=${encodeURIComponent(query)}&resources[type]=product&resources[limit]=${SUGGEST_LIMIT}`);
+    const items = (j.resources?.results?.products || []).slice(0, SUGGEST_LIMIT).map((p) => ({ title: p.title, price: p.price, currency: 'USD', available: p.available, url: this.productUrl(p.handle), handle: p.handle }));
+    await this._mergeExactProducts(query, items);
+    const ranked = rankProducts(items, query);
+    // Colors/options after re-rank, so the exact model is one of the top 3 that get a detail fetch.
+    await Promise.all(ranked.slice(0, DETAIL_COUNT).map(async (it) => {
+      try { fillFromProductJs(it, await this._getTimeout(`https://${this.publicDomain}/products/${encodeURIComponent(it.handle)}.js`, DETAIL_TIMEOUT_MS)); }
+      catch { /* skip quietly */ }
     }));
-    return items;
+    return ranked.slice(0, cap);
+  }
+  // Fallback when suggest omitted the model: GET /products/{handle}.js. A 404 or timeout is skipped.
+  async _mergeExactProducts(query, items) {
+    const have = new Set(items.map((p) => String(p.handle || '').toLowerCase()));
+    const handles = candidateHandles(query).filter((h) => !have.has(h));
+    if (!handles.length) return;
+    const found = await Promise.all(handles.map(async (h) => {
+      try { return itemFromProductJs(await this._getTimeout(`https://${this.publicDomain}/products/${encodeURIComponent(h)}.js`, DETAIL_TIMEOUT_MS), (handle) => this.productUrl(handle)); }
+      catch { return null; }
+    }));
+    for (const hit of found) {
+      if (!hit) continue;
+      const key = String(hit.handle).toLowerCase();
+      if (have.has(key)) continue;
+      have.add(key); items.push(hit);
+    }
   }
   async _getTimeout(url, ms) {
     const ac = typeof AbortController === 'function' ? new AbortController() : null; let timer;
@@ -80,6 +99,101 @@ const ORDER_QUERY = `query($q:String!){ orders(first:5, query:$q){ nodes{ name c
   shippingAddress{ city provinceCode countryCodeV2 phone }
   lineItems(first:10){ nodes{ title quantity } }
   fulfillments(first:5){ displayStatus estimatedDeliveryAt deliveredAt trackingInfo(first:3){ company number } } } } }`;
+
+// Variant words. A query that does not include one ranks products that carry it lower.
+const MODEL_WORDS = ['pro', 'max', 'plus', 'air', 'mini', 'ultra'];
+const MODEL_PREFIXES = ['rf safe', 'apple', 'quantacase', 'quanta case', 'quanta', 'samsung', 'google'];
+const MODEL_SUFFIXES = ['anti radiation phone case', 'anti radiation case', 'phone case rfid blocking', 'phone radiation shield', 'phone case', 'anti radiation', 'rfid blocking', 'model rfs1', 'quantacase', 'quanta case', 'rf safe', 'rfs1', 'cases', 'case', 'black'];
+const HANDLE_NOISE = new Set(['a', 'an', 'the', 'for', 'with', 'and', 'case', 'cases', 'rfs1', 'anti', 'radiation', 'antiradiation', 'phone', 'model', 'rf', 'safe', 'apple', 'quantacase', 'quanta']);
+
+function wordsOf(text) {
+  return String(text || '').toLowerCase().replace(/®|™/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+}
+
+// "iPhone 14 case" and "iPhone 14 RFS1 anti-radiation case" both become iphone-14.
+// A bare word ("iphone") is not a product handle; probing it would add a timeout before the detail fetch.
+function candidateHandles(query) {
+  const words = wordsOf(query);
+  const kept = words.filter((w) => !HANDLE_NOISE.has(w));
+  const slugs = [];
+  const add = (parts) => {
+    const slug = parts.join('-');
+    if (!slug || slug.length > 80 || slugs.includes(slug)) return;
+    if (!slug.includes('-') && !/\d/.test(slug)) return;
+    slugs.push(slug);
+  };
+  add(kept);
+  if (kept.length !== words.length) add(words);
+  return slugs.slice(0, 4);
+}
+
+function containsEveryWord(text, words) {
+  if (!words.length) return true;
+  const set = new Set(wordsOf(text));
+  return words.every((w) => set.has(w));
+}
+
+function extraModelWords(item, words) {
+  const q = new Set(words);
+  const hay = new Set([...wordsOf(item.title), ...wordsOf(item.handle)]);
+  let n = 0;
+  for (const w of MODEL_WORDS) if (hay.has(w) && !q.has(w)) n += 1;
+  return n;
+}
+
+function stripAffix(s, list, fromStart) {
+  for (const affix of list) {
+    if (s === affix) return '';
+    if (fromStart && s.startsWith(affix + ' ')) return s.slice(affix.length + 1).trim();
+    if (!fromStart && s.endsWith(' ' + affix)) return s.slice(0, -(affix.length + 1)).trim();
+  }
+  return s;
+}
+
+// Brand prefixes ("RF Safe® Apple") and catalog suffixes ("Anti-Radiation Case") are not the model name.
+function modelName(item) {
+  let s = wordsOf(item.title || item.handle).join(' ');
+  const raw = s;
+  for (let i = 0; i < 6; i++) {
+    const next = stripAffix(s, MODEL_PREFIXES, true).replace(/^(for|rfs1|model)\s+/, '');
+    if (next === s) break;
+    s = next.trim();
+  }
+  for (let i = 0; i < 8; i++) {
+    const next = stripAffix(s, MODEL_SUFFIXES, false);
+    if (next === s) break;
+    s = next.trim();
+  }
+  return s || raw;
+}
+
+// (1) every query word in the title or the handle, (2) fewer extra model words, (3) shortest model name.
+function rankProducts(items, query) {
+  const words = wordsOf(query);
+  return items.map((item, i) => ({ item, i })).sort((a, b) => {
+    const am = containsEveryWord(a.item.title, words) || containsEveryWord(a.item.handle, words) ? 0 : 1;
+    const bm = containsEveryWord(b.item.title, words) || containsEveryWord(b.item.handle, words) ? 0 : 1;
+    if (am !== bm) return am - bm;
+    const ax = extraModelWords(a.item, words); const bx = extraModelWords(b.item, words);
+    if (ax !== bx) return ax - bx;
+    const al = modelName(a.item).length; const bl = modelName(b.item).length;
+    if (al !== bl) return al - bl;
+    return a.i - b.i;
+  }).map((x) => x.item);
+}
+
+function fillFromProductJs(it, d) {
+  if (!d || typeof d !== 'object') return;
+  if (Array.isArray(d.options)) it.options = d.options.map((o) => (typeof o === 'string' ? { name: o, values: [] } : { name: o.name, values: o.values || [] }));
+  if (Array.isArray(d.variants)) it.variants = d.variants.slice(0, 50).map((v) => ({ id: variantId(v.id), title: v.title, available: !!v.available, price: Number(v.price) / 100 }));
+}
+
+function itemFromProductJs(d, urlFor) {
+  if (!d || typeof d.handle !== 'string' || !d.handle || typeof d.title !== 'string' || !d.title) return null;
+  const it = { title: d.title, price: typeof d.price === 'number' ? (d.price / 100).toFixed(2) : (d.price == null ? undefined : String(d.price)), currency: 'USD', available: d.available, url: urlFor(d.handle), handle: d.handle };
+  fillFromProductJs(it, d);
+  return it;
+}
 
 // Shopify variant id: number from the .js, or a Storefront gid like gid://shopify/ProductVariant/123 -> 123.
 function variantId(id) {
