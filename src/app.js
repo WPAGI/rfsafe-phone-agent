@@ -7,7 +7,7 @@ const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTenantTwilio, parseSignatureSettings, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
-const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory } = require('./sms');
+const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory, isSalesPitch } = require('./sms');
 const { knownCallerFor, returningCallerFor, bdoSiteProfile } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
@@ -165,6 +165,11 @@ function createApp(d) {
     if (d.sentMessages) { try { d.sentMessages.addInbound({ tenant: tenant.id, call: smsConvoId(from, +now()), from, text: text.slice(0, 1000) }); } catch { /* never block a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
+    if (isSalesPitch(text)) {
+      log('sms.held', { tenant: tenant.id, from: fp(from), reason: 'sales_pitch' });
+      if (notify) { try { await notify(tenant, { kind: 'sms_held_sales_pitch', from, preview: text.slice(0, 400), at: new Date().toISOString() }); } catch { /* never break the webhook */ } }
+      res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(''));
+    }
     // Texting off (no approved A2P campaign yet): keywords above still answer; nothing else gets an AI reply, a hold text or any outbound SMS.
     if (!tenant.sms_enabled) { log('sms.ignored_texting_off', { tenant: tenant.id, from: fp(from) }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml('')); }
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(''));
