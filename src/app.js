@@ -165,7 +165,7 @@ function createApp(d) {
     if (d.sentMessages) { try { d.sentMessages.addInbound({ tenant: tenant.id, call: smsConvoId(from, +now()), from, text: text.slice(0, 1000) }); } catch { /* never block a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
-    if (isSalesPitch(text)) {
+    if (isSalesPitch(text, { tenant, newsletter: d.newsletter, from })) {
       log('sms.held', { tenant: tenant.id, from: fp(from), reason: 'sales_pitch' });
       if (notify) { try { await notify(tenant, { kind: 'sms_held_sales_pitch', from, preview: text.slice(0, 400), at: new Date().toISOString() }); } catch { /* never break the webhook */ } }
       res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(''));

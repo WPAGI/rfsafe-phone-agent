@@ -231,3 +231,186 @@ if (fs.existsSync(path.join(__dirname, '../src/bdoverify.js'))) {
     assert.strictEqual(held.mails[0].to, 'support@bestdealon.app');
   });
 }
+
+
+function liveInvite(tenant) {
+  try { return require('../src/smsprogram').programFor(tenant).newsInvite; }
+  catch { return require('../src/newsletter').newsSmsInvite(tenant.name); }
+}
+
+const CONFIRM_VARIANTS = [
+  'YES', 'Y', 'YEA', 'Yea', 'yeah', 'yeh', 'ya', 'yah', 'yep', 'yup',
+  'yes!', 'yess', 'yesss', 'Yes please', 'YES sign me up',
+  'JOIN', 'Join please', 'join me', 'Yes I want to join', 'sign me up',
+  'ok', 'okay', 'sure', 'yea!!!',
+];
+const NEGATIVES = ['no', 'nah', 'not yet', 'no thanks', 'nope', 'yes but stop texting me', 'STOP', 'yes stop'];
+
+test('pending-confirm matcher: YEA and listed casual spellings count; negatives and stop-texting do not', () => {
+  for (const s of CONFIRM_VARIANTS) assert.strictEqual(sms.isPendingConfirmReply(s), true, s);
+  assert.strictEqual(sms.isPendingConfirmReply('yes 😊'), true, 'emoji is ignored');
+  assert.strictEqual(sms.isPendingConfirmReply('YEA!!!'), true, 'YEA with punctuation');
+  for (const s of NEGATIVES) assert.strictEqual(sms.isPendingConfirmReply(s), false, s);
+  assert.strictEqual(sms.isPendingConfirmReply('I have a question'), false);
+  assert.strictEqual(sms.isPendingConfirmReply('hello'), false);
+});
+
+test('own invite quote is never a sales pitch; ISpin-style commissions text still is', () => {
+  const t = tenant();
+  const invite = liveInvite(t);
+  assert.strictEqual(sms.isSalesPitch(ISPIN), true);
+  assert.strictEqual(sms.isSalesPitch(ISPIN, { tenant: t }), true);
+  assert.strictEqual(sms.isSalesPitch('YES\n' + invite, { tenant: t, invites: [invite] }), false);
+  const promoQuoted = 'YES\n' + invite.replace(/to join/g, 'to sign up');
+  assert.strictEqual(sms.isSalesPitch(promoQuoted, { invites: [invite.replace(/to join/g, 'to sign up')] }), false, 'a quote of our invite is not a pitch even if it uses sign up');
+  assert.strictEqual(sms.isSalesPitch(promoQuoted), true, 'the same wording without our invite list still trips the three-part detector');
+});
+
+test('with a pending invite, YES/JOIN/YEA variants join and send confirmation; quoted invite too', async () => {
+  const a = await startApp();
+  const tenantId = 'rfsafe-demo';
+  const tenantObj = a.deps.tenants.get(tenantId);
+  const invite = liveInvite(tenantObj);
+  const variants = ['YES', 'YEA', 'Yes please', 'JOIN', 'sign me up', 'ok', 'YES\n' + invite, 'yes 👍'];
+  try {
+    for (let i = 0; i < variants.length; i++) {
+      const from = '+17275551' + String(200 + i).padStart(3, '0');
+      a.deps.newsletter.requestSms({ tenant: tenantId, phone: from, call: 'c-var-' + i, wording: { text: invite } });
+      const r = await signedSms(a.base, variants[i], from);
+      assert.strictEqual(r.status, 200, variants[i]);
+      assert.match(r.text, /<Message>/, variants[i]);
+      assert.match(r.text, /subscribed/i, variants[i]);
+      assert.ok(!sms.isEnrollmentReply(r.text.replace(/<[^>]+>/g, ' ').trim()), 'confirmation is not a bare YES');
+      assert.strictEqual(a.deps.newsletter.isSmsSubscriber(tenantId, from), true, variants[i]);
+    }
+    assert.ok(!a.logs.some((l) => l.e === 'sms.held' && l.reason === 'sales_pitch'));
+  } finally { await a.close(); }
+});
+
+test('with no pending invite, YES/JOIN/YEA/ok variants do not join anyone', async () => {
+  const a = await startApp();
+  const tenantId = 'rfsafe-demo';
+  const variants = ['YES', 'YEA', 'JOIN', 'ok', 'okay', 'sure', 'sign me up', 'yep'];
+  try {
+    for (let i = 0; i < variants.length; i++) {
+      const from = '+17275552' + String(200 + i).padStart(3, '0');
+      const r = await signedSms(a.base, variants[i], from);
+      assert.strictEqual(a.deps.newsletter.isSmsSubscriber(tenantId, from), false, variants[i] + ' must not join without a pending invite');
+      // A bare YES may still get the existing START resubscribe keyword reply ("You are resubscribed to ...").
+      // That is not list sign-up: the subscriber check above is the join assertion.
+      assert.doesNotMatch(r.text, /you(?:'re| are) subscribed/i, variants[i]);
+    }
+  } finally { await a.close(); }
+});
+
+test('negatives never join, even when an invite is pending', async () => {
+  const a = await startApp();
+  const tenantId = 'rfsafe-demo';
+  const invite = liveInvite(a.deps.tenants.get(tenantId));
+  try {
+    for (let i = 0; i < NEGATIVES.length; i++) {
+      const from = '+17275553' + String(200 + i).padStart(3, '0');
+      a.deps.newsletter.requestSms({ tenant: tenantId, phone: from, call: 'c-neg-' + i, wording: { text: invite } });
+      await signedSms(a.base, NEGATIVES[i], from);
+      assert.strictEqual(a.deps.newsletter.isSmsSubscriber(tenantId, from), false, NEGATIVES[i]);
+    }
+  } finally { await a.close(); }
+});
+
+test('regression: STOP, START and HELP still get the keyword replies after the YES-variant change', async () => {
+  const a = await startApp();
+  try {
+    const from = '+17275550299';
+    const help = await signedSms(a.base, 'HELP', from);
+    const start = await signedSms(a.base, 'START', from);
+    const stop = await signedSms(a.base, 'STOP', from);
+    assert.match(help.text, /<Message>/);
+    assert.match(help.text, /STOP/i);
+    assert.match(start.text, /resubscribed|START/i);
+    assert.match(stop.text, /unsubscribed|No more messages/i);
+    if (a.app.smsIdle) await a.app.smsIdle();
+    assert.ok(!a.logs.some((l) => l.e === 'sms.held'));
+  } finally { await a.close(); }
+});
+
+test('regression: ISpin-style sales pitch is still held with no reply, including no Looking that up', async () => {
+  const a = await startApp(); if (a.deps.smsHoldMs !== undefined) a.deps.smsHoldMs = 20;
+  a.deps.brain = { reply: async () => 'YES' };
+  const from = '+17275550301';
+  try {
+    a.deps.newsletter.requestSms({ tenant: 'rfsafe-demo', phone: from, call: 'c-ispin', wording: { text: 'Reply YES to join' } });
+    const r = await signedSms(a.base, ISPIN, from);
+    assert.strictEqual(r.status, 200);
+    assert.doesNotMatch(r.text, /<Message>/);
+    if (a.app.smsIdle) await a.app.smsIdle();
+    else await new Promise((s) => setTimeout(s, 50));
+    assert.strictEqual(a.deps.newsletter.isSmsSubscriber('rfsafe-demo', from), false, 'a sales pitch must not confirm a pending invite');
+    assert.ok(a.logs.some((l) => l.e === 'sms.held' && l.reason === 'sales_pitch'));
+    assert.strictEqual(demoSms(a, from).length, 0, 'no Looking that up or other outbound');
+    const notices = outbox(a.deps).filter((x) => x.kind === 'sms_held_sales_pitch');
+    assert.ok(notices.length >= 1, 'owner is notified of the held pitch');
+  } finally { await a.close(); }
+});
+
+test('regression: an AI reply of just YES is still not sent', async () => {
+  const t = tenant();
+  const toolsFor = () => new Tools(t, { kbFor: () => new KB({ allowlist: t.link_allowlist }), smsFor: () => new MockTwilio(), consent: new Consent(null), callControl: new MockCallControl(), notify: async () => {}, approvals: new Approvals(), log: () => {} });
+  const delivered = [];
+  if (HAS_ANSWER) {
+    const out = await sms.answerSms({ tenant: t, from: PH, text: 'please confirm', toolsFor, brain: { reply: async () => 'YES' }, instructions: 'SYS', log: () => {}, deliver: async (b) => { delivered.push(b); return { sid: 'SM1' }; } });
+    assert.strictEqual(out, '');
+    assert.deepStrictEqual(delivered, []);
+  } else {
+    const out = await sms.handleInboundSms({ tenant: t, from: PH, body: 'please confirm', consent: new Consent(null), toolsFor, brain: { reply: async () => 'YES' }, instructions: 'SYS', log: () => {} });
+    assert.strictEqual(out, '');
+  }
+});
+
+if (fs.existsSync(path.join(__dirname, '../src/prefs'))) {
+  test('web support texts plus news: YEA confirms both; a negative still confirms neither', async () => {
+    const sitePath = fs.existsSync(path.join(__dirname, '../src/prefs/sites/quantadose.js')) ? '../src/prefs/sites/quantadose' : '../src/prefs/sites/rfsafe';
+    const site = { ...require(sitePath), smsWebOptIn: true };
+    const { createPrefs } = require('../src/prefs');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yea-optin-'));
+    const t = { id: site.tenant, name: site.siteName, numbers: ['+17275550999'], link_allowlist: ['rfsafe.org', 'quantacase.com', 'quantadose.cards'], blocked_topics: [], sms_enabled: true, email_enabled: true };
+    const nl = new Newsletter({ secret: 'x'.repeat(32), file: path.join(dir, 'newsletter.jsonl') });
+    const consent = new Consent(null);
+    const p = createPrefs({ dataDir: dir, env: {}, tenants: { list: () => [t] }, newsletter: nl, consent, emailFor: () => ({ send: async () => ({ ok: true }) }), smsFor: () => new MockTwilio(), publicBaseUrl: 'https://example.test', now: () => Date.now() }, site);
+    const invite = site.smsConfirmText || liveInvite(t);
+    const toolsFor = () => new Tools(t, { kbFor: () => new KB({ allowlist: t.link_allowlist }), smsFor: () => new MockTwilio(), consent, callControl: new MockCallControl(), notify: async () => {}, approvals: new Approvals(), log: () => {} });
+
+    async function runInbound(from, body) {
+      const logs = [];
+      const log = (e, f) => logs.push({ e, ...f });
+      if (sms.isPendingConfirmReply(body)) p.confirmSupportYes(from);
+      if (typeof sms.quickSmsReply === 'function') {
+        const quick = sms.quickSmsReply({ tenant: t, from, text: body, consent, log, newsletter: nl });
+        if (quick != null) return { out: quick, logs };
+        if (sms.isSalesPitch(body, { tenant: t, newsletter: nl, from })) { log('sms.held', { reason: 'sales_pitch' }); return { out: '', logs }; }
+        const out = await sms.answerSms({ tenant: t, from, text: body, toolsFor, brain: { reply: async () => 'YES' }, instructions: '', log, newsletter: nl });
+        return { out, logs };
+      }
+      const out = await sms.handleInboundSms({ tenant: t, from, body, consent, toolsFor, brain: { reply: async () => 'YES' }, instructions: '', log, newsletter: nl });
+      if (sms.isSalesPitch(body, { tenant: t, newsletter: nl, from }) && !String(out || '').trim()) { log('sms.held', { reason: 'sales_pitch' }); return { out: '', logs }; }
+      return { out, logs };
+    }
+
+    const from = '+17275550410';
+    nl.requestSms({ tenant: t.id, phone: from, wording: { text: invite } });
+    p.core.setPerson({ phone: from }, { support_pending: true });
+    const yea = await runInbound(from, 'YEA');
+    assert.strictEqual(p.core.person({ phone: from }).support_sms, true);
+    assert.strictEqual(nl.isSmsSubscriber(t.id, from), true);
+    assert.match(yea.out, /subscribed/i);
+    assert.ok(!yea.logs.some((l) => l.reason === 'sales_pitch'));
+
+    const from2 = '+17275550411';
+    nl.requestSms({ tenant: t.id, phone: from2, wording: { text: invite } });
+    p.core.setPerson({ phone: from2 }, { support_pending: true });
+    const no = await runInbound(from2, 'not yet');
+    assert.ok(!p.core.person({ phone: from2 }).support_sms);
+    assert.strictEqual(p.core.person({ phone: from2 }).support_pending, true);
+    assert.strictEqual(nl.isSmsSubscriber(t.id, from2), false);
+    assert.doesNotMatch(no.out || '', /subscribed/i);
+  });
+}
