@@ -7,7 +7,7 @@ const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTwilio, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
-const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory } = require('./sms');
+const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory, isSalesPitch } = require('./sms');
 const { knownCallerFor, returningCallerFor } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
@@ -154,6 +154,11 @@ function createApp(d) {
     if (prefs && tenant.id === prefs.core.site.tenant && /^\s*yes\s*[.!]?\s*$/i.test(text || '')) { try { if (prefs.confirmSupportYes(from)) d.consent.record(tenant.id, from, 'start'); } catch { /* never break a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
+    if (isSalesPitch(text)) {
+      log('sms.held', { tenant: tenant.id, from: fp(from), reason: 'sales_pitch' });
+      if (notify) { try { await notify(tenant, { kind: 'sms_held_sales_pitch', from, preview: text.slice(0, 400), at: new Date().toISOString() }); } catch { /* never break the webhook */ } }
+      res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(''));
+    }
     res.writeHead(200, { 'content-type': 'text/xml' }); res.end(twiml(''));
     const instructions = buildSmsInstructions(tenant, { known: knownCallerFor(tenant, from), returning: returningCallerFor(tenant, from, d.newsletter) });
     const archive = d.sentMessages ? (r) => d.sentMessages.add(r) : null;
