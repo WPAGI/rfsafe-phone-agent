@@ -7,7 +7,7 @@ const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTwilio, twiml, sendCustomerSms } = require('./twilio');
 const { Tools, Approvals, inHours } = require('./tools');
-const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory, isSalesPitch } = require('./sms');
+const { quickSmsReply, answerSms, smsConvoId, buildSmsInstructions, SmsMemory, isSalesPitch, isPendingConfirmReply } = require('./sms');
 const { knownCallerFor, returningCallerFor } = require('./xai');
 const { renderLanding, ROBOTS, SITEMAP } = require('./page');
 const { faviconIco, FAVICON_SVG } = require('./favicon');
@@ -151,10 +151,10 @@ function createApp(d) {
     if (!ok) { log('twilio.webhook_rejected', { route: 'sms' }); res.writeHead(403); return res.end(); }
     const from = normNumber(params.From); const text = String(params.Body || '').trim();
     if (d.sentMessages) { try { d.sentMessages.addInbound({ tenant: tenant.id, call: smsConvoId(from, +now()), from, text: text.slice(0, 1000) }); } catch { /* never block a reply */ } }
-    if (prefs && tenant.id === prefs.core.site.tenant && /^\s*yes\s*[.!]?\s*$/i.test(text || '')) { try { if (prefs.confirmSupportYes(from)) d.consent.record(tenant.id, from, 'start'); } catch { /* never break a reply */ } }
+    if (prefs && tenant.id === prefs.core.site.tenant && isPendingConfirmReply(text || '')) { try { if (prefs.confirmSupportYes(from)) d.consent.record(tenant.id, from, 'start'); } catch { /* never break a reply */ } }
     const quick = quickSmsReply({ tenant, from, text, consent: d.consent, log, newsletter: d.newsletter, memory: smsMemory });
     if (quick != null) { log('sms.replied', { tenant: tenant.id, from: fp(from), chars: quick.length }); res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(quick)); }
-    if (isSalesPitch(text)) {
+    if (isSalesPitch(text, { tenant, newsletter: d.newsletter, from })) {
       log('sms.held', { tenant: tenant.id, from: fp(from), reason: 'sales_pitch' });
       if (notify) { try { await notify(tenant, { kind: 'sms_held_sales_pitch', from, preview: text.slice(0, 400), at: new Date().toISOString() }); } catch { /* never break the webhook */ } }
       res.writeHead(200, { 'content-type': 'text/xml' }); return res.end(twiml(''));

@@ -60,8 +60,64 @@ function fixLeakedInstructions(text) {
 
 const URLISH = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi;
 
+
+// Pending-invite confirmation matcher (v2-yes-variants). Exact rule is in the design note:
+// normalize (lowercase, punctuation/emoji -> spaces); reject negatives; otherwise a leading
+// yes/join/casual token (or "sign me up") counts. confirmSms / confirmSupportYes still
+// require a pending invite, so these words never join anyone on their own.
+function normalizeSmsReply(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+const CONFIRM_FIRST = new Set(['y', 'ya', 'yah', 'yea', 'yeah', 'yeh', 'yep', 'yup', 'ok', 'okay', 'sure', 'join']);
+const NEGATIVE_FIRST = new Set(['no', 'nah', 'nope', 'not', 'never', 'stop', 'stopall', 'unsubscribe', 'cancel', 'end', 'quit', 'optout', 'revoke', 'dont']);
+// Standard opt-out footer from our own invites, stripped before looking for a real refusal.
+const INVITE_STOP_FOOTER = /\b(?:(?:reply|text|send)\s+)?stop to (?:opt out|cancel|unsubscribe|end)\b/g;
+const NEGATIVE_PHRASE = /\b(?:not yet|no thanks|no thank you|stop text|stop messag|stop send|dont text|but stop)\b/;
+function isYesToken(tok) { return CONFIRM_FIRST.has(tok) || /^yes+$/.test(tok); }
+function isPendingConfirmReply(text) {
+  const n = normalizeSmsReply(text);
+  if (!n) return false;
+  if (NEGATIVE_FIRST.has(n.split(' ')[0])) return false;
+  const stripped = n.replace(INVITE_STOP_FOOTER, ' ').replace(/\s+/g, ' ').trim();
+  if (NEGATIVE_PHRASE.test(stripped)) return false;
+  // After dropping our own STOP footer, a leftover "stop" or "unsubscribe" is a refusal (e.g. "yes stop").
+  if (/\b(?:stop|stopall|unsubscribe)\b/.test(stripped)) return false;
+  if (/^sign me up\b/.test(n)) return true;
+  return isYesToken(n.split(' ')[0]);
+}
+function collectOwnInvites(tenant, newsletter, from) {
+  const out = [];
+  if (tenant && tenant.name) { try { out.push(require('./newsletter').newsSmsInvite(tenant.name)); } catch { /* optional */ } }
+  try { const p = require('./smsprogram').programFor(tenant || {}); if (p.newsInvite) out.push(p.newsInvite); if (p.newsConfirmed) out.push(p.newsConfirmed); } catch { /* no smsprogram in this repo */ }
+  try {
+    const fs = require('fs'); const path = require('path');
+    const dir = path.join(__dirname, 'prefs', 'sites');
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      try { const site = require(path.join(dir, f)); if (site.smsConfirmText) out.push(site.smsConfirmText); } catch { /* skip unreadable site file */ }
+    }
+  } catch { /* no prefs sites in this repo */ }
+  if (newsletter && from && tenant && typeof newsletter.smsState === 'function') {
+    try { const w = newsletter.smsState(tenant.id, from).wording; if (w && w.text) out.push(w.text); else if (typeof w === 'string') out.push(w); } catch { /* ignore */ }
+  }
+  return out.filter(Boolean);
+}
+function isOwnInviteQuote(text, invites) {
+  const n = normalizeSmsReply(text);
+  if (!n) return false;
+  for (const inv of invites || []) {
+    const ni = normalizeSmsReply(inv);
+    if (ni.length >= 40 && n.includes(ni)) return true;
+    if (ni.length >= 24 && n.includes(ni.slice(0, Math.min(60, ni.length)))) return true;
+  }
+  return false;
+}
+
 // Inbound sales-pitch hold: all three parts must be present so ordinary questions stay answered.
-function isSalesPitch(text) {
+// A quote of our own invite/confirm text is never treated as a sales pitch.
+function isSalesPitch(text, opts) {
+  const invites = (opts && opts.invites) || (opts && opts.tenant ? collectOwnInvites(opts.tenant, opts.newsletter, opts.from) : []);
+  if (isOwnInviteQuote(text, invites)) return false;
   const t = String(text || '');
   const asksOptIn = /\b(?:reply|text|send|type)\s+(?:yes|y|start|subscribe|confirm|opt\s*in)\b/i.test(t);
   const promo = /\b(?:commissions?|promo(?:tion)?s?|offer|limited[- ]time|act now|earn|bonus|rolling in|free trial|sign\s*up|click here)\b/i.test(t);
@@ -117,7 +173,7 @@ class XaiTextBrain {
 
 // Keyword replies (newsletter YES, STOP/START/HELP, card numbers): instant, no model. Returns null when the brain must answer.
 function quickSmsReply({ tenant, from, text, consent, log, newsletter, memory = null }) {
-  if (newsletter && /^\s*yes\s*[.!]?\s*$/i.test(text)) {
+  if (newsletter && isPendingConfirmReply(text)) {
     let ok = false; try { ok = newsletter.confirmSms(tenant.id, from, text); } catch { ok = false; }
     if (ok) { consent.record(tenant.id, from, 'start'); log('newsletter.sms_confirmed', { tenant: tenant.id, from: fp(from) }); return newsSmsConfirmed(tenant.name); }
   }
@@ -197,8 +253,8 @@ async function answerSms({ tenant, from, text, toolsFor, brain, instructions, lo
 async function handleInboundSms(o) {
   const text = String(o.body || '').trim();
   const quick = quickSmsReply({ ...o, text }); if (quick != null) return quick;
-  if (isSalesPitch(text)) { if (o.log) o.log('sms.held', { tenant: o.tenant && o.tenant.id, from: fp(o.from), reason: 'sales_pitch' }); return ''; }
+  if (isSalesPitch(text, { tenant: o.tenant, newsletter: o.newsletter, from: o.from })) { if (o.log) o.log('sms.held', { tenant: o.tenant && o.tenant.id, from: fp(o.from), reason: 'sales_pitch' }); return ''; }
   return answerSms({ ...o, text });
 }
 
-module.exports = { smsConvoId, fixLeakedInstructions, handleInboundSms, quickSmsReply, answerSms, kbFallback, shortenWithOffer, EMAIL_OFFER, CANNED, guardReply, MockBrain, XaiTextBrain, SmsMemory, buildSmsInstructions, SMS_MAX_CHARS, SMS_TOOLS_EXCLUDED, isSalesPitch, isEnrollmentReply, SALES_PITCH_RULE };
+module.exports = { smsConvoId, fixLeakedInstructions, handleInboundSms, quickSmsReply, answerSms, kbFallback, shortenWithOffer, EMAIL_OFFER, CANNED, guardReply, MockBrain, XaiTextBrain, SmsMemory, buildSmsInstructions, SMS_MAX_CHARS, SMS_TOOLS_EXCLUDED, isSalesPitch, isEnrollmentReply, isPendingConfirmReply, normalizeSmsReply, isOwnInviteQuote, collectOwnInvites, SALES_PITCH_RULE };
