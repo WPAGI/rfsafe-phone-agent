@@ -46,3 +46,8 @@ Until A2P 10DLC texting is approved on the new number, every tenant ships with `
 
 ## Secrets
 Secrets come only from env vars or from the encrypted store (`PA_MASTER_KEY`). Tenant files hold references (`env:NAME` / `store:KEY`), never values. `.env`, `data/` and `*.enc.json` are excluded from git and from the zip, and the build fails if the secret scan finds anything.
+
+
+## Private Mail inbox (/mail)
+
+Owner-only, read-only viewer for mail received at `@bestdealon.app` (Resend received emails, plus any Resend Inboxes on that domain, merged and deduped, filtered server-side by `MAIL_DOMAINS`). Sign-in is the existing admin magic link to the fixed admin address (`ADMIN_LOGIN_EMAIL`), from `/mail/login` or the admin dashboard link (`/admin/mail`). Reads with `RESEND_MAIL_READ_KEY`; the existing send key only sends the sign-in link. Design, env and drop-in notes: `src/mail/README.md`.
