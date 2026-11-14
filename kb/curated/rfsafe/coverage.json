@@ -74,5 +74,13 @@
   {
     "q": "Why are current standards not good enough",
     "expect": "standard|limit|thermal"
+  },
+  {
+    "q": "Cell phone radiation hazards non-thermal effects detail",
+    "expect": "non-thermal effects of cell phone radiation"
+  },
+  {
+    "q": "What are the non-thermal biological effects of cell phone radiation?",
+    "expect": "non-thermal effects of cell phone radiation"
   }
 ]
