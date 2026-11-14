@@ -325,6 +325,10 @@ function createApp(d) {
     const sess = auth.session(cookies.pa_admin);
     const p = u.pathname;
     const form = async () => (req.method === 'POST' ? Object.fromEntries(new URLSearchParams(await readBody(req, 8192))) : {});
+    if (p === '/admin/mail') {
+      if (!sess) return adminUiSend(res, 303, '', { location: '/admin/login' });
+      return adminUiSend(res, 303, '', { location: '/mail' }, [`mail_session=${cookies.pa_admin}; HttpOnly; Secure; SameSite=Strict; Path=/mail; Max-Age=${adm.SESSION_MS / 1000}`]);
+    }
     if (p === '/admin/login') {
       if (req.method === 'GET') { const c = preCsrf(req); return adminUiSend(res, 200, adm.loginPage(c.tok), {}, c.set); }
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
@@ -495,7 +499,7 @@ function createApp(d) {
     const nowMs = now().getTime ? now().getTime() : Date.now();
     return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }));
   }
-  const ADMIN_UI = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv', '/admin/usage', '/admin/usage.json']);
+  const ADMIN_UI = new Set(['/admin/mail', '/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv', '/admin/usage', '/admin/usage.json']);
   // Daily usage snapshot push: POST only, Bearer USAGE_SNAPSHOT_SECRET (no session/CSRF), rate-limited per IP.
   // Never logs the body or the secret: status and byte count only.
   const snapLimiter = new (require('./usage').SimpleLimiter)({ max: d.usageSnapshotRateMax || 10, windowMs: 60000 });
@@ -518,6 +522,14 @@ function createApp(d) {
   }
   const usageLimiter = new (require('./usage').SimpleLimiter)({ max: d.usageRateMax || 30, windowMs: 60000 });
 
+  // Private read-only mail viewer at /mail (src/mail). Owner sign-in is the existing admin magic link (AdminAuth),
+  // session cookie Path=/mail. Reads Resend received mail with RESEND_MAIL_READ_KEY, limited to MAIL_DOMAINS.
+  const mailEnv = d.env || process.env;
+  const mail = require('./mail').createMail({
+    env: mailEnv, siteName: 'Callbots', log, publicBaseUrl: () => d.publicBaseUrl, auth: d.adminAuth,
+    sendEmail: (m) => d.emailFor(null).send(m),
+    fetchImpl: d.mailFetch || (d.mode !== 'live' && mailEnv.MAIL_MOCK === '1' ? require('./mail/mock').mockFetch() : globalThis.fetch),
+  });
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
     try {
@@ -530,6 +542,7 @@ function createApp(d) {
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
       if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
       if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
+      if (u.pathname === '/mail' || u.pathname.startsWith('/mail/')) return void await mail.route(req, res, u);
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
