@@ -1,6 +1,6 @@
 {
   "site": "callbots",
-  "at": "2026-11-16T06:30:34.118Z",
+  "at": "2026-11-16T07:56:45.160Z",
   "modules": [
     "mail_viewer",
     "mailbox",
@@ -9,6 +9,7 @@
     "public_kb",
     "web_research",
     "order_lookup",
+    "kb_growth",
     "read_api",
     "rerun_api"
   ],
@@ -29,6 +30,7 @@
     "port/mount.js": "d07d4fcc349c4e56",
     "port/site.config.template.js": "63ad20b6f4ab7d91",
     "port/tools/export-public-kb.js": "59f668377211fc87",
+    "seed/public-kb/rfsafe-app-public-kb.json": "9a36719406421537",
     "site/kb/assets/kb.css": "ee8085dd79e877d5",
     "site/kb/assets/kb.js": "73facaf3bb84d93c",
     "site/research/assets/body-systems.js": "716b551467a21389",
@@ -62,6 +64,7 @@
     "src/mailbox/govlinks.js": "8796d25fb112340a",
     "src/mailbox/guide.js": "da7f3a4495e484d6",
     "src/mailbox/index.js": "dd18a8a71a431ca2",
+    "src/mailbox/kbgrowth.js": "e33dff907246baff",
     "src/mailbox/keys.js": "26e947095eec7507",
     "src/mailbox/mock.js": "e10930de71b415ef",
     "src/mailbox/models.js": "b314ddb07945ecf5",
