@@ -241,6 +241,46 @@ function noCarryProblems(body, storeLookup) {
   }
   return out;
 }
+
+// Product facts the reply must include when the customer named a model the store carries (John, Nov 16 3:55 AM ET:
+// a MagSafe KB Light answer must not skip the named phone's colors, price, stock and link).
+function productFactLine(p) {
+  const colors = (p.variants || []).filter(v => v.available !== false).map(v => v.title).filter(v => v && v !== 'Default Title');
+  const price = (p.price && p.price.amount) || ((p.variants || [])[0] || {}).price;
+  const stocked = (p.variants || []).some(v => v.available !== false) || p.available === true;
+  const url = String(p.url || '').split('?')[0];
+  return (p.title || 'This case') + (price ? ' is $' + String(price).replace(/\.00$/, '') : '') + (colors.length ? ', in stock in ' + colors.join(', ') : (stocked ? ', in stock' : '')) + (url ? ': ' + url : '');
+}
+function askedStoreProducts(asked, storeLookup) {
+  const models = extractPhoneModels('', asked); if (!models.length) return [];
+  const prods = (storeLookup && storeLookup.products) || [];
+  const out = []; const seen = new Set();
+  for (const model of models) {
+    const k = phoneKeys(model)[0]; if (!k || seen.has(k)) continue;
+    const p = prods.find(x => phoneKeys((x.title || '') + ' ' + (x.url || '') + ' ' + (x.handle || '')).includes(k));
+    if (!p) continue; seen.add(k);
+    out.push({ model: k, product: p, fact: productFactLine(p) });
+  }
+  return out;
+}
+function replyHasProduct(body, p) {
+  const text = String(body || ''); const low = text.toLowerCase();
+  const handle = String(p.handle || productHandle(p.url) || '').toLowerCase();
+  const url = String(p.url || '').split('?')[0];
+  return (handle && handle.length > 3 && low.includes(handle)) || (url && text.includes(url));
+}
+function missingProductProblems(body, storeLookup, asked) {
+  return askedStoreProducts(asked, storeLookup).filter(x => !replyHasProduct(body, x.product));
+}
+function requiredProductAddition(text, asked, storeLookup) {
+  const t = String(text || '').toLowerCase(); if (!t) return false;
+  return askedStoreProducts(asked, storeLookup).some(x => {
+    const handle = String(x.product.handle || productHandle(x.product.url) || '').toLowerCase();
+    const url = String(x.product.url || '').split('?')[0].toLowerCase();
+    if ((handle && handle.length > 3 && t.includes(handle)) || (url && t.includes(url))) return true;
+    return t.includes(x.model) && (/\$\s*\d/.test(t) || /in stock|black|brown|turquoise/.test(t));
+  });
+}
 // Deterministic link check (John, Nov 14 8:46 PM ET: be lenient on links that come from the knowledge base, but make sure
 // each is the right link). Every link must be a known KB, SAR or store URL (scheme + host + path; extra query params on a
 // KB link are fine). A product link must be one the live store lookup returned for the phone asked about, and a
@@ -884,7 +924,8 @@ class MailBots {
       if (!part.products && this.productSearch) { try { products = ((await this.productSearch(orig.subject + ' ' + orig.text.slice(0, 200))) || []).slice(0, 3); } catch { products = []; } }
       savePart('products');
       const names = this.sarNames ? await this.sarNames().catch(() => []) : [];
-      if (!part.shopify && (this.productSearch || this.effective(r).tools.includes('shopify') || (this.tools && this.tools.state && (this.tools.state().shopify || {}).connected))) { store_lookup = await this.storeLookupAll(r, orig, names); lookup = store_lookup; }
+      const namedPhones = extractPhoneModels(orig.subject, orig.text, names);
+      if (!part.shopify && (namedPhones.length || this.productSearch || this.effective(r).tools.includes('shopify') || (this.tools && this.tools.state && (this.tools.state().shopify || {}).connected))) { store_lookup = await this.storeLookupAll(r, orig, names); lookup = store_lookup; }
       savePart('shopify');
       // Same live SAR lookup the phone line uses, for a SAR question about a named model (once per message).
       const sq = this.sarLookup ? sarQuery(orig.subject, orig.text, names) : null;
@@ -937,7 +978,10 @@ class MailBots {
         const usable = products.filter(p => p && Array.isArray(p.variants) && p.variants.length);
         if (usable.length) store_lookup = { query: (store_lookup && store_lookup.query) || '', products: usable.slice(0, 4), note: 'Full-message store search: the short query returned no products, so these results from the complete email were used instead. An empty short query is not evidence that a fact is invented.' };
       }
-      store_lookup = markMissingPhone(withColorLinks(store_lookup, orig.subject + '\n' + orig.text, this.colorCfg), orig.subject + '\n' + orig.text); lookup = store_lookup;
+      store_lookup = markMissingPhone(withColorLinks(store_lookup, orig.subject + '\n' + orig.text, this.colorCfg), orig.subject + '\n' + orig.text);
+      const required = askedStoreProducts(orig.subject + '\n' + orig.text, store_lookup);
+      if (required.length) store_lookup = { ...store_lookup, required_products: required.map(x => ({ model: x.model, title: x.product.title, url: String(x.product.url || '').split('?')[0], fact: x.fact })), note: ((store_lookup && store_lookup.note) ? String(store_lookup.note) + ' ' : '') + 'The reply MUST include each named model\'s colors, price, stock and product link, even when a knowledge-base answer covers another question (for example MagSafe).' };
+      lookup = store_lookup;
       const input = { message: safeOrig, questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}) };
       const redrafting = this.db.redraft && this.db.redraft[id];
       if (redrafting && redrafting.draft_id) {
@@ -1158,7 +1202,7 @@ class MailBots {
     if (x.answers_main_question === false) { verdict = 'fail'; x.notes = "Didn't answer the main question" + (mq ? ': ' + mq : '') + (x.notes ? '. ' + String(x.notes) : ''); }
     // Both sides of John's rule: answer everything that was asked (from the KB), and nothing that was not.
     const list = (v) => (Array.isArray(v) ? v : []).map(s => String(s || '').trim()).filter(Boolean).slice(0, 5);
-    const un = list(x.unanswered); const add = list(x.unasked_additions).filter(t => !shortCaveat(t, draft.body) && !R.relatedHealthAddition(t, { asked: orig.subject + '\n' + orig.text, knowledge: (extra.knowledge && extra.knowledge.length) ? extra.knowledge : knowledge, research_lookup: extra.research_lookup, medical_disclaimer: extra.medical_disclaimer }));
+    const un = list(x.unanswered); const add = list(x.unasked_additions).filter(t => !shortCaveat(t, draft.body) && !R.relatedHealthAddition(t, { asked: orig.subject + '\n' + orig.text, knowledge: (extra.knowledge && extra.knowledge.length) ? extra.knowledge : knowledge, research_lookup: extra.research_lookup, medical_disclaimer: extra.medical_disclaimer }) && !requiredProductAddition(t, asked, storeLookup));
     // Deterministic: a draft that affirms a blocking or protection percentage (e.g. "blocks 99%") never passes; the KB only says
     // a material's test percentage is not a measured change in a person's exposure.
     // Deterministic backstop (triage bug 5): a KB "Related:" line left in the draft never passes.
@@ -1173,6 +1217,7 @@ class MailBots {
     const wp = webAnswers.length ? WR.webResearchProblem(draft.body, webAnswers) : null; if (wp) { verdict = 'fail'; x.notes = wp + (x.notes ? '. ' + String(x.notes) : ''); }
     const detEdits = [];
     for (const nc of noCarryProblems(draft.body, storeLookup)) { verdict = 'fail'; x.notes = 'Says we do not carry the ' + nc.model + ' without a verified store result: ' + nc.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: nc.sentence.slice(0, 500), reason: 'Unverified "we do not carry" claim', fact: nc.fact, source: nc.product ? 'store_lookup' : 'store' }); }
+    for (const mp of missingProductProblems(draft.body, storeLookup, asked)) { verdict = 'fail'; x.notes = 'Leaves out the store colors, price, stock or product link for the ' + mp.model + ': ' + mp.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'add', text: mp.fact.slice(0, 500), reason: 'Include the ' + mp.model + ' case colors, price, stock and product link even when a knowledge-base answer covers another question', fact: mp.fact.slice(0, 400), source: 'store_lookup' }); }
     const dp = await this.deferralProblems(r, draft.body, extra.kb_gaps, storeLookup); if (dp.length) { verdict = 'fail'; x.notes = 'Defers to the team although the knowledge base or store answers it: ' + dp.map(d => d.question).join('; ').slice(0, 240) + (x.notes ? '. ' + String(x.notes) : ''); for (const d of dp) detEdits.push({ action: 'add', text: d.fact.slice(0, 500), reason: 'Answer "' + d.question.slice(0, 120) + '" from ' + d.source + ' instead of deferring', fact: d.fact.slice(0, 400), source: d.source.slice(0, 80) }); }
     if (detEdits.length) x.edits = [...(Array.isArray(x.edits) ? x.edits : []), ...detEdits];
     const ho = handoffProblem(draft.body, extra.kb_gaps); if (ho) { verdict = 'fail'; x.notes = (x.notes ? String(x.notes) + '. ' : '') + 'Hands the question off to the team although the knowledge base answers it (no KB gap was logged): "' + ho.slice(0, 120) + '"'; }
@@ -1200,4 +1245,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { extractPhoneModels, handleGuesses, noCarryProblems, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };

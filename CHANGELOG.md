@@ -1,4 +1,8 @@
 # Changelog
+## Always include store facts for a named phone model (Nov 16, 2026; John 3:55-3:56 AM ET)
+- When an email names a phone model the store carries, the reply must include that case's colors, price, stock and product link, even if a KB Light answer (for example MagSafe) covers another question. The checker fails a reply that leaves those facts out and supplies them as an edit so the revise loop can add them. The "The RF Safe team" sign-off is unchanged.
+- Dave-style two-model color/price/stock replies still pass.
+
 ## Mailbox store lookup and checker fixes (Nov 16, 2026; John approved deploy 3:35 AM ET, phone-path note 3:37 AM ET)
 - Every phone model in an email gets its own store lookup. The mailbox uses the same Shopify path as the phone and text agents (`ShopifyClient.searchProducts`, plus the phone Admin query for orders when order lookup is already on). A missed model is checked read-only at its public product page. "We do not carry" is only allowed when the model's search and its page both came back empty. A lookup miss is never treated as "we don't carry it." The checker fails any other "don't carry" claim and supplies the store facts as an edit so the revise loop can fix it.
 - The checker fails a "the team will follow up" deferral when KB Light, KB Full or the store answers the logged gap, and adds the fact as an edit, so the revise loop runs.
