@@ -544,7 +544,22 @@ function createApp(d) {
         const j = await s.c.admin.query(ORDER_LOOKUP, { q: String(q || '').slice(0, 200) });
         return (j.data && j.data.orders && j.data.orders.nodes) || [];
       };
-      sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: d.env || process.env, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log, productSearch, orderLookupQuery }, require('../vendor/sitemail/site.config.js'));
+      // Past-customer index (SITEMAIL_ORDER_INDEX). Uses the same read-only Admin credentials, but does not
+      // change order_lookup_enabled or the phone/text Shopify client.
+      const envAll = d.env || process.env;
+      const orderIndexQuery = require('../vendor/sitemail/src/mailbox/orderindex').flagOn(envAll) ? async (query, variables) => {
+        const t = d.tenants && d.tenants.list ? d.tenants.list()[0] : null;
+        if (!t || !t.shopify || !t.shopify.admin_shop) throw new Error('order_index_not_connected');
+        const { resolveSecret } = require('./tenants');
+        const { ShopifyAdmin } = require('./shopify');
+        const own = envAll.SHOPIFY_ADMIN_SHOP && envAll.SHOPIFY_ADMIN_SHOP === t.shopify.admin_shop;
+        const clientId = resolveSecret(t, 'shopify_client_id', { env: envAll, store: d.secrets }) || (own ? envAll.SHOPIFY_ADMIN_CLIENT_ID : null);
+        const clientSecret = resolveSecret(t, 'shopify_client_secret', { env: envAll, store: d.secrets }) || (own ? envAll.SHOPIFY_ADMIN_CLIENT_SECRET : null);
+        if (!clientId || !clientSecret) throw new Error('order_index_not_connected');
+        const admin = new ShopifyAdmin({ shop: t.shopify.admin_shop, clientId, clientSecret, fetchImpl: globalThis.fetch });
+        return admin.query(query, variables);
+      } : null;
+      sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: envAll, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log, productSearch, orderLookupQuery, orderIndexQuery }, require('../vendor/sitemail/site.config.js'));
     }
   } catch (e) { log('sitemail.mount_failed', { err: String(e && e.message || e).slice(0, 200) }); sitemail = null; }
   const sitemailHealth = () => { try { return sitemail && sitemail.enabled ? { sitemail: sitemail.status() } : {}; } catch { return { sitemail: { error: true } }; } };
