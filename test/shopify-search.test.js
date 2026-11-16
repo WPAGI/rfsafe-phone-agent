@@ -116,3 +116,14 @@ test('product_search says when the exact model is missing, and logs titles and h
   assert.match(desc, /close matches/);
   assert.match(desc, /out of stock only when that product is present with available false/);
 });
+
+test('iPhone 17 Pro Max: brand-prefixed handle apple-iphone-17-pro-max is merged when suggest misses it', async () => {
+  const JS17 = { handle: 'apple-iphone-17-pro-max', title: 'RF Safe QuantaCase for Apple iPhone 17 Pro Max', available: true, price: 6900, options: [{ name: 'Color', values: ['Black', 'Brown', 'Turquoise'] }], variants: [{ id: 2, title: 'Black', available: true, price: 6900 }, { id: 3, title: 'Brown', available: true, price: 6900 }, { id: 4, title: 'Turquoise', available: true, price: 6900 }] };
+  const js = { 'apple-iphone-17-pro-max': JS17 };
+  const f = fetchMock({ suggest: [PRO], js });
+  const r = await new ShopifyClient({ shop: 'quantacase.com', publicDomain: 'quantacase.com', fetchImpl: f }).searchProducts('iPhone 17 Pro Max');
+  assert.strictEqual(r[0].handle, 'apple-iphone-17-pro-max');
+  assert.strictEqual(r[0].title, JS17.title);
+  assert.ok(f.calls.some((u) => u.endsWith('/products/apple-iphone-17-pro-max.js')));
+  assert.ok(f.calls.some((u) => u.endsWith('/products/iphone-17-pro-max.js')));
+});

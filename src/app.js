@@ -534,7 +534,19 @@ function createApp(d) {
   // (/inbox, /api/mail, /kb, /admin/kb/entries, /admin/mail/messages); a failure here never stops the host.
   // Off without a deploy: SITEMAIL_ENABLED=0.
   let sitemail = null;
-  try { if (d.dataDir) sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: d.env || process.env, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log }, require('../vendor/sitemail/site.config.js')); } catch (e) { log('sitemail.mount_failed', { err: String(e && e.message || e).slice(0, 200) }); sitemail = null; }
+  try {
+    if (d.dataDir) {
+      const phoneShopify = () => { try { const t = d.tenants && d.tenants.list ? d.tenants.list()[0] : null; return (t && d.shopifyFor) ? { t, c: d.shopifyFor(t) } : null; } catch { return null; } };
+      const productSearch = async (q) => { const s = phoneShopify(); if (!s) return []; return (await s.c.searchProducts(String(q || '').slice(0, 100), 10)) || []; };
+      const orderLookupQuery = async (q) => {
+        const s = phoneShopify(); if (!s || s.t.order_lookup_enabled !== true || !s.c.admin) throw new Error('order_lookup_not_connected');
+        const { ORDER_LOOKUP } = require('../vendor/sitemail/src/mailbox/tools');
+        const j = await s.c.admin.query(ORDER_LOOKUP, { q: String(q || '').slice(0, 200) });
+        return (j.data && j.data.orders && j.data.orders.nodes) || [];
+      };
+      sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: d.env || process.env, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log, productSearch, orderLookupQuery }, require('../vendor/sitemail/site.config.js'));
+    }
+  } catch (e) { log('sitemail.mount_failed', { err: String(e && e.message || e).slice(0, 200) }); sitemail = null; }
   const sitemailHealth = () => { try { return sitemail && sitemail.enabled ? { sitemail: sitemail.status() } : {}; } catch { return { sitemail: { error: true } }; } };
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');

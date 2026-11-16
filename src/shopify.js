@@ -124,7 +124,13 @@ function candidateHandles(query) {
   };
   add(kept);
   if (kept.length !== words.length) add(words);
-  return slugs.slice(0, 4);
+  // Official store handles are often brand-prefixed (apple-iphone-17-pro-max, samsung-galaxy-s25, google-pixel-9).
+  for (const slug of [...slugs]) {
+    if (/^iphone(?:-|$)/.test(slug)) add(('apple-' + slug).split('-'));
+    else if (/^galaxy(?:-|$)/.test(slug)) add(('samsung-' + slug).split('-'));
+    else if (/^pixel(?:-|$)/.test(slug)) add(('google-' + slug).split('-'));
+  }
+  return slugs.slice(0, 6);
 }
 
 function containsEveryWord(text, words) {

@@ -1,8 +1,8 @@
 # Changelog
-## Mailbox store lookup and checker fixes (Nov 16, 2026; John approved deploy 3:35 AM ET)
-- Every phone model in an email gets its own store lookup, and a missed one is checked read only at its public product page. "We do not carry" is only allowed when the model's search and its page both came back empty. The checker fails any other "don't carry" claim and supplies the store facts.
+## Mailbox store lookup and checker fixes (Nov 16, 2026; John approved deploy 3:35 AM ET, phone-path note 3:37 AM ET)
+- Every phone model in an email gets its own store lookup. The mailbox uses the same Shopify path as the phone and text agents (`ShopifyClient.searchProducts`, plus the phone Admin query for orders when order lookup is already on). A missed model is checked read-only at its public product page. "We do not carry" is only allowed when the model's search and its page both came back empty. A lookup miss is never treated as "we don't carry it." The checker fails any other "don't carry" claim and supplies the store facts as an edit so the revise loop can fix it.
 - The checker fails a "the team will follow up" deferral when KB Light, KB Full or the store answers the logged gap, and adds the fact as an edit, so the revise loop runs.
-- A reasoning checker always gets 240 s.
+- Phone product search also probes brand-prefixed handles (`apple-iphone-17-pro-max`) when the catalog handle includes the brand.
 
 ## KB Light first, KB Full fallback (Nov 16, 2026; John approved deploy 3:07-3:08 AM ET)
 - Mailbox (writer and checker KB tool), phone `kb_answer` and texts search KB Light (the Callbots Brain box on /kb) first. A question with no good Light match is answered by KB Full (the phone KB) exactly as before. Rule and switches: `vendor/sitemail/port/KB_LIGHT.md`.
