@@ -1,0 +1,57 @@
+{
+  "id": "callbots",
+  "name": "CallBots",
+  "company": "Quanta X Technology LLC",
+  "product": "CallBots",
+  "site": "callbots.org",
+  "domain": "callbots.org",
+  "store": "quantacase.com",
+  "from": "CallBots <info@callbots.org>",
+  "link_allowlist": [
+    "callbots.org",
+    "quantacase.com",
+    "rfsafe.com",
+    "rfsafe.org",
+    "rfsafe.net"
+  ],
+  "kb_source_allowlist": [
+    "callbots.org",
+    "quantacase.com",
+    "rfsafe.com",
+    "rfsafe.org",
+    "rfsafe.net"
+  ],
+  "sar_site": "callbots.org",
+  "mailbox": {
+    "store_hosts": [
+      "quantacase.com",
+      "rfsafe.com"
+    ],
+    "own_site_names": [
+      "quantacase",
+      "rfsafe",
+      "truthcase"
+    ],
+    "prompt_replace": []
+  },
+  "public_kb": {
+    "replace": [
+      [
+        "RF Safe Knowledge Base",
+        "CallBots Knowledge Base"
+      ],
+      [
+        ">rfsafe.app<",
+        ">callbots.org<"
+      ],
+      [
+        "rfsafe.app/kb/",
+        "callbots.org/kb/"
+      ]
+    ],
+    "hide": [
+      "/kb/body-systems",
+      "/kb/safety-claims"
+    ]
+  }
+}

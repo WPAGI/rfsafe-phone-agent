@@ -530,9 +530,16 @@ function createApp(d) {
     sendEmail: (m) => d.emailFor(null).send(m),
     fetchImpl: d.mailFetch || (d.mode !== 'live' && mailEnv.MAIL_MOCK === '1' ? require('./mail/mock').mockFetch() : globalThis.fetch),
   });
+  // Site Mail + Brain box (vendor/sitemail, WPAGI/rfsafe-app port/). Additive: it answers only its own routes
+  // (/inbox, /api/mail, /kb, /admin/kb/entries, /admin/mail/messages); a failure here never stops the host.
+  // Off without a deploy: SITEMAIL_ENABLED=0.
+  let sitemail = null;
+  try { if (d.dataDir) sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: d.env || process.env, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log }, require('../vendor/sitemail/site.config.js')); } catch (e) { log('sitemail.mount_failed', { err: String(e && e.message || e).slice(0, 200) }); sitemail = null; }
+  const sitemailHealth = () => { try { return sitemail && sitemail.enabled ? { sitemail: sitemail.status() } : {}; } catch { return { sitemail: { error: true } }; } };
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
     try {
+      if (sitemail && sitemail.enabled && await sitemail.route(req, res, u)) return;
       if (prefs && (u.pathname === '/preferences' || u.pathname.startsWith('/preferences/')) && await prefs.route(req, res, u)) return;
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding());
       if (req.method === 'GET' && (u.pathname === '/privacy' || u.pathname === '/privacy-policy')) return html(res, 200, require('./legal').renderPrivacy());
@@ -541,7 +548,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
       if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
-      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown' });
+      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown', ...sitemailHealth() });
       if (u.pathname === '/mail' || u.pathname.startsWith('/mail/')) return void await mail.route(req, res, u);
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
