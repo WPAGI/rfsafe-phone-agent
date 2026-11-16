@@ -63,8 +63,12 @@ function signedName(text) {
 // Short names like "s22 ultra" are expanded first so they match the same way "Samsung Galaxy S22 Ultra" does
 // (John, Nov 14 11:49–11:58 PM ET). Without this, sar_lookup and the store search are skipped.
 const SAR_Q = /\b(?:sar|specific absorption|radiation|emissions?|emf|w\/kg|radiofrequency|rf exposure)\b/i;
+// Customer typos (r.cb45d453, Nov 16 3:35 PM ET: "iphone 17 promax ... turqouise"): "promax" / "pro-max" is "pro max", and
+// common misspellings of turquoise are turquoise, so the model and the color resolve the same way the spelled-out words do.
+const TURQUOISE_TYPO = /\bt[ou]r?q[uoia]{1,4}s[e]?\b/gi;
+function fixTypos(s) { return String(s || '').replace(/(?<![a-z])pro[\s.-]*max(?![a-z])/gi, ' pro max').replace(TURQUOISE_TYPO, 'turquoise'); }
 function expandShortPhones(s) {
-  let t = String(s || '');
+  let t = fixTypos(s);
   t = t.replace(/(?<!\b(?:galaxy|samsung)\s)(?<![A-Za-z'’])s\s*([1-9]\d)(?:\s*)(ultra|plus|\+|fe)?(?![A-Za-z])/gi, (_, num, suf) => {
     const suffix = !suf ? '' : String(suf) === '+' ? ' Plus' : ' ' + suf.charAt(0).toUpperCase() + suf.slice(1).toLowerCase();
     return 'Samsung Galaxy S' + num + suffix;
@@ -83,7 +87,7 @@ const COLOR_WORD = /\b(?:black|brown|white|red|blue|green|grey|gray|gold|silver|
 function stripColors(s) { return String(s || '').replace(COLOR_WORD, ' ').replace(/\s+/g, ' ').trim(); }
 function extractPhoneModel(subject, text, names) {
   const s = stripColors(expandShortPhones(String(subject || '') + ' ' + String(text || '').slice(0, 1500)));
-  const m = s.match(/\b(iphone|galaxy|pixel|samsung\s+galaxy|motorola|moto|oneplus)\s*([a-z]?\d{1,3}[a-z]?)(\s+(pro max|pro|plus|ultra|max|mini|fe|e|fold\s?\d|flip\s?\d|xl|a))?\b/i);
+  const m = s.match(/\b(iphone|galaxy|pixel|samsung\s+galaxy|motorola|moto|oneplus)\s*([a-z]?\d{1,3}[a-z]?)(\s+(pro max|pro|plus|ultra|max|mini|air|fe|e|fold\s?\d|flip\s?\d|xl|a))?\b/i);
   const extracted = m ? m[0].replace(/\s+/g, ' ').trim() : '';
   if (!extracted) return '';
   return matchCanonical(extracted, names) || extracted;
@@ -92,11 +96,15 @@ function extractPhoneModel(subject, text, names) {
 // in one email looked up only the first one).
 function extractPhoneModels(subject, text, names) {
   const s = stripColors(expandShortPhones(String(subject || '') + ' ' + String(text || '').slice(0, 1500)));
-  const re = /\b(iphone|galaxy|pixel|samsung\s+galaxy|motorola|moto|oneplus)\s*([a-z]?\d{1,3}[a-z]?)(\s+(pro max|pro|plus|ultra|max|mini|fe|e|fold\s?\d|flip\s?\d|xl|a))?\b/gi;
+  const re = /\b(iphone|galaxy|pixel|samsung\s+galaxy|motorola|moto|oneplus)\s*([a-z]?\d{1,3}[a-z]?)(\s+(pro max|pro|plus|ultra|max|mini|air|fe|e|fold\s?\d|flip\s?\d|xl|a))?\b/gi;
   const out = []; const seen = new Set(); let m;
   while ((m = re.exec(s))) { const raw = m[0].replace(/\s+/g, ' ').trim(); const name = matchCanonical(raw, names) || raw; const k = phoneKeys(name)[0] || name.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push(name); if (out.length >= 3) break; }
-  return out;
+  const keep = specificKeys(out.map(n => phoneKeys(n)[0] || n.toLowerCase()));
+  return out.filter(n => keep.includes(phoneKeys(n)[0] || n.toLowerCase()));
 }
+// The most specific model wins (r.cb45d453): when an email names "iPhone 17 Pro Max", a bare "iPhone 17" key in the same
+// email is the same phone, so the iPhone 17, 17 Air or 17 Pro is never pulled in. Keys from phoneKeys().
+function specificKeys(keys) { const ks = [...new Set(keys || [])]; return ks.filter(k => !ks.some(o => o !== k && o.startsWith(k + ' '))); }
 // Likely public product handles for a model on the official store ("iPhone 17 Pro Max" -> apple-iphone-17-pro-max).
 function handleGuesses(model) {
   const k = phoneKeys(model)[0]; if (!k) return [];
@@ -165,12 +173,14 @@ function writerRound1Ms(model, medical) { return medical && isReasoning(model) ?
 // The checker on a reasoning model gets the same 240 s for a medical reply or a long draft (Jarvis triage bug 3: the 8:03 PM
 // and 8:16 PM ET checks of two long medical drafts hit the 120 s limit; John, Nov 15, 7:30 + 7:50 PM ET). Everything else
 // keeps the default (0 = the built-in timeout). Only the time limit changes; the checker's input and rules do not.
-const LONG_DRAFT_CHARS = 2500;
-function checkerMs(model, medical, body) { return isReasoning(model) && (medical || String(body || '').length >= LONG_DRAFT_CHARS) ? WRITER_ROUND2_MS : 0; }
+// Also 240 s for a large checker input (System notes + catalog + store lookups + KB) and for the one automatic retry after a
+// checker timeout (r.cb45d453: a 3:46 PM ET rerun timed out at 120 s twice, 3:50 and 3:52, then gave up and held the draft).
+const LONG_DRAFT_CHARS = 2500; const LARGE_CHECK_INPUT_CHARS = 12000;
+function checkerMs(model, medical, body, { inputChars = 0, systemNotes = false, retry = false } = {}) { return isReasoning(model) && (medical || String(body || '').length >= LONG_DRAFT_CHARS || Number(inputChars) >= LARGE_CHECK_INPUT_CHARS || systemNotes || retry) ? WRITER_ROUND2_MS : 0; }
 function normUrl(u) { try { const x = new URL(u); let p = x.pathname; try { p = decodeURIComponent(p); } catch {} return (x.protocol + '//' + x.hostname.replace(/^www\./i, '') + p.replace(/\/+$/, '')).toLowerCase(); } catch { return null; } }
 // Phone models named in a text, as comparable keys ("pixel 9", "iphone 16 pro max", "galaxy s24 ultra").
 function phoneKeys(text) {
-  const out = new Set(); const re = /\b(iphone|galaxy|pixel|moto|oneplus)\s*([a-z]?\d{1,2}[a-z]?)((?:\s+(?:pro|max|plus|ultra|mini|xl|fold|flip|fe|edge))*)/gi; let m;
+  const out = new Set(); const re = /\b(iphone|galaxy|pixel|moto|oneplus)\s*([a-z]?\d{1,2}[a-z]?)((?:\s+(?:pro|max|plus|ultra|mini|air|xl|fold|flip|fe|edge))*)/gi; let m;
   while ((m = re.exec(expandShortPhones(String(text || '').replace(/™|%E2%84%A2/gi, ' ').replace(/-/g, ' '))))) out.add((m[1] + ' ' + m[2] + (m[3] || '')).toLowerCase().replace(/\s+/g, ' ').trim());
   return [...out];
 }
@@ -227,7 +237,7 @@ async function withVerifiedHandles(storeLookup, body, asked, fetchImpl) {
 // miss (search not run for that model, an error, a timeout) is never a "don't carry" claim.
 function markMissingPhone(store_lookup, asked) {
   if (!store_lookup) return store_lookup;
-  const want = phoneKeys(asked); if (!want.length) return store_lookup;
+  const want = specificKeys(phoneKeys(asked)); if (!want.length) return store_lookup;
   const haveKeys = new Set(((store_lookup.products) || []).flatMap(p => phoneKeys(p.title + ' ' + p.url + ' ' + (p.handle || ''))));
   const missing = want.filter(k => !haveKeys.has(k)); if (!missing.length) return store_lookup;
   const verified = new Set(store_lookup.verified_missing || []);
@@ -298,8 +308,11 @@ function requiredProductAddition(text, asked, storeLookup) {
 // each is the right link). Every link must be a known KB, SAR or store URL (scheme + host + path; extra query params on a
 // KB link are fine). A product link must be one the live store lookup returned for the phone asked about, and a
 // ?variant= on it must be a variant of that product. Returns { ok: [urls], problems: [{ url, problem }] }.
-function checkLinks(body, { kbUrls = [], storeLookup = null, sarLookup = null, extra = [], asked = '' } = {}) {
-  const want = phoneKeys(asked); const all = (storeLookup && storeLookup.products) || [];
+// The pre-looked-up phone catalog (System notes, phone_catalog.products) is the same store data, so a product or ?variant=
+// link from it is a store link too (r.cb45d453: the iPhone 17 Pro Max Turquoise variant link was failed as unknown).
+function checkLinks(body, { kbUrls = [], storeLookup = null, sarLookup = null, extra = [], asked = '', catalog = [] } = {}) {
+  const want = specificKeys(phoneKeys(asked)); const looked = (storeLookup && storeLookup.products) || [];
+  const all = looked.concat((catalog || []).filter(c => c && !looked.some(p => (p.url && sameProduct(c, p.url)) || (c.url && sameProduct(p, c.url)))));
   const forPhone = want.length ? all.filter(p => phoneKeys(p.title + ' ' + p.url).some(k => want.includes(k))) : all;
   const known = new Set([...kbUrls, ...extra, ...all.map(p => p.url), ...(sarLookup ? [sarLookup.sar_page, sarLookup.ranking, sarLookup.url] : [])].map(u => u && normUrl(u)).filter(Boolean));
   const ok = [], problems = [];
@@ -588,7 +601,8 @@ function colorLinkProduct(p, text, cfg = {}) {
 function withColorLinks(store_lookup, asked, cfg = {}) {
   if (!store_lookup || !Array.isArray(store_lookup.products)) return store_lookup;
   const conf = { single_variant_color: cfg.single_variant_color || colorVariantConfig(cfg.env).single_variant_color };
-  return { ...store_lookup, products: store_lookup.products.map(p => colorLinkProduct(p, asked, conf)) };
+  const text = fixTypos(asked); // "turqouise" names Turquoise (r.cb45d453)
+  return { ...store_lookup, products: store_lookup.products.map(p => colorLinkProduct(p, text, conf)) };
 }
 // Deterministic: never invite the customer to choose a color when the live store product has no color options
 // (only Default Title). "It comes in black (one color)" is fine.
@@ -1075,12 +1089,13 @@ class MailBots {
     // Automatic retry after a checker error (e.g. a timeout): the writer already finished, so re-check the saved draft with
     // the same evidence instead of ending with nothing checked (Jarvis triage bug 3). Only while the reply writer is
     // switched on: the writer-off switch still stops everything, as before.
+    let checkRetry = false;
     if (!draft && !writers.length && writerOn && kinds('checker').length) {
       const c = (this.db.ckpt || {})[id]; const saved = c && String(c.key).startsWith('check|') ? this.ckGet(id, c.key) : null;
       const d = saved && this.store.draft(saved.draft_id);
       if (d && d.status === 'draft' && !this.sentFor(id)) {
         draft = d; ({ webAnswers = [], lookup = null, sar_lookup = null, medical_disclaimer = null, research_lookup = null, symptom_research = null, writerKnowledge = null, order_lookup: orderLookup = null, catalogHit = null, systemNotes = null } = saved.ctx || {});
-        this.step(id, 'check', 'resumed', 'Automatic retry: checking the saved draft again (the earlier check did not finish)', { draft_id: d.id });
+        checkRetry = true; this.step(id, 'check', 'resumed', 'Automatic retry: checking the saved draft again (the earlier check did not finish)', { draft_id: d.id });
       }
     }
     if (!draft) { const lv = this.live.get(id); if (lv && lv.status === 'running') this.finish(id, 'done', writers.length ? 'Finished: no reply written' : 'Finished: reply writer is off'); if (writers.length) { this.step(id, 'check', 'skipped', 'No draft'); this.step(id, 'auto_send', 'skipped', 'No draft'); } doneAll(true); return 'processed'; }
@@ -1097,7 +1112,7 @@ class MailBots {
     if (checkers.length) this.ckPut(id, 'check|' + draft.id, { draft_id: draft.id, ctx: { webAnswers, lookup, sar_lookup, medical_disclaimer, research_lookup, symptom_research, writerKnowledge, order_lookup: orderLookup, catalogHit, systemNotes } });
     if (!checkers.length) this.step(id, 'check', 'skipped', 'Checker bot is off; the built-in checker grades before any auto-send');
     lookup = await withVerifiedHandles(lookup, draft && draft.body, orig.subject + '\n' + orig.text, this.fetch);
-    for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...SN.fields(catalogHit, systemNotes) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
+    for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...SN.fields(catalogHit, systemNotes), ...(checkRetry ? { check_retry: true } : {}) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
     if (webAnswers.length) for (const w of webAnswers) this.webResearch.report(w.item_id, { checker: grade ? { verdict: grade.verdict, notes: grade.notes, problems: grade.web_problem ? [grade.web_problem] : [] } : { verdict: 'not_run', notes: 'Checker bot is off', problems: [] }, draft_id: draft.id, delivery: grade && grade.verdict === 'pass' ? 'checker_passed' : 'held' });
     if (grade && grade.verdict !== 'pass') {
       const disc = (readDisclaimer(this.tools) || medical_disclaimer || {});
@@ -1214,7 +1229,8 @@ class MailBots {
     const asked = orig.subject + '\n' + orig.text;
     const storeLookup = await withVerifiedHandles(extra.store_lookup, draft.body, asked, this.fetch);
     const symptomResearch = extra.symptom_research !== undefined ? extra.symptom_research : symptomLookup(this.tools, orig);
-    const links = checkLinks(draft.body, { kbUrls: (this.tools && typeof this.tools.kbUrls === 'function' ? this.tools.kbUrls() : []), storeLookup, sarLookup: extra.sar_lookup, asked, extra: [...(extra.knowledge || knowledge || []).map(k => k && k.source).filter(Boolean), ...(researchDir.urlsOf(extra.research_lookup) || []), ...symptoms.urlsOf(symptomResearch), ...O.urlsOf(extra.order_lookup), this.newsletterJoinUrl].filter(Boolean) });
+    const catProds = (extra.phone_catalog && extra.phone_catalog.products) || [];
+    const links = checkLinks(draft.body, { catalog: catProds, kbUrls: (this.tools && typeof this.tools.kbUrls === 'function' ? this.tools.kbUrls() : []), storeLookup, sarLookup: extra.sar_lookup, asked, extra: [...(extra.knowledge || knowledge || []).map(k => k && k.source).filter(Boolean), ...(researchDir.urlsOf(extra.research_lookup) || []), ...symptoms.urlsOf(symptomResearch), ...O.urlsOf(extra.order_lookup), this.newsletterJoinUrl].filter(Boolean) });
     const kIn = (extra.knowledge && extra.knowledge.length) ? extra.knowledge : knowledge;
     // Always pass the URL-verified store lookup (withVerifiedHandles) to the model. Using extra.store_lookup first
     // hid those products when the short search query was empty (r.86b605a8).
@@ -1224,11 +1240,11 @@ class MailBots {
       original: { subject: orig.subject, text: orig.text },
       draft: { subject: draft.subject, body: maskVerified(draft.body, links.ok) },
       owner_approved_note: vOwn.length ? 'These sentences in the draft are quoted verbatim from an owner-approved knowledge base answer (John Coates). They are pre-approved: never treat them as invented, medical, health or unsupported claims, or as an unasked addition when they answer the question: ' + vOwn.map(x => '"' + x + '"').join(' ') : undefined,
-      links_note: 'Each ' + VERIFIED + ' is a link already verified in code against the knowledge base and the live store (and the phone asked about). Verified links are pre-approved: never list one as an unasked addition. Grade the words around it as usual. An empty store_lookup search is not evidence that a fact is invented: if the draft links a store product or ?variant= URL, those verified products are in store_evidence. Do not cut price, stock or color you could not check; fetch or use the verified URL facts instead.',
+      links_note: 'Each ' + VERIFIED + ' is a link already verified in code against the knowledge base, the live store and the pre-looked-up phone catalog in system_notes (and the phone asked about). Verified links are pre-approved: never list one as an unasked addition. Grade the words around it as usual. An empty store_lookup search is not evidence that a fact is invented: if the draft links a store product or ?variant= URL, those verified products are in store_evidence. Do not cut price, stock or color you could not check; fetch or use the verified URL facts instead.',
       knowledge: trimmed.knowledge,
       extra: { ...extra, store_lookup: trimmed.store_lookup || storeLookup || extra.store_lookup }
     });
-    const x = await this.call(r, payload, { timeoutMs: checkerMs(this.effective(r).limits.model, !!(extra.medical_disclaimer || extra.hasDisclaimer || extra.symptom_research || extra.research_lookup), draft.body) });
+    const x = await this.call(r, payload, { timeoutMs: checkerMs(this.effective(r).limits.model, !!(extra.medical_disclaimer || extra.hasDisclaimer || extra.symptom_research || extra.research_lookup), draft.body, { inputChars: JSON.stringify(payload).length, systemNotes: !!extra.system_notes, retry: !!extra.check_retry }) });
     let verdict = ['pass', 'fail', 'unsure'].includes(x.verdict) ? x.verdict : 'unsure';
     // Deterministic: a draft that does not answer the email's main question never passes, and says so plainly.
     const mq = String(x.main_question || '').trim().slice(0, 160);
@@ -1253,7 +1269,6 @@ class MailBots {
     const wp = webAnswers.length ? WR.webResearchProblem(draft.body, webAnswers) : null; if (wp) { verdict = 'fail'; x.notes = wp + (x.notes ? '. ' + String(x.notes) : ''); }
     const detEdits = [];
     for (const nc of noCarryProblems(draft.body, storeLookup)) { verdict = 'fail'; x.notes = 'Says we do not carry the ' + nc.model + ' without a verified store result: ' + nc.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: nc.sentence.slice(0, 500), reason: 'Unverified "we do not carry" claim', fact: nc.fact, source: nc.product ? 'store_lookup' : 'store' }); }
-    const catProds = (extra.phone_catalog && extra.phone_catalog.products) || [];
     const catModels = new Set();
     for (const cp of (catProds.length ? PC.claimProblems(draft.body, catProds, phoneKeys) : [])) { verdict = 'fail'; x.notes = 'Contradicts the pre-looked-up catalog for the ' + cp.model + ': ' + cp.reason + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: cp.sentence.slice(0, 500), reason: cp.reason, fact: cp.fact, source: 'phone_catalog' }); }
     for (const mp of (catProds.length ? missingProductProblems(draft.body, { products: catProds }, asked) : [])) { verdict = 'fail'; x.notes = 'Leaves out the store colors, price, stock or product link for the ' + mp.model + ': ' + mp.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'add', text: mp.fact.slice(0, 500), reason: 'Include the ' + mp.model + ' case colors, price, stock and product link even when a knowledge-base answer covers another question', fact: mp.fact.slice(0, 400), source: 'phone_catalog' }); catModels.add(mp.model); }
@@ -1285,4 +1300,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { fixSignoff, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
