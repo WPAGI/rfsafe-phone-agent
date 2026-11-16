@@ -16,6 +16,7 @@ const O = require('./orderlookup'); // Mailbox Shopify order lookup + order-ques
 const R = require('./revise'); // checker evidence order, health-tip allowance, revise loop (John, 12:20–12:23 AM ET)
 const { isOfficialGovUrl } = require('./govlinks');
 const PC = require('./phone-catalog');
+const SN = require('./system-notes');
 const err = (s, status = 400) => Object.assign(new Error(s), { status });
 const clone = x => JSON.parse(JSON.stringify(x));
 // Reasoning models think before answering: give them more time and a thinking-token allowance on top of the reply budget.
@@ -122,8 +123,19 @@ function productQuery(subject, text, names) {
   return s.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(w => w && !STOP.has(w.toLowerCase())).slice(0, 8).join(' ');
 }
 // Deterministic guard: a greeting may use a name only if the email supplied it.
+// Callbots sign-off (John: "The RF Safe team"): brand.json mailbox.signoff. A trailing "<Name> Team" line is replaced with it.
+const SIGNOFF_NAME = (() => { try { return String((require('../brand').mailbox || {}).signoff || '').trim(); } catch { return ''; } })();
+function fixSignoff(body) {
+  if (!SIGNOFF_NAME) return String(body);
+  const lines = String(body).split('\n'); let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i--) {
+    if (!lines[i].trim()) continue; seen++;
+    if (/^\s*[-\u2013\u2014]?\s*(?:the\s+)?[A-Za-z][\w .&'\u2019-]{0,40}?\s+team\.?\s*$/i.test(lines[i]) && lines[i].trim() !== SIGNOFF_NAME) { lines[i] = SIGNOFF_NAME; break; }
+  }
+  return lines.join('\n');
+}
 function fixGreeting(body, name) {
-  return String(body).replace(/^(\s*(?:hi|hello|hey|dear)\s+)([A-Z][a-zA-Z'’-]+)([,!])/i, (all, g, n, p) => (name && n.toLowerCase() === name.toLowerCase()) || /^(there|team|all|friend)$/i.test(n) ? all : g + 'there' + p);
+  return fixSignoff(String(body)).replace(/^(\s*(?:hi|hello|hey|dear)\s+)([A-Z][a-zA-Z'’-]+)([,!])/i, (all, g, n, p) => (name && n.toLowerCase() === name.toLowerCase()) || /^(there|team|all|friend)$/i.test(n) ? all : g + 'there' + p);
 }
 // Plain words for an auto-send hold, naming exactly what matched and where (e.g. topic money: "quote" in the draft reply).
 const TOPICS = { chargeback: 'a chargeback or payment dispute', money_request: 'a request that we send them money directly', refund: 'refunds', legal: 'legal', medical: 'medical', complaint: 'a complaint', names_staff: 'a staff name' };
@@ -879,7 +891,7 @@ class MailBots {
     }
     if (this.store.state(id).folder !== 'inbox') { this.finish(id, 'done', 'Sorted to ' + this.store.state(id).folder + '; no reply needed'); for (const k of ['reply', 'check', 'auto_send']) this.step(id, k, 'skipped', 'Sorted out of the Inbox'); doneAll(true); return 'processed'; }
     // 2. Reply writer: first decides whether a reply is needed at all.
-    const writers = kinds('replier'); let webAnswers = []; let draft = null; let lookup = null; let sar_lookup = null; let sarDone = false; let medical_disclaimer = null; let research_lookup = null; let symptom_research = null; let orderLookup = null; let catalogHit = null; let orderIndexNote = null;
+    const writers = kinds('replier'); let webAnswers = []; let draft = null; let lookup = null; let sar_lookup = null; let sarDone = false; let medical_disclaimer = null; let research_lookup = null; let symptom_research = null; let orderLookup = null; let catalogHit = null; let systemNotes = null;
     const writerOn = enabled.some(r => this.effective(r).kind === 'replier');
     if (!writers.length) this.step(id, 'reply', 'skipped', writerOn ? 'Reply already written' : 'Reply writer is off');
     const signed = signedName(orig.text); let writerKnowledge = null;
@@ -988,11 +1000,21 @@ class MailBots {
         try { catalogHit = await this.phoneCatalog.resolve(orig.subject, orig.text); } catch { catalogHit = null; }
         if (catalogHit && catalogHit.found && catalogHit.found.length) this.step(id, 'reply', 'lookup', 'Phone catalog: ' + catalogHit.found.length + ' QuantaCase' + (catalogHit.found.length === 1 ? '' : 's') + ' for phones named in this email', { bot: r.id, tool: 'phone_catalog', models: catalogHit.found.map(x => x.model) });
       }
-      orderIndexNote = null;
-      if (this.orderIndex && typeof this.orderIndex.noteFor === 'function' && this.orderIndex.enabled()) {
-        try { orderIndexNote = await this.orderIndex.noteFor(orig); } catch { orderIndexNote = null; }
+      // One "System notes for this email" block (catalog + orders on file), right under the email for writer and checker.
+      let orderFacts = null;
+      if (this.orderIndex && typeof this.orderIndex.factsFor === 'function' && this.orderIndex.enabled()) {
+        try { orderFacts = await this.orderIndex.factsFor(orig); } catch { orderFacts = null; }
       }
-      const input = { message: safeOrig, questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}), ...PC.catalogFields(catalogHit), ...(orderIndexNote ? { order_index_note: orderIndexNote } : {}) };
+      const orderedProducts = new Map();
+      if (orderFacts && orderFacts.match === 'email' && this.phoneCatalog && typeof this.phoneCatalog.resolve === 'function') {
+        for (const o of orderFacts.orders || []) for (const it of (o.items || [])) {
+          if (orderedProducts.has(it.title)) continue;
+          let prod = null; try { const h = await this.phoneCatalog.resolve(it.title, ''); prod = (h && h.found && h.found[0] && h.found[0].product) || null; } catch { prod = null; }
+          orderedProducts.set(it.title, prod);
+        }
+      }
+      systemNotes = SN.build({ catalogHit, orderFacts, productFor: (it) => orderedProducts.get(it.title) || null, fallback: (this.colorCfg && this.colorCfg.single_variant_color) || PC.DEFAULT_COLOR });
+      const input = { message: safeOrig, ...(systemNotes ? { system_notes: systemNotes.text } : {}), questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}), ...SN.fields(catalogHit, systemNotes) };
       const redrafting = this.db.redraft && this.db.redraft[id];
       if (redrafting && redrafting.draft_id) {
         let keep = this.store.draft(redrafting.draft_id);
@@ -1057,7 +1079,7 @@ class MailBots {
       const c = (this.db.ckpt || {})[id]; const saved = c && String(c.key).startsWith('check|') ? this.ckGet(id, c.key) : null;
       const d = saved && this.store.draft(saved.draft_id);
       if (d && d.status === 'draft' && !this.sentFor(id)) {
-        draft = d; ({ webAnswers = [], lookup = null, sar_lookup = null, medical_disclaimer = null, research_lookup = null, symptom_research = null, writerKnowledge = null, order_lookup: orderLookup = null, catalogHit = null, orderIndexNote = null } = saved.ctx || {});
+        draft = d; ({ webAnswers = [], lookup = null, sar_lookup = null, medical_disclaimer = null, research_lookup = null, symptom_research = null, writerKnowledge = null, order_lookup: orderLookup = null, catalogHit = null, systemNotes = null } = saved.ctx || {});
         this.step(id, 'check', 'resumed', 'Automatic retry: checking the saved draft again (the earlier check did not finish)', { draft_id: d.id });
       }
     }
@@ -1072,10 +1094,10 @@ class MailBots {
     }
     // 3. Checker, then 4. auto-send (only if the checker passes and every cap, block and owner-only rule allows).
     const checkers = kinds('checker'); let grade = null;
-    if (checkers.length) this.ckPut(id, 'check|' + draft.id, { draft_id: draft.id, ctx: { webAnswers, lookup, sar_lookup, medical_disclaimer, research_lookup, symptom_research, writerKnowledge, order_lookup: orderLookup, catalogHit, orderIndexNote } });
+    if (checkers.length) this.ckPut(id, 'check|' + draft.id, { draft_id: draft.id, ctx: { webAnswers, lookup, sar_lookup, medical_disclaimer, research_lookup, symptom_research, writerKnowledge, order_lookup: orderLookup, catalogHit, systemNotes } });
     if (!checkers.length) this.step(id, 'check', 'skipped', 'Checker bot is off; the built-in checker grades before any auto-send');
     lookup = await withVerifiedHandles(lookup, draft && draft.body, orig.subject + '\n' + orig.text, this.fetch);
-    for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...PC.catalogFields(catalogHit), ...(orderIndexNote ? { order_index_note: orderIndexNote } : {}) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
+    for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...SN.fields(catalogHit, systemNotes) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
     if (webAnswers.length) for (const w of webAnswers) this.webResearch.report(w.item_id, { checker: grade ? { verdict: grade.verdict, notes: grade.notes, problems: grade.web_problem ? [grade.web_problem] : [] } : { verdict: 'not_run', notes: 'Checker bot is off', problems: [] }, draft_id: draft.id, delivery: grade && grade.verdict === 'pass' ? 'checker_passed' : 'held' });
     if (grade && grade.verdict !== 'pass') {
       const disc = (readDisclaimer(this.tools) || medical_disclaimer || {});
@@ -1085,7 +1107,7 @@ class MailBots {
         this.finish(id, 'done', 'Held for you: the checker said ' + grade.verdict + ' — ' + String(grade.notes).slice(0, 160));
         this.step(id, 'auto_send', 'held', 'Checker ' + grade.verdict + ': waits for the owner'); this.store.updateDraft(draft.id, {}, 'held'); doneAll(true); return 'processed';
       }
-      const reviewExtra = () => ({ ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...PC.catalogFields(catalogHit), ...(orderIndexNote ? { order_index_note: orderIndexNote } : {}) });
+      const reviewExtra = () => ({ ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...SN.fields(catalogHit, systemNotes) });
       const alreadyRerun = !!(this.db.revise_rerun && this.db.revise_rerun[id]);
       let loops = 0;
       const replierRec = Object.values(this.db.installed).find(x => this.effective(x).kind === 'replier' && x.enabled);
@@ -1096,7 +1118,7 @@ class MailBots {
         loops++;
         this.step(id, 'check', 'revise_requested', 'Checker required ' + edits.length + ' edit' + (edits.length === 1 ? '' : 's') + ' (loop ' + loops + ' of ' + R.MAX_REVISE + '): ' + R.editSummary(edits), { loop: loops, edits, facts: grade.lookup_facts || [] });
         lookup = await withVerifiedHandles(lookup, draft.body, orig.subject + '\n' + orig.text, this.fetch);
-        const revised = await this.reviseDraft(replierRec, orig, draft, edits, { store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, knowledge: writerKnowledge || [], order_lookup: orderLookup, signed, catalogHit, orderIndexNote });
+        const revised = await this.reviseDraft(replierRec, orig, draft, edits, { store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, knowledge: writerKnowledge || [], order_lookup: orderLookup, signed, catalogHit, systemNotes });
         if (!revised) break;
         draft = revised;
         this.step(id, 'reply', 'revised', 'Applied checker edits (loop ' + loops + ' of ' + R.MAX_REVISE + ')', { bot: replierRec.id, draft_id: draft.id, loop: loops });
@@ -1176,8 +1198,7 @@ class MailBots {
       ...(ctx.symptom_research ? { symptom_research: ctx.symptom_research } : {}),
       ...(md ? { medical_disclaimer: md } : {}),
       ...(ctx.order_lookup ? { order_lookup: ctx.order_lookup } : {}),
-      ...PC.catalogFields(ctx.catalogHit),
-      ...(ctx.orderIndexNote ? { order_index_note: ctx.orderIndexNote } : {})
+      ...SN.fields(ctx.catalogHit, ctx.systemNotes)
     }, { timeoutMs: writerRound1Ms(this.effective(r).limits.model, !!md) });
     const body = String(y && y.body || '').trim();
     if (!body) return null;
@@ -1225,7 +1246,10 @@ class MailBots {
     const cp = chooseColorProblem(draft.body, storeLookup); if (cp) { verdict = 'fail'; x.notes = cp + (x.notes ? '. ' + String(x.notes) : ''); }
     const ut = O.unverifiedTrackingProblem(draft.body, extra.order_lookup); if (ut) { verdict = 'fail'; x.notes = ut + (x.notes ? '. ' + String(x.notes) : ''); }
     if (lp.length) { verdict = 'fail'; x.notes = 'Wrong or unknown link: ' + lp.map(p => p.url.slice(0, 120) + ' (' + p.problem + ')').join('; ').slice(0, 300) + (x.notes ? '. ' + String(x.notes) : ''); }
-    if (isReturnsQ(orig.subject, orig.text) && returnAddressRequired(orig, draft.body)) { const card = (extra.knowledge || knowledge || []).find(k => /To exchange or return a case, mail it back/.test(String((k && k.text) || ''))) || (this.tools ? await this.returnsCard(r) : null); const ad = card && returnAddress(card.text); if (ad && missingAddress(draft.body, ad)) { verdict = 'fail'; x.notes = 'Refund, return or exchange reply does not state the return address from the knowledge base (' + ad + ')' + (x.notes ? '. ' + String(x.notes) : ''); } }
+    // Switch before shipping (John, Nov 16 12:14 PM ET): a processing, email-matched order and a color/exchange request.
+    const swp = SN.switchProblem(orig.subject + '\n' + orig.text, draft.body, extra.switch_orders); if (swp) { verdict = 'fail'; x.notes = swp + (x.notes ? '. ' + String(x.notes) : ''); x.edits = [...(Array.isArray(x.edits) ? x.edits : []), { action: 'add', text: swp.slice(0, 500), reason: 'Offer the switch before shipping instead of a return', fact: swp.slice(0, 400), source: 'system_notes' }]; }
+    const switchOffered = !!(extra.switch_orders && extra.switch_orders.length && SN.offersSwitch(draft.body));
+    if (!switchOffered && isReturnsQ(orig.subject, orig.text) && returnAddressRequired(orig, draft.body)) { const card = (extra.knowledge || knowledge || []).find(k => /To exchange or return a case, mail it back/.test(String((k && k.text) || ''))) || (this.tools ? await this.returnsCard(r) : null); const ad = card && returnAddress(card.text); if (ad && missingAddress(draft.body, ad)) { verdict = 'fail'; x.notes = 'Refund, return or exchange reply does not state the return address from the knowledge base (' + ad + ')' + (x.notes ? '. ' + String(x.notes) : ''); } }
     const wp = webAnswers.length ? WR.webResearchProblem(draft.body, webAnswers) : null; if (wp) { verdict = 'fail'; x.notes = wp + (x.notes ? '. ' + String(x.notes) : ''); }
     const detEdits = [];
     for (const nc of noCarryProblems(draft.body, storeLookup)) { verdict = 'fail'; x.notes = 'Says we do not carry the ' + nc.model + ' without a verified store result: ' + nc.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: nc.sentence.slice(0, 500), reason: 'Unverified "we do not carry" claim', fact: nc.fact, source: nc.product ? 'store_lookup' : 'store' }); }
@@ -1261,4 +1285,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { fixSignoff, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };

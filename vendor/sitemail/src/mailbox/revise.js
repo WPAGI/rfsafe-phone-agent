@@ -42,7 +42,9 @@ function checkerPayload({ original, draft, links_note, owner_approved_note, know
     ...(extra.research_lookup ? { research_lookup: extra.research_lookup } : {}),
     ...(extra.symptom_research ? { symptom_research: extra.symptom_research } : {}),
     ...(extra.medical_disclaimer ? { medical_disclaimer: extra.medical_disclaimer } : {}),
-    original, draft,
+    original,
+    ...(extra.system_notes ? { system_notes: extra.system_notes } : {}),
+    draft,
     ...(owner_approved_note ? { owner_approved_note } : {}),
     ...(links_note ? { links_note } : {}),
     knowledge: knowledge || [],
@@ -53,9 +55,8 @@ function checkerPayload({ original, draft, links_note, owner_approved_note, know
     ...(Array.isArray(extra.kb_gaps) ? { kb_gaps: extra.kb_gaps } : {}),
     ...(extra.sender ? { sender: extra.sender } : {}),
     ...(extra.footer ? { footer: extra.footer } : {}),
-    ...(extra.quanta_cases_block ? { quanta_cases_block: extra.quanta_cases_block } : {}),
     ...(extra.phone_catalog ? { phone_catalog: extra.phone_catalog } : {}),
-    ...(extra.order_index_note ? { order_index_note: extra.order_index_note } : {})
+    ...(extra.switch_orders ? { switch_orders: extra.switch_orders } : {})
   };
 }
 

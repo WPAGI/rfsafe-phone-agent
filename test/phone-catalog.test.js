@@ -251,16 +251,18 @@ test('writer and checker inputs both include the titled QuantaCases block', asyn
   });
   h.arrive({ id: 'r.sam-cat', subject: SAM.subject, text: SAM.text, from: 'Sam Sample <sam@sample.example>' });
   await h.run();
-  const writer = h.captured.find(c => c.user && c.user.quanta_cases_block && !/Independently review/.test(c.sys));
+  const SN = require('../vendor/sitemail/src/mailbox/system-notes');
+  const writer = h.captured.find(c => c.user && c.user.system_notes && !/Independently review/.test(c.sys));
   const checker = h.captured.find(c => /Independently review/.test(c.sys));
-  assert.ok(writer, 'writer saw the catalog block');
+  assert.ok(writer, 'writer saw the system notes block');
   assert.ok(checker, 'checker ran');
   assert.strictEqual(writer.user.phone_catalog.title, PC.BLOCK_TITLE);
-  assert.match(writer.user.quanta_cases_block, new RegExp('^' + PC.BLOCK_TITLE));
-  assert.match(writer.user.quanta_cases_block, /apple-iphone-17-pro-max/);
-  const extra = checker.user.extra || checker.user;
-  const block = extra.quanta_cases_block || (checker.user.quanta_cases_block);
-  assert.match(String(block || JSON.stringify(checker.user)), new RegExp(PC.BLOCK_TITLE));
+  assert.deepStrictEqual(Object.keys(writer.user).slice(0, 2), ['message', 'system_notes'], 'block sits right under the email');
+  assert.match(writer.user.system_notes, new RegExp('^' + SN.TITLE + '\\n\\n' + SN.INTRO));
+  assert.match(writer.user.system_notes, new RegExp(SN.CATALOG_TITLE));
+  assert.match(writer.user.system_notes, /apple-iphone-17-pro-max/);
+  assert.strictEqual(writer.user.quanta_cases_block, undefined);
+  assert.match(String(checker.user.system_notes || JSON.stringify(checker.user)), new RegExp(SN.CATALOG_TITLE));
   assert.match(JSON.stringify(checker.user), /apple-iphone-17-pro-max/);
 });
 
