@@ -55,6 +55,7 @@ function createMailbox(o = {}) {
     prices: (m) => bots.models.price(m),
     onUsage: (u) => { bots.db.usage.push({ day: dateParts(now()), bot: 'web_research', model: u.model, input: u.input, output: u.output, cost: u.cost, estimated: u.cost_source !== 'provider', cost_source: u.cost_source }); store.save(); } });
   const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, kbGap: o.kbGap || null, webResearch });
+  if (typeof o.onReplied === 'function') bots.onReplied = o.onReplied; // optional observer (port/mount.js kb growth loop)
   if (o.mailBase) bots.mailBase = o.mailBase; // owner inbox path (portable package mail.base; rfsafe.app: /mail)
   // A boot-applied reprocess must not run during the restart itself (the site's own data, e.g. the SAR catalog, is
   // briefly unreachable). Wait at least minMs, then until the public /health answers OK `need` times in a row
@@ -411,6 +412,14 @@ function createMailbox(o = {}) {
         store.db.audit ||= []; store.db.audit.push({ at: store.iso(), who, action: 'reprocess', id }); store.save();
         const r = bots.reprocess(id, who); return json(res, r.already_running ? 409 : 202, { ok: !r.already_running, ...(r.already_running ? { error: 'already_running', detail: 'A run on this message is already in progress.' } : {}), run: r.run });
       }
+      if (p === '/bots/redraft') {
+        const id = String(b.id || ''); if (!ID_RE.test(id)) return json(res, 400, { error: 'bad_id' });
+        store.db.audit ||= []; store.db.audit.push({ at: store.iso(), who, action: 'redraft', id }); store.save();
+        const r = bots.redraft(id, who);
+        if (r.already_replied) return json(res, 409, { ok: false, error: 'already_replied', detail: 'A reply was already sent for this email.' });
+        if (r.no_draft) return json(res, 409, { ok: false, error: 'no_draft', detail: 'There is no current draft to redraft. Use Rerun to write a new one.' });
+        return json(res, r.already_running ? 409 : 202, { ok: !r.already_running, ...(r.already_running ? { error: 'already_running', detail: 'A run on this message is already in progress.' } : {}), run: r.run });
+      }
       if (p === '/bots/import') {
         if (typeof b.data !== 'string' || b.data.length > 5600000 || !/^[A-Za-z0-9+/=\r\n]+$/.test(b.data)) return json(res, 400, { error: 'base64_file_required' });
         return json(res, 201, bots.import(Buffer.from(b.data, 'base64'), clip(b.filename, 200)));
@@ -512,6 +521,10 @@ function createMailbox(o = {}) {
     store.db.audit ||= []; store.db.audit.push({ at: store.iso(), who: 'Jarvis rerun key', action: 'reprocess', id }); store.save();
     return bots.reprocess(id, 'Jarvis rerun key');
   }
+  function redraftByKey(id) {
+    store.db.audit ||= []; store.db.audit.push({ at: store.iso(), who: 'Jarvis rerun key', action: 'redraft', id }); store.save();
+    return bots.redraft(id, 'Jarvis rerun key');
+  }
   async function readActivity(id) {
     if (!ID_RE.test(id)) return null; const m = await original(id).catch(() => null); if (!m) return null;
     const head = readStatus({ id, created_at: m.created_at, subject: m.subject, from: m.from });
@@ -522,9 +535,9 @@ function createMailbox(o = {}) {
       steps: { pipeline: pick(/^pipeline$/), sorter: pick(/^sort$/), writer: pick(/^reply$/).filter(x => !/^web_research$/.test(x.status)), web_research: pick(/^reply$/).filter(x => x.status === 'web_research'), checker: pick(/^check$/), auto_send: pick(/^auto_send$/) },
       timeline: tl.map(x => ({ at: x.at, step: x.step, status: x.status, reason: x.reason })),
       checker_notes: bots.notes(id),
-      drafts: Object.keys(store.db.drafts).map(k => store.draft(k)).filter(d => d && d.reply_to_id === id).sort((a, b) => String(a.updated).localeCompare(String(b.updated))).map(d => ({ id: d.id, author: d.author, status: d.status, updated: d.updated, subject: d.subject, reason: d.reason || null, body: d.body })),
+      drafts: Object.keys(store.db.drafts).map(k => store.draft(k)).filter(d => d && d.reply_to_id === id).sort((a, b) => String(a.updated).localeCompare(String(b.updated))).map(d => ({ id: d.id, author: d.author, status: d.status, updated: d.updated, subject: d.subject, reason: d.reason || null, body: d.body, ...(d.versions && d.versions.length ? { versions: d.versions } : {}) })),
       sent: store.sentList().filter(s => s.reply_to_id === id).map(s => ({ id: s.id, at: s.at, via: s.via || null, approved_by: s.approved_by || null, resend_id: s.resend_id || null, subject: s.subject, body: s.body })) };
   }
-  return { enabled: true, reason: null, webResearch, readList, readActivity, rerunCheck, rerunByKey, store, keys, checker, botRoute, ownerRoute, createBotDraft, runAutoSend, fromAddress, site: primary, bots, tools, bootstrap, status, applyBootstrap, webhookRoute, shopifyCallback, close: () => { if (timer) clearInterval(timer); } };
+  return { enabled: true, reason: null, webResearch, readList, readActivity, rerunCheck, rerunByKey, redraftByKey, store, keys, checker, botRoute, ownerRoute, createBotDraft, runAutoSend, fromAddress, site: primary, bots, tools, bootstrap, status, applyBootstrap, webhookRoute, shopifyCallback, close: () => { if (timer) clearInterval(timer); } };
 }
 module.exports = { createMailbox, ID_RE };

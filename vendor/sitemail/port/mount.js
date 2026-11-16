@@ -71,9 +71,39 @@ function mountSiteMail(host = {}, cfg) {
   // Brain box: owner KB API store (write key) -> admin (editor/agents) -> public /kb.
   const kbApi = req('src/kbapi.js');
   const kbApiStore = on('brainbox_api') ? kbApi.open({ dataDir: ns, now }) : null;
+  // One-time seed import (kb.seed_import): copy an exported public KB (e.g. rfsafe.app's Q&A, wording unchanged) into
+  // THIS site's Brain box as owner-approved (so locked) entries. Additive: an existing slug is never touched, and a
+  // marker with the seed's sha256 stops it from running twice (an entry the owner later disables stays disabled).
+  // The source site is never written; the seed is a read-only package file.
+  let seedImport = null;
+  if (kbApiStore && cfg.kb.seed_import) seedImport = safe('seed_import', () => {
+    const file = path.join(ROOT, cfg.kb.seed_import); const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const sha = require('crypto').createHash('sha256').update(JSON.stringify(doc.entries || [])).digest('hex');
+    const marker = path.join(ns, 'kb-seed-import.json');
+    let prev = null; try { prev = JSON.parse(fs.readFileSync(marker, 'utf8')); } catch {}
+    if (prev && prev.sha256 === sha) return { ...prev, ran: false };
+    const res = { sha256: sha, from: doc.exported_from || null, source_data_version: doc.source_data_version || null, at: new Date(+now()).toISOString(), imported: 0, kept_existing: 0, errors: [] };
+    for (const e of doc.entries || []) {
+      if (!e || !kbApi.validateSlug(e.slug)) { res.errors.push(String(e && e.slug).slice(0, 80) + ': bad_slug'); continue; }
+      if (kbApiStore.get(tenantId, e.slug)) { res.kept_existing++; continue; }
+      const r = kbApiStore.put(tenantId, { slug: e.slug, title: e.title, text: e.text, source: e.source || '', owner_approved: true, enabled: true });
+      if (r.ok) res.imported++; else res.errors.push(e.slug + ': ' + r.error);
+    }
+    res.errors = res.errors.slice(0, 50);
+    fs.writeFileSync(marker, JSON.stringify(res, null, 1), { mode: 0o600 }); log('kb_seed_import', { imported: res.imported, kept_existing: res.kept_existing, errors: res.errors.length });
+    kbReset(); return { ...res, ran: true };
+  });
   let publicKb = null;
   const kbAdmin = on('brainbox_admin') && kbApiStore ? safe('brainbox_admin', () => custom('brainbox_admin', ctx) || req('src/kbadmin/index.js').createKbAdmin({ dataDir: ns, kbApiStore, tenant: () => tenant, kbReset: () => kbReset(), publicReset: () => publicKb && publicKb.reset && publicKb.reset(), catalog: () => req('src/kbcontrol.js').catalog({ tenant, tenantsDir: host.rootDir || null, dataDir: ns, apiStore: kbApiStore }), gapFile, log, now, webResearchSeed: null })) : null;
-  publicKb = on('public_kb') && kbApiStore ? safe('public_kb', () => custom('public_kb', ctx) || req('src/publickb/index.js').createPublicKb({ kbApiStore, tenantId: () => tenantId, visibility: (tid) => (kbAdmin && kbAdmin.store ? kbAdmin.store.visibility(tid) : {}), siteDir: path.join(ROOT, 'site'), dataDir: ns, now, baseUrl: () => cfg.site.public_base_url, log })) : null;
+  // Public /kb layers (all read-only): this site's Brain box entries, then the exported seed KB shipped in the package
+  // (public_kb.seed, e.g. rfsafe.app's public KB), then the host's own KB folders through the filtered adapter
+  // (public_kb.host_kb). The seed file and the host folders are only read, never written.
+  const pk = cfg.public_kb || {};
+  const seedFile = pk.seed ? path.join(ROOT, pk.seed) : null; let seedCache = null;
+  const seed = seedFile ? () => { const st = fs.statSync(seedFile); if (!seedCache || seedCache.m !== st.mtimeMs) seedCache = { m: st.mtimeMs, d: JSON.parse(fs.readFileSync(seedFile, 'utf8')) }; return seedCache.d; } : null;
+  const hk = pk.host_kb && pk.host_kb.enabled ? pk.host_kb : null;
+  const hostKbPublic = hk ? req('src/publickb/hostkb.js').createHostKb({ dirs: hostDirs, pageTypes: hk.page_types, publicNumbers: hk.public_numbers || [], publicEmails: hk.public_emails || [], topics: hk.topics || {}, linkBase: () => cfg.site.public_base_url }) : null;
+  publicKb = on('public_kb') && kbApiStore ? safe('public_kb', () => custom('public_kb', ctx) || req('src/publickb/index.js').createPublicKb({ kbApiStore, tenantId: () => tenantId, visibility: (tid) => (kbAdmin && kbAdmin.store ? kbAdmin.store.visibility(tid) : {}), siteDir: path.join(ROOT, 'site'), dataDir: ns, now, baseUrl: () => cfg.site.public_base_url, seed, hostKb: hostKbPublic, researchBase: pk.research_base || '', log })) : null;
 
   // Owner sign-in email: the host's sender when given, else Resend with this site's key and From.
   const sendEmail = host.sendEmail || (async (m) => {
@@ -81,6 +111,15 @@ function mountSiteMail(host = {}, cfg) {
     const r = await fetchImpl('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + env.RESEND_MAIL_READ_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: B.from, to: [m.to], subject: m.subject, text: m.text, html: m.html }) });
     return { ok: r.ok };
   });
+
+  // Brain box coverage metric + growth loop (src/mailbox/kbgrowth.js): an observer on the Mailbox writer; never changes a reply.
+  const HK = req('src/publickb/hostkb.js');
+  const growthCfg = cfg.kb.growth || {};
+  const growth = on('kb_growth') && kbApiStore ? safe('kb_growth', () => req('src/mailbox/kbgrowth.js').createKbGrowth({
+    dir: path.join(ns, 'kb-growth'), kb, tenantId: () => tenantId, brainEntries: () => kbApiStore.list(tenantId), store: kbAdmin && kbAdmin.store,
+    hostEntries: () => (hostKbPublic ? hostKbPublic.read().entries : []), siteBase: cfg.site.public_base_url, slugOf: HK.slugOf,
+    checkText: (t) => HK.checkText(t, { publicNumbers: (hk && hk.public_numbers) || [], publicEmails: (hk && hk.public_emails) || [] }),
+    proposeCap: Number.isInteger(growthCfg.proposals_per_day) ? growthCfg.proposals_per_day : 10, now: () => new Date(+now()), log })) : null;
 
   // Mail: the /mail inbox and the Mailbox bots (sorter, writer, checker, auto-send gate, order lookup, web research).
   let mailbox = null;
@@ -92,6 +131,7 @@ function mountSiteMail(host = {}, cfg) {
       shopifyCallbackUrl: cfg.site.public_base_url + C.mailBase(cfg) + '/tools/shopify/callback', mailBase: C.mailBase(cfg),
       kb: { search: (q, k, o) => kb().search(q, k, o), urls: () => kb().urls(), version: () => kb().version(), entryBySlug: (s) => kb().entryBySlug(s), entriesOfType: (t) => kb().entriesOfType(t) },
       answerRules: () => '',
+      onReplied: growth ? (ev) => growth.onReplied(ev) : undefined,
       kbGap: (g) => { try { appendJsonl(gapFile, { at: new Date().toISOString(), tenant: tenantId, question: String(g.question || '').slice(0, 200), reason: 'email_unanswered', channel: 'email', source: 'email', message_id: String(g.message_id || '').slice(0, 80) }); } catch {} },
       brainBox: on('web_research') && kbAdmin && kbAdmin.webResearchFor ? () => kbAdmin.webResearchFor() : () => null,
     }));
@@ -142,6 +182,11 @@ function mountSiteMail(host = {}, cfg) {
     const p = u.pathname;
     if (rerunApi && rerunApi.isPath(p)) { await rerunApi.route(rq, res, u); return true; }
     if (readApi && readApi.isPath(p)) { await readApi.route(rq, res, u); return true; }
+    if (growth && p === '/admin/mail/kb-coverage' && rq.method === 'GET') {
+      // Same read key as /admin/mail/messages. Counts and titles only, never email text or addresses.
+      if (!env.MAIL_READ_TOKEN_HASH || !kbApi.authorized(rq.headers.authorization, env.MAIL_READ_TOKEN_HASH)) { json(res, 401, { error: 'unauthorized' }); return true; }
+      json(res, 200, { coverage: growth.coverage(), recent: growth.recent(50), seed_import: seedImport }); return true;
+    }
     if (kbApiStore && KB_API_RE.test(p)) return kbApiRoute(rq, res, p);
     if (kbAdmin && kbAdmin.isAgentPath && kbAdmin.isAgentPath(p)) { await kbAdmin.agentRoute(rq, res, u); return true; }
     if (publicKb && KB_ASSET.test(p) && rq.method === 'GET') { const f = path.join(ROOT, 'site', 'kb', 'assets', p.match(KB_ASSET)[1]); if (!fs.existsSync(f)) return false; res.writeHead(200, { 'content-type': f.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(fs.readFileSync(f)); return true; }
@@ -156,7 +201,8 @@ function mountSiteMail(host = {}, cfg) {
   log('mounted', { site: cfg.site.id, modules, namespace: cfg.data.namespace });
   return {
     enabled: true, modules, failed, route, kbAdmin, publicKb, mailbox, mail,
-    status: () => ({ enabled: true, site: cfg.site.id, modules, host_kb: (() => { try { return hostKbFingerprint(); } catch { return null; } })(), ...(Object.keys(failed).length ? { failed: Object.keys(failed) } : {}), ...(mailbox && mailbox.enabled ? { mailbox: mailbox.status() } : {}) }),
+    kbSearch: (q, k) => kb().search(q, k), // read-only: the same combined KB the Mailbox writer and checker search
+    status: () => ({ enabled: true, site: cfg.site.id, modules, ...(seedImport ? { seed_import: { imported: seedImport.imported, kept_existing: seedImport.kept_existing, ran: seedImport.ran } } : {}), ...(growth ? { brain_box_coverage: (() => { try { const c = growth.coverage(); return { questions: c.questions, share: c.share }; } catch { return null; } })() } : {}), host_kb: (() => { try { return hostKbFingerprint(); } catch { return null; } })(), ...(Object.keys(failed).length ? { failed: Object.keys(failed) } : {}), ...(mailbox && mailbox.enabled ? { mailbox: mailbox.status() } : {}) }),
     close: () => { try { if (kbAdmin && kbAdmin.closeStreams) kbAdmin.closeStreams(); } catch {} try { if (mailbox && mailbox.close) mailbox.close(); } catch {} },
   };
 }

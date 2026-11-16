@@ -73,7 +73,14 @@ function fileCache() {
 }
 const httpsUrl = (u) => typeof u === 'string' && /^https:\/\/[^\s"<>]+$/.test(u) ? u : '';
 
-function createData({ kbApiStore, tenantId, visibility = () => ({}), siteDir, dataDir, repoDir = path.join(__dirname, '..', '..'), now = () => new Date(), ttlMs = TTL_MS, baseUrl = () => 'https://rfsafe.app' }) {
+// Optional layers for other sites (portable package, port/mount.js); rfsafe.app passes none of them, so its /kb is unchanged:
+//   seed()       an exported copy of another site's public KB (kb.json shape: entries, body_systems, safety_claim_critiques),
+//                read-only from the package; it fills in under this site's own Brain box entries (same slug: Brain box wins)
+//   hostKb       read-only adapter over the host's own KB folders (src/publickb/hostkb.js); layered on top of the seed,
+//                after the Brain box; a slug already shown by a higher layer is skipped
+//   researchBase where body-system "see the studies" links point ('' = this site's own /research)
+function createData({ kbApiStore, tenantId, visibility = () => ({}), siteDir, dataDir, repoDir = path.join(__dirname, '..', '..'), now = () => new Date(), ttlMs = TTL_MS, baseUrl = () => 'https://rfsafe.app', seed = null, hostKb = null, researchBase = '' }) {
+  const seedDoc = () => { try { const d = seed ? seed() : null; return d && typeof d === 'object' ? d : null; } catch { return null; } };
   let cache = null;
   const readFile = fileCache();
   const reset = () => { cache = null; };
@@ -83,17 +90,20 @@ function createData({ kbApiStore, tenantId, visibility = () => ({}), siteDir, da
     const sums = readFile(path.join(siteDir, 'research', 'data', 'body-system-summaries-v1.json')) || {};
     const labels = new Map((Array.isArray(tax.systems) ? tax.systems : []).map((s) => [s.id, s.label]));
     const sys = sums && sums.systems && typeof sums.systems === 'object' ? sums.systems : {};
+    const sdoc = seedDoc(); const seedBs = Object.fromEntries((sdoc && Array.isArray(sdoc.body_systems) ? sdoc.body_systems : []).filter((b) => b && b.id).map((b) => [b.id, b]));
     return BODY_SYSTEM_IDS.map((id) => {
       const s = sys[id] && typeof sys[id] === 'object' ? sys[id] : {};
       const blurb = typeof s.site_blurb === 'string' && s.site_blurb.trim().length >= 40 ? s.site_blurb.trim() : null;
-      return { id, name: BODY_SYSTEM_NAMES[id], research_label: labels.get(id) || null, summary: blurb, summary_title: typeof s.title === 'string' ? s.title.trim().slice(0, 120) : null,
-        summary_updated: typeof s.updated === 'string' ? s.updated.slice(0, 40) : null, research_url: '/research?system=' + encodeURIComponent(id) };
+      const sd = !blurb && seedBs[id] && typeof seedBs[id].summary === 'string' && seedBs[id].summary.trim().length >= 40 ? seedBs[id] : null;
+      return { id, name: BODY_SYSTEM_NAMES[id], research_label: labels.get(id) || (sd && sd.research_label) || null, summary: blurb || (sd ? sd.summary.trim().slice(0, 4000) : null), summary_title: typeof s.title === 'string' ? s.title.trim().slice(0, 120) : null,
+        summary_updated: typeof s.updated === 'string' ? s.updated.slice(0, 40) : sd && typeof sd.summary_updated === 'string' ? sd.summary_updated.slice(0, 40) : null, research_url: String(researchBase || '').replace(/\/$/, '') + '/research?system=' + encodeURIComponent(id) };
     });
   }
   // Safety-claim critiques: a data slot for Research Bot. The data disk copy (DATA_DIR/kb-public/…) wins over the repo copy.
   function critiques() {
     const name = 'safety-claim-critiques-v1.json';
-    const doc = (dataDir && readFile(path.join(dataDir, 'kb-public', name))) || readFile(path.join(repoDir, 'kb', 'public', name)) || {};
+    const sdoc = seedDoc(); const seedCr = sdoc && sdoc.safety_claim_critiques && Array.isArray(sdoc.safety_claim_critiques.items) && sdoc.safety_claim_critiques.items.length ? sdoc.safety_claim_critiques : null;
+    const doc = (dataDir && readFile(path.join(dataDir, 'kb-public', name))) || seedCr || readFile(path.join(repoDir, 'kb', 'public', name)) || {};
     const items = (Array.isArray(doc.items) ? doc.items : []).filter((x) => x && typeof x === 'object' && x.published !== false && typeof x.claim === 'string' && typeof x.critique === 'string').slice(0, 500).map((x, i) => ({
       id: topicSlug(x.id || x.claim).slice(0, 60) || 'critique-' + (i + 1), claim: x.claim.trim().slice(0, 400), claimed_by: typeof x.claimed_by === 'string' ? x.claimed_by.trim().slice(0, 200) : '',
       critique: x.critique.trim().slice(0, 6000), sources: (Array.isArray(x.sources) ? x.sources : []).map((s) => ({ title: String((s && s.title) || '').slice(0, 200), url: httpsUrl(s && s.url) })).filter((s) => s.url).slice(0, 12),
@@ -118,9 +128,31 @@ function createData({ kbApiStore, tenantId, visibility = () => ({}), siteDir, da
       if (!text) continue;
       entries.push({ slug: m.slug, url: '/kb/' + m.slug, title: String(m.title || m.slug).trim(), question, topic, topic_id: topicSlug(topic), text, source: httpsUrl(m.source), updated: m.updated || null, _k: String(m.aliases || '').slice(0, 600) });
     }
+    const layers = { brain_box: entries.length, seed: 0, host_kb: 0, skipped_duplicate: 0, host_filtered: null };
+    const seen = new Set(entries.map((e) => e.slug));
+    const sdoc = seedDoc();
+    for (const e of (sdoc && Array.isArray(sdoc.entries) ? sdoc.entries : [])) {
+      if (!e || typeof e.slug !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(e.slug) || RESERVED.has(e.slug)) continue; // the seed is an export of a PUBLIC feed: every entry in it was already public there
+      if (seen.has(e.slug)) { layers.skipped_duplicate++; continue; }
+      const text = String(e.text || '').replace(/\r/g, '').trim(); if (!text) continue;
+      const st = splitTitle(e.title); const topic = typeof e.topic === 'string' && e.topic ? e.topic : st.topic;
+      seen.add(e.slug); layers.seed++;
+      entries.push({ slug: e.slug, url: '/kb/' + e.slug, title: String(e.title || e.slug).trim(), question: typeof e.question === 'string' && e.question ? e.question : st.question, topic, topic_id: topicSlug(topic), text, source: httpsUrl(e.source), updated: e.updated || null, _k: '' });
+    }
+    let host = null; try { host = hostKb ? hostKb.read() : null; } catch { host = null; }
+    if (host) {
+      layers.host_filtered = { skipped: host.skipped, notes_lines_removed: host.notes ? host.notes.lines : 0 };
+      for (const e of host.entries) {
+        if (RESERVED.has(e.slug) || isInternal(e.slug, e.title)) continue;
+        if (seen.has(e.slug)) { layers.skipped_duplicate++; continue; }
+        const st = splitTitle(e.title); const topic = e.topic || st.topic;
+        seen.add(e.slug); layers.host_kb++;
+        entries.push({ slug: e.slug, url: '/kb/' + e.slug, title: e.title, question: st.question, topic, topic_id: topicSlug(topic), text: e.text, source: httpsUrl(e.source), updated: e.updated || null, _k: e.aliases || '' });
+      }
+    }
     const bs = bodySystems(); const cr = critiques();
     const key = crypto.createHash('sha256').update(JSON.stringify([entries.map((e) => [e.slug, e.title, e.text, e.source, e.updated, e._k]), bs, cr])).digest('hex');
-    if (derived && derived.key === key) return { ...derived, at: now().getTime(), base: baseUrl() };
+    if (derived && derived.key === key) return { ...derived, layers, at: now().getTime(), base: baseUrl() };
     const rank = (t) => { const i = TOPIC_ORDER.indexOf(t); return i < 0 ? (t === OTHER_TOPIC ? 9999 : 1000) : i; };
     const late = (e) => (/^critique-/.test(e.slug) ? 1 : 0);
     entries.sort((a, b) => (a.slug === CORE_SLUG ? -1 : b.slug === CORE_SLUG ? 1 : 0) || late(a) - late(b) || a.question.localeCompare(b.question));
@@ -152,7 +184,7 @@ function createData({ kbApiStore, tenantId, visibility = () => ({}), siteDir, da
     const critiquesAll = { status: critKb.length || cr.items.length ? 'live' : 'coming_soon', topic: critKb.length ? topics.find((t) => CRITIQUE_TOPICS.has(t.name)) || null : null,
       overview: critKb.filter((e) => !late(e)).map((e) => e.slug), studies: critKb.filter((e) => late(e)).map((e) => e.slug), items: cr.items };
     derived = { key, entries, bySlug, topics, related, core: bySlug.get(CORE_SLUG) || null, bodySystems: bs, critiques: critiquesAll, dataVersion, lastUpdated };
-    return { ...derived, at: now().getTime(), base: baseUrl() };
+    return { ...derived, layers, at: now().getTime(), base: baseUrl() };
   }
   function snapshot() {
     const t = now().getTime();

@@ -39,6 +39,11 @@ module.exports = {
     // Paths are relative to the host repo root, or $DATA_DIR/<folder> for folders on the host data disk.
     // Leave [] to start with only Brain box entries.
     host_kb_dirs: [],
+    // Optional one-time import of an exported public KB into this site's Brain box (owner-approved, locked; additive,
+    // never overwrites a slug). e.g. 'seed/public-kb/rfsafe-app-public-kb.json'. false = no import.
+    seed_import: false,
+    // Growth loop (modules.kb_growth): max proposals a day sent to the review inbox.
+    growth: { proposals_per_day: 10 },
   },
 
   // --- Data -------------------------------------------------------------------------------------------------
@@ -58,6 +63,7 @@ module.exports = {
     public_kb: true,       // public read-only /kb pages, llms.txt, JSON
     web_research: true,    // Mailbox web-research fallback when the Brain box has no answer
     order_lookup: false,   // read-only Shopify order status (needs the store section below)
+    kb_growth: false,     // Brain box coverage metric + growth loop: proposals for review, never live edits (needs mailbox, brainbox_admin)
     read_api: true,        // GET /admin/mail/messages (read key)
     rerun_api: true,       // POST /admin/mail/messages/<id>/rerun (rerun key)
   },
@@ -69,12 +75,25 @@ module.exports = {
     store_domain: '',          // public store domain, e.g. shop.example.com
     store_hosts: [],           // product-link hosts the writer may use, e.g. ['shop.example.com']
     own_site_names: [],        // first label of your own shop domains, e.g. ['shop'] (third-party order rule)
+    single_variant_color: 'Black',  // color named when a product has no color option (only "Default Title"); rfsafe.app default
   },
 
   // --- Wording -------------------------------------------------------------------------------------------------
   // Public /kb page text: [from, to] pairs replace the reference site's wording (rfsafe.app) on every page.
   // hide: public /kb sections this site does not have (e.g. '/kb/body-systems', '/kb/safety-claims').
-  public_kb: { replace: [], hide: [] },
+  public_kb: {
+    replace: [], hide: [],
+    // Optional: header, menu, footer and start-page wording for this site (defaults: rfsafe.app's own).
+    // brand: { name, mark, wordmark: [left, bold right], home_url, home_label, menu_links: [[href, label]], footer_label,
+    //          footer_links: [[href, label]], footer_update, footer_note, trademark, twitter, hero_title, hero_lead },
+    // Optional: an exported public KB to show under this site's own Brain box entries (read-only package file),
+    // e.g. 'seed/public-kb/rfsafe-app-public-kb.json' (refresh with: node port/tools/export-public-kb.js <url> <file>).
+    // seed: '',
+    // Where body-system "see the studies" links point ('' = this site's own /research), e.g. 'https://rfsafe.app'.
+    // research_base: '',
+    // Optional: show the host's own KB folders (kb.host_kb_dirs) on /kb through the read-only filtered adapter.
+    // host_kb: { enabled: false, page_types: ['curated', 'position', 'answer', 'topic'], public_numbers: [], public_emails: [], topics: {} },
+  },
   // Bot prompt wording: [from, to] pairs applied to the default sorter/writer/checker prompts.
   // (The owner can still edit every prompt later in /mail; edits are versioned.)
   prompts: { replace: [] },

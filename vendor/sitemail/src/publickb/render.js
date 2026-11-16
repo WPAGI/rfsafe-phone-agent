@@ -52,6 +52,23 @@ function searchBox(q = '', big = false) {
     + `<p class="kb-sr" aria-live="polite" data-kb-status></p></form>`;
 }
 
+// Site chrome (header, menu, footer, start-page hero). Defaults are rfsafe.app's own; another site sets
+// brand.json "public_kb": { "brand": {...}, "research_base": "https://rfsafe.app" } from port/site.config.js.
+const SITE_KB = (() => { try { return require('../brand').public_kb || {}; } catch { return {}; } })();
+const KB_BRAND = Object.assign({
+  name: 'RF Safe Knowledge Base', mark: 'RF', wordmark: ['RF SAFE', 'KNOWLEDGE BASE'], home_url: '/', home_label: 'rfsafe.app', twitter: '@rfsafe',
+  menu_links: [['/research', 'Research'], ['/sar', 'SAR & Phones'], ['/', 'rfsafe.app home']],
+  footer_label: 'RF Safe', footer_links: [['/', 'RF Safe home'], ['/research', 'Research'], ['/sar', 'SAR Compare'], ['/about', 'About'], ['/contact', 'Contact'], ['/privacy', 'Privacy'], ['/terms', 'Terms']],
+  footer_update: 'This page updates by itself when RF Safe changes an answer.', footer_note: 'General information from RF Safe, not medical advice. For a health concern, talk with your doctor.',
+  trademark: 'RF SAFE® is a registered trademark of Quanta X Technology LLC (U.S. Reg. No. 6,592,188).',
+  hero_title: 'RF Safe\'s positions on wireless radiation, in plain words',
+  hero_lead: 'Every answer RF Safe gives by phone, text and email, in one open place. Search it, browse it by topic, or point an AI tool here. It updates by itself when RF Safe changes an answer.',
+}, SITE_KB.brand && typeof SITE_KB.brand === 'object' ? SITE_KB.brand : {});
+const RESEARCH_BASE = typeof SITE_KB.research_base === 'string' ? SITE_KB.research_base.replace(/\/$/, '') : '';
+const escT = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); // text content, not attributes
+const absUrl = (base, u) => (/^https?:\/\//.test(String(u)) ? String(u) : base + u);
+const linkList = (list) => (Array.isArray(list) ? list : []).filter((x) => Array.isArray(x) && x.length === 2).map(([h, l]) => `<a href="${esc(h)}">${escT(l)}</a>`);
+
 const NAV = [['/kb', 'Start here'], ['/kb/topics', 'Topics'], ['/kb/body-systems', 'Body systems'], ['/kb/safety-claims', 'Safety claims'], ['/kb/for-ai', 'For AI']];
 function layout({ s, title, description, canonical, current = '', body, ld = [], q = '', noindex = false, assets, headerSearch = true }) {
   const nav = NAV.map(([h, l]) => `<a href="${h}"${current === h ? ' aria-current="page"' : ''}>${l}</a>`).join('');
@@ -60,23 +77,23 @@ function layout({ s, title, description, canonical, current = '', body, ld = [],
   const full = (p) => s.base + p;
   return `<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
     + `<title>${esc(title)}</title><meta name="description" content="${esc(description)}"><meta name="robots" content="${noindex ? 'noindex,follow' : 'index,follow,max-snippet:-1'}">`
-    + `<link rel="canonical" href="${esc(full(canonical))}"><meta property="og:type" content="website"><meta property="og:site_name" content="RF Safe Knowledge Base"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:url" content="${esc(full(canonical))}"><meta property="og:image" content="${esc(full('/assets/img/og.png'))}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@rfsafe">`
+    + `<link rel="canonical" href="${esc(full(canonical))}"><meta property="og:type" content="website"><meta property="og:site_name" content="${esc(KB_BRAND.name)}"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:url" content="${esc(full(canonical))}"><meta property="og:image" content="${esc(full('/assets/img/og.png'))}"><meta name="twitter:card" content="summary_large_image">${KB_BRAND.twitter ? `<meta name="twitter:site" content="${esc(KB_BRAND.twitter)}">` : ''}`
     + `<link rel="icon" href="/favicon.ico" sizes="any"><link rel="alternate" type="text/plain" title="llms.txt" href="/kb/llms.txt"><link rel="alternate" type="text/markdown" title="All positions (Markdown)" href="/kb/all.md"><link rel="alternate" type="application/json" title="Knowledge base JSON" href="/kb/api/v1/kb.json">`
     + `<meta name="color-scheme" content="light dark"><script>${THEME_JS}</script><link rel="stylesheet" href="/kb/assets/kb.css?v=${assets.css}"><script src="/kb/assets/kb.js?v=${assets.js}" defer></script>${ldTags}</head>`
     + `<body><a class="kb-skip" href="#main">Skip to content</a>`
-    + `<header class="kb-header"><div class="kb-wrap kb-header-row"><a class="kb-brand" href="/kb" aria-label="RF Safe Knowledge Base home"><span class="kb-mark" aria-hidden="true">RF</span><span>RF SAFE <b>KNOWLEDGE BASE</b></span></a>`
-    + `<nav class="kb-nav" aria-label="Knowledge base">${nav}</nav><div class="kb-tools">${themeBtns}<a class="kb-site" href="/">rfsafe.app</a></div>`
-    + `<details class="kb-menu"><summary><span class="kb-burger" aria-hidden="true"><i></i><i></i><i></i></span><span>Menu</span></summary><div class="kb-menu-panel"><nav aria-label="Menu">${nav}<a href="/research">Research</a><a href="/sar">SAR &amp; Phones</a><a href="/">rfsafe.app home</a></nav>${themeBtns}</div></details></div>`
+    + `<header class="kb-header"><div class="kb-wrap kb-header-row"><a class="kb-brand" href="/kb" aria-label="${esc(KB_BRAND.name)} home"><span class="kb-mark" aria-hidden="true">${escT(KB_BRAND.mark)}</span><span>${escT(KB_BRAND.wordmark[0])} <b>${escT(KB_BRAND.wordmark[1])}</b></span></a>`
+    + `<nav class="kb-nav" aria-label="Knowledge base">${nav}</nav><div class="kb-tools">${themeBtns}<a class="kb-site" href="${esc(KB_BRAND.home_url)}">${escT(KB_BRAND.home_label)}</a></div>`
+    + `<details class="kb-menu"><summary><span class="kb-burger" aria-hidden="true"><i></i><i></i><i></i></span><span>Menu</span></summary><div class="kb-menu-panel"><nav aria-label="Menu">${nav}${linkList(KB_BRAND.menu_links).join('')}</nav>${themeBtns}</div></details></div>`
     + (headerSearch ? `<div class="kb-wrap kb-searchbar">${searchBox(q)}</div>` : '') + `</header>`
     + `<main id="main" class="kb-wrap kb-main" tabindex="-1">${body}</main>`
-    + `<footer class="kb-foot"><div class="kb-wrap"><p><b>${plural(s.entries.length, 'public answer')}</b> in ${plural(s.topics.length, 'topic')}${s.lastUpdated ? ' · last updated ' + esc(fmtDate(s.lastUpdated)) : ''}. This page updates by itself when RF Safe changes an answer.</p>`
-    + `<p class="kb-note">General information from RF Safe, not medical advice. For a health concern, talk with your doctor.</p>`
+    + `<footer class="kb-foot"><div class="kb-wrap"><p><b>${plural(s.entries.length, 'public answer')}</b> in ${plural(s.topics.length, 'topic')}${s.lastUpdated ? ' · last updated ' + esc(fmtDate(s.lastUpdated)) : ''}.${KB_BRAND.footer_update ? ' ' + escT(KB_BRAND.footer_update) : ''}</p>`
+    + `<p class="kb-note">${escT(KB_BRAND.footer_note)}</p>`
     + `<ul aria-label="Machine-readable"><li><a href="/kb/llms.txt">llms.txt</a></li><li><a href="/kb/all.md">All positions (Markdown)</a></li><li><a href="/kb/api/v1/kb.json">JSON</a></li><li><a href="/kb/for-ai">How AI tools can use this</a></li></ul>`
-    + `<ul aria-label="RF Safe"><li><a href="/">RF Safe home</a></li><li><a href="/research">Research</a></li><li><a href="/sar">SAR Compare</a></li><li><a href="/about">About</a></li><li><a href="/contact">Contact</a></li><li><a href="/privacy">Privacy</a></li><li><a href="/terms">Terms</a></li></ul>`
-    + `<p class="kb-tm">RF SAFE® is a registered trademark of Quanta X Technology LLC (U.S. Reg. No. 6,592,188).</p></div></footer></body></html>`;
+    + `<ul aria-label="${esc(KB_BRAND.footer_label)}">${linkList(KB_BRAND.footer_links).map((a) => '<li>' + a + '</li>').join('')}</ul>`
+    + `${KB_BRAND.trademark ? `<p class="kb-tm">${escT(KB_BRAND.trademark)}</p>` : ''}</div></footer></body></html>`;
 }
 
-const crumbs = (items) => `<nav class="kb-crumbs" aria-label="Breadcrumb"><ol>${items.map(([h, l], i) => `<li>${i === items.length - 1 ? `<a href="${esc(h)}" aria-current="page">${esc(l)}</a>` : `<a href="${esc(h)}">${esc(l)}</a>`}</li>`).join('')}</ol></nav>`;
+const crumbs = (items) => `<nav class="kb-crumbs" aria-label="Breadcrumb"><ol>${items.map(([h, l], i) => `<li>${i === items.length - 1 ? `<a href="${esc(h)}" aria-current="page">${esc(l)}</a>` : `<a href="${esc(h)}">${escT(l)}</a>`}</li>`).join('')}</ol></nav>`;
 const crumbLd = (s, items) => ({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: items.map(([h, l], i) => ({ '@type': 'ListItem', position: i + 1, name: l, item: s.base + h })) });
 const faqLd = (s, list, { full = true } = {}) => list.length ? { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: list.map((e) => ({ '@type': 'Question', name: e.question, url: s.base + e.url, acceptedAnswer: { '@type': 'Answer', text: full ? e.text : excerpt(firstPara(e.text), 400), url: s.base + e.url } })) } : null;
 const qCard = (e, { showTopic = false } = {}) => `<li class="kb-q"><a href="${esc(e.url)}"><span class="kb-q-title">${esc(e.question)}</span>${showTopic ? `<span class="kb-chip">${esc(e.topic)}</span>` : ''}<span class="kb-q-ex">${esc(excerpt(firstPara(e.text), 170))}</span></a></li>`;
@@ -112,8 +129,8 @@ function startPage(s, assets) {
   const coreHtml = core
     ? `<section class="kb-core" aria-labelledby="core-h"><p class="kb-kicker">Start here · RF Safe's core position</p><h2 id="core-h"><a href="${esc(core.url)}">${esc(core.question)}</a></h2><div class="kb-prose">${renderText(core.text.split(/\n\s*\n/).slice(0, 2).join('\n\n'))}</div><p><a class="kb-btn" href="${esc(core.url)}">Read the full position<span aria-hidden="true"> →</span></a></p></section>`
     : `<section class="kb-core"><p class="kb-kicker">Start here</p><p>RF Safe's core position will appear here.</p></section>`;
-  const body = `<section class="kb-hero"><p class="kb-kicker">Knowledge base</p><h1>RF Safe's positions on wireless radiation, in plain words</h1>`
-    + `<p class="kb-lead">Every answer RF Safe gives by phone, text and email, in one open place. Search it, browse it by topic, or point an AI tool here. It updates by itself when RF Safe changes an answer.</p>${searchBox('', true)}`
+  const body = `<section class="kb-hero"><p class="kb-kicker">Knowledge base</p><h1>${escT(KB_BRAND.hero_title)}</h1>`
+    + `<p class="kb-lead">${escT(KB_BRAND.hero_lead)}</p>${searchBox('', true)}`
     + `<p class="kb-stats"><span><b>${s.entries.length}</b> answers</span><span><b>${s.topics.length}</b> topics</span><span><b>${s.bodySystems.length}</b> body systems</span></p></section>`
     + coreHtml
     + `<section aria-labelledby="topics-h"><div class="kb-sec-head"><h2 id="topics-h">Topics</h2><a href="/kb/topics">All topics →</a></div>${topicGrid(s)}</section>`
@@ -211,10 +228,10 @@ function llmsTxt(s) {
     for (const x of t.slugs) { const e = s.bySlug.get(x); L.push(`- [${e.question}](${s.base}${e.url}): ${excerpt(firstPara(e.text), 160)}`); }
     L.push('');
   }
-  L.push('## Body systems', '', ...s.bodySystems.map((b) => `- [${b.name}](${s.base}${b.research_url}): studies in RF Safe's research directory${b.summary ? '. ' + excerpt(b.summary, 160) : ''}`), '');
+  L.push('## Body systems', '', ...s.bodySystems.map((b) => `- [${b.name}](${absUrl(s.base, b.research_url)}): studies in RF Safe's research directory${b.summary ? '. ' + excerpt(b.summary, 160) : ''}`), '');
   const critLines = [...(s.critiques.topic ? [`- [All safety-claim critiques](${s.base}/kb/safety-claims): see the "${s.critiques.topic.name}" topic above (${s.critiques.overview.length + s.critiques.studies.length} answers)`] : []), ...s.critiques.items.map((c) => `- [Claim: ${c.claim}](${s.base}/kb/safety-claims#claim-${c.id}): ${excerpt(c.critique, 160)}`)];
   L.push('## Safety-claim critiques', '', critLines.length ? critLines.join('\n') : '- Coming soon.', '');
-  L.push('## Optional', '', `- [RF Safe research directory](${s.base}/research): thousands of study summaries`, `- [rfsafe.app llms.txt](${s.base}/llms.txt): the whole site`, '');
+  L.push('## Optional', '', `- [RF Safe research directory](${RESEARCH_BASE || s.base}/research): thousands of study summaries`, `- [rfsafe.app llms.txt](${s.base}/llms.txt): the whole site`, '');
   return L.join('\n');
 }
 function allMd(s) {
@@ -227,7 +244,7 @@ function allMd(s) {
       L.push('### ' + e.question, '', `Link: ${s.base}${e.url}${e.updated ? ' · Updated: ' + e.updated.slice(0, 10) : ''}${e.source ? ' · Source: ' + e.source : ''}`, '', e.text, '');
     }
   }
-  L.push('## Body systems', '', ...s.bodySystems.map((b) => `### ${b.name}\n\nStudies: ${s.base}${b.research_url}\n\n${b.summary || 'Summary coming soon.'}\n`), '');
+  L.push('## Body systems', '', ...s.bodySystems.map((b) => `### ${b.name}\n\nStudies: ${absUrl(s.base, b.research_url)}\n\n${b.summary || 'Summary coming soon.'}\n`), '');
   L.push('## Safety-claim critiques', '', s.critiques.topic ? `The critiques are the "${s.critiques.topic.name}" answers above (${s.base}/kb/safety-claims).\n` : '', s.critiques.items.length ? s.critiques.items.map((c) => `### Claim: ${c.claim}\n\n${c.claimed_by ? 'Made by: ' + c.claimed_by + '\n\n' : ''}${c.critique}\n${c.sources.length ? '\nSources: ' + c.sources.map((y) => y.url).join(' , ') + '\n' : ''}`).join('\n') : (s.critiques.topic ? '' : 'Coming soon.'), '');
   return L.join('\n');
 }
@@ -240,7 +257,7 @@ function kbJson(s) {
     endpoints: { html: b + '/kb', llms_txt: b + '/kb/llms.txt', all_md: b + '/kb/all.md', json: b + '/kb/api/v1/kb.json', entry_json: b + '/kb/api/v1/entries/{slug}.json', search_index: b + '/kb/api/v1/search-index.json' },
     topics: s.topics.map((t) => ({ id: t.id, name: t.name, url: b + t.url, count: t.count, slugs: t.slugs })),
     entries: s.entries.map((e) => ({ ...D.publicShape(e, b), related: s.related.get(e.slug) || [] })),
-    body_systems: s.bodySystems.map((x) => ({ id: x.id, name: x.name, research_label: x.research_label, research_url: b + x.research_url, summary: x.summary, summary_updated: x.summary_updated })),
+    body_systems: s.bodySystems.map((x) => ({ id: x.id, name: x.name, research_label: x.research_label, research_url: absUrl(b, x.research_url), summary: x.summary, summary_updated: x.summary_updated })),
     safety_claim_critiques: { status: s.critiques.status, topic_id: s.critiques.topic ? s.critiques.topic.id : null, overview: s.critiques.overview, studies: s.critiques.studies, items: s.critiques.items } };
 }
 function entryJson(s, e) {
@@ -258,7 +275,6 @@ function searchIndex(s) {
 
 // Per-site public KB (brand.json "public_kb": { "replace": [[from, to], ...], "hide": ["/kb/body-systems", ...] };
 // portable package port/site.config.js). rfsafe.app sets neither, so its pages are unchanged.
-const SITE_KB = (() => { try { return require('../brand').public_kb || {}; } catch { return {}; } })();
 const KB_REPLACE = Array.isArray(SITE_KB.replace) ? SITE_KB.replace.filter((p) => Array.isArray(p) && p.length === 2 && p[0]) : [];
 const KB_HIDE = new Set(Array.isArray(SITE_KB.hide) ? SITE_KB.hide : []);
 for (let i = NAV.length - 1; i >= 0; i--) if (KB_HIDE.has(NAV[i][0])) NAV.splice(i, 1);

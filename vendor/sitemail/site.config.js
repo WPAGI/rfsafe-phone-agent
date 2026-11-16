@@ -1,4 +1,8 @@
 'use strict';
+// callbots.org, LIVE config + Mailbox verification only (package v1.2; rfsafe.app PRs #73-#75). This is the config that
+// is live today (phone-agent PR #56) with two additions: store.single_variant_color and modules.kb_growth: false.
+// It ships the verification work WITHOUT the /kb port (phone-agent PR #57), so the two can deploy separately.
+// When #57 ships, port/sites/callbots.config.js (which has both) replaces this file.
 // callbots.org (WPAGI/rfsafe-phone-agent, Render srv-dbi7t58u01pc7398c3j0). First install target.
 // Values marked "CONFIRM" need John's OK before the live install (see CHECKLIST.md). No secrets here: the
 // "secrets" section only names env variables that will be added to the Callbots Render service.
@@ -27,9 +31,11 @@ module.exports = {
   modules: {
     mail_viewer: true, mailbox: true, brainbox_api: true, brainbox_admin: true, public_kb: true,
     web_research: true, order_lookup: true,           // John 11:51 PM: reuse the read access the phone agent already has
+    kb_growth: false,   // the /kb port + growth loop ship with PR #57, not here
     read_api: true, rerun_api: true,
   },
-  store: { enabled: true, store_domain: 'quantacase.com', store_hosts: ['quantacase.com', 'rfsafe.com'], own_site_names: ['quantacase', 'rfsafe', 'truthcase'] },
+  store: { enabled: true, store_domain: 'quantacase.com', store_hosts: ['quantacase.com', 'rfsafe.com'], own_site_names: ['quantacase', 'rfsafe', 'truthcase'],
+    single_variant_color: 'Black' },   // John 12:11 AM: a product with no color option comes in black
   public_kb: {
     replace: [
       ['RF Safe Knowledge Base', 'CallBots Knowledge Base'],

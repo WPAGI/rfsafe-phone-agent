@@ -12,8 +12,8 @@ const R = require('./render');
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_AGE = 5; // seconds; browsers and proxies may reuse a response for at most this long
 
-function createPublicKb({ kbApiStore, tenantId, visibility, siteDir, dataDir, now, baseUrl, ttlMs, log = () => {} }) {
-  const data = D.createData({ kbApiStore, tenantId, visibility, siteDir, dataDir, now, ttlMs, baseUrl });
+function createPublicKb({ kbApiStore, tenantId, visibility, siteDir, dataDir, now, baseUrl, ttlMs, seed, hostKb, researchBase, log = () => {} }) {
+  const data = D.createData({ kbApiStore, tenantId, visibility, siteDir, dataDir, now, ttlMs, baseUrl, seed, hostKb, researchBase });
   const assetVer = (f) => { try { return crypto.createHash('sha256').update(fs.readFileSync(path.join(siteDir, 'kb', 'assets', f))).digest('hex').slice(0, 10); } catch { return '0'; } };
   const assets = { css: assetVer('kb.css'), js: assetVer('kb.js') };
   const rcache = { v: null, m: new Map() };

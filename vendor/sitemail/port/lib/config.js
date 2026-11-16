@@ -60,6 +60,14 @@ function validate(cfg) {
   }
   for (const [k, v] of Object.entries(sec)) if (typeof v === 'string' && v.length > 40 && /[a-z]/.test(v)) e.push('secrets.' + k + ' looks like a secret value; put only the env variable NAME here');
   for (const sec2 of [['public_kb', 'replace'], ['prompts', 'replace']]) { const r = (cfg[sec2[0]] || {})[sec2[1]] || []; if (!Array.isArray(r) || r.some((p) => !Array.isArray(p) || p.length !== 2 || !p[0])) e.push(sec2.join('.') + ' must be a list of [from, to] pairs'); }
+  if (kb.seed_import != null && kb.seed_import !== false && (typeof kb.seed_import !== 'string' || !/^seed\/[a-z0-9._/-]+\.json$/i.test(kb.seed_import) || kb.seed_import.includes('..'))) e.push('kb.seed_import must be a package path like seed/public-kb/<name>.json, or false');
+  if (kb.growth != null && (typeof kb.growth !== 'object' || (kb.growth.proposals_per_day != null && !(Number.isInteger(kb.growth.proposals_per_day) && kb.growth.proposals_per_day >= 0 && kb.growth.proposals_per_day <= 100)))) e.push('kb.growth.proposals_per_day must be a whole number 0-100');
+  if ((cfg.store || {}).single_variant_color != null && !/^[A-Za-z][A-Za-z -]{0,30}$/.test(String(cfg.store.single_variant_color))) e.push('store.single_variant_color must be a color name like Black');
+  const pk = cfg.public_kb || {};
+  if (pk.seed != null && (typeof pk.seed !== 'string' || !/^seed\/[a-z0-9._/-]+\.json$/i.test(pk.seed) || pk.seed.includes('..'))) e.push('public_kb.seed must be a package path like seed/public-kb/<name>.json');
+  if (pk.research_base != null && pk.research_base !== '' && !/^https:\/\/[a-z0-9.-]+(\/[^\s]*)?$/i.test(String(pk.research_base))) e.push('public_kb.research_base must be an https URL or empty');
+  if (pk.brand != null && (typeof pk.brand !== 'object' || Array.isArray(pk.brand))) e.push('public_kb.brand must be an object');
+  if (pk.host_kb != null) { const h = pk.host_kb; if (typeof h !== 'object' || (h.page_types != null && (!Array.isArray(h.page_types) || h.page_types.some((t) => !/^[a-z-]+$/.test(String(t)))))) e.push('public_kb.host_kb.page_types must be a list of page types'); }
   if (cfg.shared_env != null && (!Array.isArray(cfg.shared_env) || cfg.shared_env.some((n) => !ENVNAME.test(String(n))))) e.push('shared_env must be a list of env variable names');
   if (!ENVNAME.test(String(cfg.enable_env || ''))) e.push('enable_env must name an env variable');
   return { ok: !e.length, errors: e };
@@ -74,7 +82,7 @@ function toBrand(cfg) {
     link_allowlist: [...new Set([...s.link_allowlist, ...(st.enabled ? st.store_hosts || [] : [])])],
     kb_source_allowlist: [...new Set(s.link_allowlist)], sar_site: s.domain,
     mailbox: { store_hosts: st.enabled ? st.store_hosts || [] : [], own_site_names: st.enabled && (st.own_site_names || []).length ? st.own_site_names : [s.domain.split('.')[0]], prompt_replace: (cfg.prompts || {}).replace || [] },
-    public_kb: { replace: (cfg.public_kb || {}).replace || [], hide: (cfg.public_kb || {}).hide || [] },
+    public_kb: { replace: (cfg.public_kb || {}).replace || [], hide: (cfg.public_kb || {}).hide || [], ...((cfg.public_kb || {}).brand ? { brand: cfg.public_kb.brand } : {}), ...((cfg.public_kb || {}).research_base ? { research_base: cfg.public_kb.research_base } : {}) },
   };
 }
 
@@ -82,6 +90,8 @@ function toBrand(cfg) {
 function moduleEnv(hostEnv, cfg) {
   const out = { MAIL_DOMAINS: cfg.mail.domains.join(','), MAIL_OWNER_EMAIL: cfg.mail.owner_email };
   if (hostEnv.XAI_TEXT_MODEL) out.XAI_TEXT_MODEL = hostEnv.XAI_TEXT_MODEL;
+  // Color answers for a product with no color option (rfsafe.app PR #73; John: "it's always black"). Config, not host env.
+  const sv = String(((cfg.store || {}).single_variant_color) || '').trim(); if (sv) out.MAIL_SINGLE_VARIANT_COLOR = sv;
   if (hostEnv.MAIL_MOCK === '1' || hostEnv.SITEMAIL_MOCK === '1') out.MAIL_MOCK = '1';
   for (const [k, name] of Object.entries(cfg.secrets || {})) {
     if (SHOP_KEYS.includes(k) && !moduleOn(cfg, 'order_lookup')) continue; // store off: no store credentials at all

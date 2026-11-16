@@ -13,6 +13,7 @@ const symptoms = require('../kb-symptoms'); // Brain box symptom map (data lives
 const { ModelCatalog } = require('./models');
 const WR = require('./webresearch');
 const O = require('./orderlookup'); // Mailbox Shopify order lookup + order-question web-research block (John, Nov 15, 10:49 PM ET)
+const R = require('./revise'); // checker evidence order, health-tip allowance, revise loop (John, 12:20–12:23 AM ET)
 const { isOfficialGovUrl } = require('./govlinks');
 const err = (s, status = 400) => Object.assign(new Error(s), { status });
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -71,6 +72,9 @@ function expandShortPhones(s) {
     return 'Samsung Galaxy Note ' + num + suffix;
   });
   t = t.replace(/(?<!\b(?:galaxy|samsung)\s)(?<![A-Za-z])z\s*(fold|flip)\s*(\d)\b/gi, (_, kind, num) => 'Samsung Galaxy Z ' + kind.charAt(0).toUpperCase() + kind.slice(1).toLowerCase() + ' ' + num);
+  // Bare "17 Pro Max" / "16 Pro" (no leading "iPhone") still means an iPhone (r.86b605a8: subject "Case", body "need a case for a 17 Pro Max…").
+  // The lookbehind must reject digits too, or "16 Pro" inside "iPhone 16 Pro" becomes "iPhone 1iPhone 6 Pro".
+  t = t.replace(/(?<!\b(?:galaxy|samsung|pixel|moto|motorola|oneplus|iphone)\s)(?<![A-Za-z0-9])(\d{1,2})\s+(pro max|pro|plus|air|mini)\b/gi, (_, num, suf) => 'iPhone ' + num + ' ' + String(suf).replace(/\b\w/g, c => c.toUpperCase()));
   return t;
 }
 const COLOR_WORD = /\b(?:black|brown|white|red|blue|green|grey|gray|gold|silver|purple|pink|orange|yellow|turquoise|navy|beige|clear|transparent|natural|carbon|camo|camouflage)\b/gi;
@@ -94,9 +98,9 @@ function sarLine(r) {
 function productQuery(subject, text, names) {
   const phone = extractPhoneModel(subject, text, names);
   if (phone) return phone;
-  const s = stripColors(expandShortPhones(String(subject || '') + ' ' + String(text || '').slice(0, 400)));
-  const STOP = new Set('is are the a an for in of on to do does you your have has any it this that and or with what how much stock available price cost hi hello please can i we me my there'.split(' '));
-  return s.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(w => w && !STOP.has(w.toLowerCase())).slice(0, 4).join(' ');
+  const s = stripColors(expandShortPhones(String(subject || '') + ' ' + String(text || '').slice(0, 1500)));
+  const STOP = new Set('is are the a an for in of on to do does you your have has any it this that and or with what how much stock available price cost hi hello please can i we me my there need get looking just wanted want also thanks thank'.split(' '));
+  return s.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(w => w && !STOP.has(w.toLowerCase())).slice(0, 8).join(' ');
 }
 // Deterministic guard: a greeting may use a name only if the email supplied it.
 function fixGreeting(body, name) {
@@ -168,8 +172,13 @@ async function fetchPublicProduct(u, fetchImpl) {
     if (!r || !r.ok) return null;
     const d = await r.json(); if (!d || !d.handle) return null;
     const base = x.origin + '/products/' + encodeURIComponent(d.handle);
-    const variants = (d.variants || []).slice(0, 20).map(v => ({ ...(v.id != null ? { id: String(v.id) } : {}), title: v.title, available: !!v.available, price: v.price != null ? String(Number(v.price) / (Number(v.price) > 100 ? 100 : 1)) : null }));
-    return { title: d.title || handle, url: base, handle: String(d.handle), variants };
+    const variants = (d.variants || []).slice(0, 20).map(v => ({ ...(v.id != null ? { id: String(v.id) } : {}), title: v.title, available: !!v.available, in_stock: v.available ? 1 : 0, price: v.price != null ? String(Number(v.price) / (Number(v.price) > 100 ? 100 : 1)) : null, option1: v.option1 || null }));
+    const vid = String(x.searchParams.get('variant') || '').trim();
+    const hit = vid ? variants.find(v => v.id === vid) : null;
+    const opts = Array.isArray(d.options) ? d.options.map(o => ({ name: o.name, values: o.values || [] })) : [];
+    const hasColors = opts.some(o => /colou?r/i.test(o.name || '')) || variants.some(v => v.title && v.title !== 'Default Title');
+    const url = hit && hit.id ? base + '?variant=' + hit.id : base;
+    return { title: d.title || handle, url, handle: String(d.handle), price: hit && hit.price ? { amount: hit.price, currency: 'USD' } : (variants[0] && variants[0].price ? { amount: variants[0].price, currency: 'USD' } : undefined), available: hit ? !!hit.available : variants.some(v => v.available), has_color_options: hasColors, ...(hit ? { requested_color: { value: hit.option1 || hit.title, available: !!hit.available, url }, color_note: 'Verified from the draft product URL (?variant=' + hit.id + ').' } : {}), options: opts, variants, verified_from_url: u, note: 'Verified from the draft product URL' + (hit ? ' (variant ' + hit.id + ')' : '') + '. An empty store search is not evidence that these facts are invented.' };
   } catch { return null; }
   finally { clearTimeout(timer); }
 }
@@ -425,6 +434,14 @@ const WRITER_MAX_PASSAGES = 16; const PASSAGE_CHARS = 700; const OWNER_PASSAGE_C
 // or sold out, keeps the current product url: we do not invent a variant link (John, 11:07 PM ET).
 // (The phone line still puts a sold-out color's real ?variant= url in the spoken line and offers an
 // in-stock alternative; the mailbox does not use that sold-out url as the product link.)
+// No color options (only Default Title): the product comes in one color, default Black
+// (John, 12:11 AM ET). Config default single_variant_color; optional env MAIL_SINGLE_VARIANT_COLOR
+// (not set on Render) lets another site change it. Never tell the customer to choose a color.
+const DEFAULT_SINGLE_VARIANT_COLOR = 'Black';
+function colorVariantConfig(env = {}) {
+  const raw = String((env && env.MAIL_SINGLE_VARIANT_COLOR) || '').trim();
+  return { single_variant_color: raw || DEFAULT_SINGLE_VARIANT_COLOR };
+}
 function rawOptions(p) {
   const opts = p.options || [];
   if (opts.length && typeof (opts[0].values || [])[0] === 'object') return opts.map(o => ({ name: o.name, values: (o.values || []).map(v => v.value || v).filter(Boolean) }));
@@ -432,12 +449,37 @@ function rawOptions(p) {
   const values = [...new Set((p.variants || []).map(v => v.title).filter(x => x && x !== 'Default Title'))];
   return values.length ? [{ name: 'Color', values }] : [];
 }
-function colorLinkProduct(p, text) {
+function enrichOptionValues(p, summarized) {
+  return (summarized || []).map(o => ({
+    ...o,
+    values: (o.values || []).map(e => {
+      const v = (p.variants || []).find(x => String(x.id) === String(e.variant_id)) || (p.variants || []).find(x => x.title === e.value);
+      return { ...e, ...(v && v.price != null ? { price: v.price } : {}), ...(v && v.in_stock != null ? { in_stock: v.in_stock } : {}) };
+    })
+  }));
+}
+function colorLinkProduct(p, text, cfg = {}) {
   if (!p) return p;
   const base = p.url ? String(p.url).split('?')[0] : '';
-  const summarized = summarizeOptions({ options: rawOptions(p), variants: p.variants || [], url: base }) || [];
+  const single = String(cfg.single_variant_color || colorVariantConfig(cfg.env).single_variant_color);
+  const summarized = enrichOptionValues(p, summarizeOptions({ options: rawOptions(p), variants: p.variants || [], url: base }) || []);
+  if (!summarized.length) {
+    const v = (p.variants || []).find(x => x.available !== false) || (p.variants || [])[0];
+    const variantUrl = (v && v.id != null && base) ? (base + '?variant=' + v.id) : (base || p.url);
+    const named = linkForNamed({ options: [{ name: 'Color', values: [{ value: single, available: !!(v && v.available !== false), url: variantUrl }] }] }, text);
+    const out = { ...p, options: [], has_color_options: false, single_variant_color: single,
+      color_note: 'This product comes in one color: ' + single + '. Say it comes in ' + single + ' (one color), then give the price, stock and link. Do not tell the customer to choose a color.' };
+    if (named && named.available && named.url) {
+      out.url = named.url;
+      out.requested_color = { value: named.value, available: true, url: named.url };
+    } else if (named && !named.available) {
+      out.url = base || p.url;
+      out.requested_color = { value: named.value, available: false, ...(named.url ? { url: named.url } : {}) };
+    }
+    return out;
+  }
   const named = linkForNamed({ options: summarized }, text);
-  const out = { ...p, ...(summarized.length ? { options: summarized } : {}) };
+  const out = { ...p, options: summarized, has_color_options: true };
   if (named && named.available && named.url) {
     out.url = named.url;
     out.requested_color = { value: named.value, available: true, url: named.url };
@@ -447,9 +489,26 @@ function colorLinkProduct(p, text) {
   }
   return out;
 }
-function withColorLinks(store_lookup, asked) {
+function withColorLinks(store_lookup, asked, cfg = {}) {
   if (!store_lookup || !Array.isArray(store_lookup.products)) return store_lookup;
-  return { ...store_lookup, products: store_lookup.products.map(p => colorLinkProduct(p, asked)) };
+  const conf = { single_variant_color: cfg.single_variant_color || colorVariantConfig(cfg.env).single_variant_color };
+  return { ...store_lookup, products: store_lookup.products.map(p => colorLinkProduct(p, asked, conf)) };
+}
+// Deterministic: never invite the customer to choose a color when the live store product has no color options
+// (only Default Title). "It comes in black (one color)" is fine.
+const CHOOSE_COLOR = /\b(?:choose|pick|select)\b[^.\n]{0,40}\bcolou?rs?\b|\b(?:see|view)\b[^.\n]{0,40}\bcolou?rs?\b[^.\n]{0,40}\b(?:store|product)\s+page/i;
+function productHasColorOptions(p) {
+  if (!p) return false;
+  if (p.has_color_options === false) return false;
+  if (p.has_color_options === true) return true;
+  return !!(summarizeOptions({ options: rawOptions(p), variants: p.variants || [], url: p.url || '' }) || []).length;
+}
+function chooseColorProblem(body, storeLookup) {
+  const none = ((storeLookup && storeLookup.products) || []).filter(p => !productHasColorOptions(p));
+  if (!none.length) return null;
+  const m = String(body || '').match(CHOOSE_COLOR);
+  if (!m) return null;
+  return 'Invites the customer to choose a color, but the product has no color options: "' + m[0].replace(/\s+/g, ' ').trim().slice(0, 80) + '"';
 }
 function trimContext(knowledge, store_lookup) {
   const seen = new Set(); const k = [];
@@ -468,7 +527,7 @@ const dateParts = t => { const p = {}; for (const x of new Intl.DateTimeFormat('
 class MailBots {
   #key;
   constructor({ store, env, fetchImpl, now = () => Date.now(), tools, received, original, createDraft, ownDomains = [], answerRules = null, productSearch = null, autoSend = null, sarLookup = null, sarNames = null, newsletterMember = null, newsletterJoinUrl = null, siteName = null, kbGap = null, webResearch = null }) {
-    this.live = new Map(); this.locks = new Set(); Object.assign(this, { store, fetch: fetchImpl, now, tools, received, original, createDraft, ownDomains, answerRules, productSearch, autoSend, sarLookup, sarNames, newsletterMember, newsletterJoinUrl, siteName, kbGap, webResearch }); this.#key = env.XAI_API_KEY; this.orderCfg = O.orderLookupConfig(env || {}); this.models = new ModelCatalog({ key: env.XAI_API_KEY, fetchImpl, now });
+    this.live = new Map(); this.locks = new Set(); Object.assign(this, { store, fetch: fetchImpl, now, tools, received, original, createDraft, ownDomains, answerRules, productSearch, autoSend, sarLookup, sarNames, newsletterMember, newsletterJoinUrl, siteName, kbGap, webResearch }); this.#key = env.XAI_API_KEY; this.orderCfg = O.orderLookupConfig(env || {}); this.colorCfg = colorVariantConfig(env || {}); this.models = new ModelCatalog({ key: env.XAI_API_KEY, fetchImpl, now });
     store.db.bots ||= { installed: {}, runs: [], usage: [], notes: {}, done: {}, cap: 10, last_schedule: 0, events: [] };
     for (const [id, b] of Object.entries(defaults)) if (!this.db.installed[id]) this.db.installed[id] = { id, default: clone(b), custom: null, enabled: false, source: 'default', versions: [], created: store.iso(), validated: true };
     // Defaults are owned by the code: refresh an installed Default when its version changes (Custom layers are kept).
@@ -553,6 +612,9 @@ class MailBots {
     } finally { this.db.runs.push({ at: this.store.iso(), bot: r.id, status, duration_ms: this.now() - start }); this.db.runs = this.db.runs.slice(-5000); this.store.save(); }
   }
   // Activity timeline per message: every pipeline step, including skips and errors with their reason.
+  // Optional observer (portable package: Brain box coverage + growth loop, src/mailbox/kbgrowth.js). Never changes the
+  // reply; an error in it is ignored. rfsafe.app sets none.
+  replied(id, orig, outcome, knowledge, gaps) { if (typeof this.onReplied !== 'function') return; try { Promise.resolve(this.onReplied({ id, subject: orig.subject, text: orig.text, outcome, knowledge: knowledge || [], gaps: gaps || [], step: (st, reason, extra) => this.step(id, 'kb_growth', st, reason, extra) })).catch(() => {}); } catch {} }
   step(id, step, status, reason, extra = {}) { const t = this.db.timeline ||= {}; const a = t[id] ||= []; a.push({ at: this.store.iso(), step, status, reason: String(reason || '').slice(0, 300), ...extra }); t[id] = a.slice(-60); const ks = Object.keys(t); if (ks.length > 3000) for (const k of ks.slice(0, ks.length - 3000)) delete t[k]; this.store.save(); }
   timeline(id) { return (this.db.timeline || {})[id] || []; }
   // New mail arriving by webhook is queued by id, so it is handled even when the provider's list lags or a run is busy.
@@ -565,9 +627,32 @@ class MailBots {
     if (cur && (cur.status === 'queued' || cur.status === 'running')) return { already_running: true, run: this.runStatus(id) };
     // A one-time owner reprocess supersedes this message's unsent drafts (draft or held) so a fresh reply is written;
     // sent and already-discarded drafts are left alone, and nothing is cleared if a reply was already sent.
-    if (!this.sentFor(id)) { let n = 0; for (const d of this.store.drafts()) if (d.reply_to_id === id && String(d.author || '').startsWith('bot:')) { this.store.updateDraft(d.id, {}, 'discarded'); n++; } if (n) this.step(id, 'reply', 'superseded', 'Reprocess by ' + who + ': ' + n + ' earlier unsent draft' + (n > 1 ? 's' : '') + ' discarded; writing a fresh one', { count: n }); }
+    if (!this.sentFor(id)) { let n = 0; for (const d of this.store.drafts()) if (d.reply_to_id === id && String(d.author || '').startsWith('bot:') && d.status !== 'discarded') { this.store.updateDraft(d.id, {}, 'superseded'); n++; } if (n) this.step(id, 'reply', 'superseded', 'Reprocess by ' + who + ': ' + n + ' earlier unsent draft' + (n > 1 ? 's' : '') + ' kept in history; writing a fresh one', { count: n }); }
     for (const k of Object.keys(this.db.done)) if (k.startsWith(id + ':')) delete this.db.done[k];
     this.db.force = { ...(this.db.force || {}), [id]: true }; this.step(id, 'pipeline', 'requested', 'Run requested by ' + who);
+    this.live.set(id, { run_id: crypto.randomBytes(6).toString('hex'), started: this.now(), status: 'queued', label: 'Waiting to start…', step: null, result: null });
+    this.ckClear(id); this.enqueue(id); { const q = (this.db.pending || []).find(x => x.id === id); if (q) q.failures = 0; } this.pending = this.wake('owner').catch(() => {});
+    return { started: true, run: this.runStatus(id) };
+  }
+  // Keep the existing draft, refresh lookups, run a fresh checker pass, apply only allowed edits, and recheck.
+  // Does not redo the sort or a full rewrite. Legacy drafts always get a new check and new evidence first.
+  redraft(id, who = 'owner') {
+    const cur = this.live.get(id);
+    if (cur && (cur.status === 'queued' || cur.status === 'running')) return { already_running: true, run: this.runStatus(id) };
+    if (this.sentFor(id)) return { already_replied: true };
+    const keep = this.store.drafts().filter(d => d.reply_to_id === id && String(d.author || '').startsWith('bot:')).sort((a, b) => String(b.updated).localeCompare(String(a.updated)))[0];
+    if (!keep) return { no_draft: true };
+    for (const k of Object.keys(this.db.done || {})) {
+      if (!k.startsWith(id + ':')) continue;
+      const botId = k.slice(id.length + 1);
+      const rec = this.db.installed[botId];
+      const kind = rec ? this.effective(rec).kind : '';
+      if (kind === 'replier' || kind === 'checker') delete this.db.done[k];
+    }
+    if (this.db.force) delete this.db.force[id];
+    this.db.redraft = { ...(this.db.redraft || {}), [id]: { draft_id: keep.id, at: this.now() } };
+    this.db.force = { ...(this.db.force || {}), [id]: true };
+    this.step(id, 'pipeline', 'requested', 'Redraft requested by ' + who + ': keeping the current draft, then a fresh check and minimal edits');
     this.live.set(id, { run_id: crypto.randomBytes(6).toString('hex'), started: this.now(), status: 'queued', label: 'Waiting to start…', step: null, result: null });
     this.ckClear(id); this.enqueue(id); { const q = (this.db.pending || []).find(x => x.id === id); if (q) q.failures = 0; } this.pending = this.wake('owner').catch(() => {});
     return { started: true, run: this.runStatus(id) };
@@ -640,7 +725,7 @@ class MailBots {
     // The owner's force flag stays until the writer finishes, so a run cut off by a restart resumes (from its saved progress).
     if (forced) { if (st !== 'inbox') this.store.move(id, 'inbox', { who: 'owner', why: 'Reprocess requested' }); }
     const kinds = k => active.filter(r => this.effective(r).kind === k && (forced || at >= this.since(r)));
-    const doneAll = why => { for (const r of active) this.db.done[id + ':' + r.id] = true; if (this.db.force) delete this.db.force[id]; this.ckClear(id); if (why) this.store.save(); };
+    const doneAll = why => { for (const r of active) this.db.done[id + ':' + r.id] = true; if (this.db.force) delete this.db.force[id]; if (this.db.redraft) delete this.db.redraft[id]; this.ckClear(id); if (why) this.store.save(); };
     const safeOrig = { id: orig.id, subject: String(orig.subject).slice(0, 400), text: String(orig.text).slice(0, 12000) };
     this.step(id, 'pipeline', 'started', source === 'owner' ? 'Run started by the owner' : 'New mail (' + source + ')');
     const at_ = (step, r) => { this.cur = { step, bot: r && r.id, model: r && this.effective(r).limits.model }; this.progress(id, step); };
@@ -750,8 +835,23 @@ class MailBots {
       }
       orderLookup = order_lookup;
       if (order_lookup && !order_lookup.matched && useKb) { const e = this.tools.entryBySlug(O.FALLBACK_SLUG); if (e && e.text) knowledge = pinCard(knowledge, { title: e.title, text: String(e.text).slice(0, 1500), source: e.source || null }); }
-      store_lookup = markMissingPhone(withColorLinks(store_lookup, orig.subject + '\n' + orig.text), orig.subject + '\n' + orig.text); lookup = store_lookup;
+      if ((!store_lookup || !((store_lookup.products || []).length)) && products && products.length) {
+        const usable = products.filter(p => p && Array.isArray(p.variants) && p.variants.length);
+        if (usable.length) store_lookup = { query: (store_lookup && store_lookup.query) || '', products: usable.slice(0, 4), note: 'Full-message store search: the short query returned no products, so these results from the complete email were used instead. An empty short query is not evidence that a fact is invented.' };
+      }
+      store_lookup = markMissingPhone(withColorLinks(store_lookup, orig.subject + '\n' + orig.text, this.colorCfg), orig.subject + '\n' + orig.text); lookup = store_lookup;
       const input = { message: safeOrig, questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}) };
+      const redrafting = this.db.redraft && this.db.redraft[id];
+      if (redrafting && redrafting.draft_id) {
+        let keep = this.store.draft(redrafting.draft_id);
+        if (keep && (keep.status === 'draft' || keep.status === 'held')) {
+          if (keep.status === 'held') keep = this.store.updateDraft(keep.id, {}, 'draft') || keep;
+          draft = keep;
+          writerKnowledge = useKb ? trimContext(knowledge, null).knowledge : null;
+          this.step(id, 'reply', 'kept', 'Redraft: kept the existing draft and refreshed store, KB and other lookups', { bot: r.id, draft_id: draft.id });
+          finish(); continue;
+        }
+      }
       let x = ck.round1 || await this.call(r, { ...input, knowledge_round: 1, search_allowed: useKb }, { timeoutMs: writerRound1Ms(this.effective(r).limits.model, !!(medical_disclaimer || symptom_research)) }); if (!ck.round1) ckSave({ round1: x });
       // Like the phone line ("search again with different words if the first result is thin"): one more KB round.
       const extraQ = (Array.isArray(x.kb_search) ? x.kb_search : []).map(q => String(q || '').trim().slice(0, 200)).filter(Boolean).slice(0, 3);
@@ -784,7 +884,7 @@ class MailBots {
       if (gaps.length && x.needs_reply !== false) {
         this.db.kb_gaps ||= {}; this.db.kb_gaps[id] = { at: this.store.iso(), questions: gaps, source: 'email' };
         for (const q of gaps) { try { if (this.kbGap) this.kbGap({ question: q, message_id: id }); } catch {} this.step(id, 'reply', 'kb_gap', 'KB gap: "' + q + '" is not covered by the knowledge base; not answered, logged to Unanswered questions (source: email)', { bot: r.id, tool: 'kb_gap', question: q }); }
-        this.store.save();
+        this.store.save(); this.replied(id, safeOrig, 'kb_gap', null, gaps);
         // Nothing the email asked could be answered from the KB: hold for John (the phone would take a message).
         if (questions.length && gaps.length >= questions.length) x = { ...x, hold: true, reason: 'KB gap: none of the questions are covered by the knowledge base (' + gaps.join(' | ').slice(0, 200) + ')' };
       }
@@ -796,7 +896,7 @@ class MailBots {
       const result = await this.createDraft('bot:' + r.id, { reply_to_id: id, body: P.stripRelated(bodyOut).slice(0, 20000), reason: String(x.reason || 'Reply based on supplied facts').slice(0, 300) }, { autoSend: false });
       if (result.code !== 201) { this.step(id, 'reply', 'error', 'Draft refused: ' + (result.body && result.body.error), { bot: r.id }); finish(); continue; }
       writerKnowledge = useKb ? trimContext(knowledge, null).knowledge : null;
-      draft = this.store.draft(result.body.draft.id); if (webAnswers.length) draft = this.store.updateDraft(draft.id, { web_research: true }) || draft; this.step(id, 'reply', 'drafted', String(x.reason || 'Draft written').slice(0, 200), { bot: r.id, draft_id: draft.id }); finish();
+      draft = this.store.draft(result.body.draft.id); if (webAnswers.length) draft = this.store.updateDraft(draft.id, { web_research: true }) || draft; this.step(id, 'reply', 'drafted', String(x.reason || 'Draft written').slice(0, 200), { bot: r.id, draft_id: draft.id }); this.replied(id, safeOrig, 'drafted', writerKnowledge); finish();
     }
     // Automatic retry after a checker error (e.g. a timeout): the writer already finished, so re-check the saved draft with
     // the same evidence instead of ending with nothing checked (Jarvis triage bug 3). Only while the reply writer is
@@ -822,9 +922,50 @@ class MailBots {
     const checkers = kinds('checker'); let grade = null;
     if (checkers.length) this.ckPut(id, 'check|' + draft.id, { draft_id: draft.id, ctx: { webAnswers, lookup, sar_lookup, medical_disclaimer, research_lookup, symptom_research, writerKnowledge, order_lookup: orderLookup } });
     if (!checkers.length) this.step(id, 'check', 'skipped', 'Checker bot is off; the built-in checker grades before any auto-send');
+    lookup = await withVerifiedHandles(lookup, draft && draft.body, orig.subject + '\n' + orig.text, this.fetch);
     for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
     if (webAnswers.length) for (const w of webAnswers) this.webResearch.report(w.item_id, { checker: grade ? { verdict: grade.verdict, notes: grade.notes, problems: grade.web_problem ? [grade.web_problem] : [] } : { verdict: 'not_run', notes: 'Checker bot is off', problems: [] }, draft_id: draft.id, delivery: grade && grade.verdict === 'pass' ? 'checker_passed' : 'held' });
-    if (grade && grade.verdict !== 'pass') { this.finish(id, 'done', 'Held for you: the checker said ' + grade.verdict + ' — ' + String(grade.notes).slice(0, 160)); this.step(id, 'auto_send', 'held', 'Checker ' + grade.verdict + ': waits for the owner'); this.store.updateDraft(draft.id, {}, 'held'); doneAll(true); return 'processed'; }
+    if (grade && grade.verdict !== 'pass') {
+      const disc = (readDisclaimer(this.tools) || medical_disclaimer || {});
+      const blocked = R.reviseBlocked(orig, draft, { settings: this.store.settings(), ownDomains: this.ownDomains, disclaimer: disc.text || '', researched: !!(webAnswers.length || (draft && draft.web_research)) });
+      if (blocked) {
+        this.step(id, 'check', 'no_revise', 'Not revised: ' + holdText(blocked), { code: blocked.reason, detail: blocked.detail || null });
+        this.finish(id, 'done', 'Held for you: the checker said ' + grade.verdict + ' — ' + String(grade.notes).slice(0, 160));
+        this.step(id, 'auto_send', 'held', 'Checker ' + grade.verdict + ': waits for the owner'); this.store.updateDraft(draft.id, {}, 'held'); doneAll(true); return 'processed';
+      }
+      const reviewExtra = () => ({ ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}) });
+      const alreadyRerun = !!(this.db.revise_rerun && this.db.revise_rerun[id]);
+      let loops = 0;
+      const replierRec = Object.values(this.db.installed).find(x => this.effective(x).kind === 'replier' && x.enabled);
+      while (grade && grade.verdict !== 'pass' && loops < R.MAX_REVISE) {
+        if (R.missingCritical(grade) && !R.canFillFromLookups(grade)) break;
+        const edits = R.allowedEdits(grade);
+        if (!edits.length || !replierRec) break;
+        loops++;
+        this.step(id, 'check', 'revise_requested', 'Checker required ' + edits.length + ' edit' + (edits.length === 1 ? '' : 's') + ' (loop ' + loops + ' of ' + R.MAX_REVISE + '): ' + R.editSummary(edits), { loop: loops, edits, facts: grade.lookup_facts || [] });
+        lookup = await withVerifiedHandles(lookup, draft.body, orig.subject + '\n' + orig.text, this.fetch);
+        const revised = await this.reviseDraft(replierRec, orig, draft, edits, { store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, knowledge: writerKnowledge || [], order_lookup: orderLookup, signed });
+        if (!revised) break;
+        draft = revised;
+        this.step(id, 'reply', 'revised', 'Applied checker edits (loop ' + loops + ' of ' + R.MAX_REVISE + ')', { bot: replierRec.id, draft_id: draft.id, loop: loops });
+        lookup = await withVerifiedHandles(lookup, draft.body, orig.subject + '\n' + orig.text, this.fetch);
+        for (const cr of checkers) { at_('check', cr); grade = await this.review(cr, orig, draft, reviewExtra()); this.step(id, 'check', grade.verdict, 'Recheck after revise loop ' + loops + ': ' + String(grade.notes).slice(0, 200), { bot: cr.id, loop: loops }); }
+      }
+      if (grade && grade.verdict !== 'pass' && R.missingCritical(grade) && !R.canFillFromLookups(grade) && !alreadyRerun) {
+        this.db.revise_rerun = { ...(this.db.revise_rerun || {}), [id]: true }; this.store.save();
+        this.step(id, 'reply', 'rerun', 'Critical information was missing and the checker could not fetch it from the lookups; starting a full rerun (sort kept)', { code: 'missing_critical' });
+        this.finish(id, 'done', 'Critical information missing; starting a full rerun');
+        this.reprocess(id, 'checker missing-critical fallback');
+        // Return retry so wake() keeps the pending row reprocess just queued (a 'processed' return would drop it).
+        return 'retry';
+      }
+      if (grade && grade.verdict !== 'pass') {
+        const why = loops >= R.MAX_REVISE ? 'still failing after ' + R.MAX_REVISE + ' revise loops' : 'the checker said ' + grade.verdict;
+        this.finish(id, 'done', 'Held for you: ' + why + ' — ' + String(grade.notes).slice(0, 160));
+        this.step(id, 'auto_send', 'held', 'Checker ' + grade.verdict + (loops ? ' after ' + loops + ' revise loop' + (loops === 1 ? '' : 's') : '') + ': waits for the owner');
+        this.store.updateDraft(draft.id, {}, 'held'); doneAll(true); return 'processed';
+      }
+    }
     // A reply that uses web research is never sent without the Checker bot's pass, and waits for John while the Brain box
     // says "hold for owner" (the default until he decides).
     if (webAnswers.length) {
@@ -867,6 +1008,29 @@ class MailBots {
     if (why) { this.step(id, 'reply', 'web_research', 'Web answer not used: ' + why + '; kept the first draft and its follow-up line', { bot: r.id, tool: 'web_research' }); for (const w of answered) this.webResearch.report(w.item_id, { delivery: 'not_used' }); return { x, gaps, answered: [] }; }
     return { x: { ...y, kb_gaps: left, reason: String(y.reason || x.reason || 'Reply with web research').slice(0, 300) }, gaps: left, answered };
   }
+  async reviseDraft(r, orig, draft, edits, ctx = {}) {
+    const signed = ctx.signed || signedName(orig.text);
+    const md = ctx.medical_disclaimer || null;
+    const y = await this.call(r, {
+      revise: true,
+      message: { id: orig.id, subject: orig.subject, from: orig.from, text: orig.text },
+      sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' },
+      previous_draft: { subject: draft.subject, body: draft.body },
+      edits,
+      revise_instructions: 'Apply the checker edits to previous_draft only. Do not rewrite from scratch, do not redo research, and keep every sentence that is still correct. store_lookup / store_evidence (when present) are verified lookup results: product, variant, price, stock and URL. Use only those supplied facts and any fact+source on the edits. An empty search is not a reason to cut a correct price, stock, color or link. Return JSON {"needs_reply":true,"reason":"...","body":"the revised email"}.',
+      ...trimContext(ctx.knowledge || [], ctx.store_lookup),
+      ...(ctx.sar_lookup ? { sar_lookup: ctx.sar_lookup } : {}),
+      ...(ctx.research_lookup ? { research_lookup: ctx.research_lookup } : {}),
+      ...(ctx.symptom_research ? { symptom_research: ctx.symptom_research } : {}),
+      ...(md ? { medical_disclaimer: md } : {}),
+      ...(ctx.order_lookup ? { order_lookup: ctx.order_lookup } : {})
+    }, { timeoutMs: writerRound1Ms(this.effective(r).limits.model, !!md) });
+    const body = String(y && y.body || '').trim();
+    if (!body) return null;
+    const bodyOut = P.formatParagraphs(md ? P.ensureDisclaimerLast(fixGreeting(body, signed), md.text) : fixGreeting(body, signed), md ? md.text : '', { keep: verbatimOwner(md ? P.ensureDisclaimerLast(body, md.text) : body, ctx.knowledge || []) });
+    return this.store.updateDraft(draft.id, { body: P.stripRelated(bodyOut).slice(0, 20000), reason: String(y.reason || 'Revised from checker edits').slice(0, 300) }) || this.store.draft(draft.id);
+  }
+
   async review(r, orig, draft, extraIn = {}) {
     const { web_answers: webAnswers = [], ...extra } = extraIn;
     // Evidence for the checker model: the web findings (plain text, excerpts, no outside URLs) for the researched subquestions.
@@ -876,14 +1040,27 @@ class MailBots {
     const storeLookup = await withVerifiedHandles(extra.store_lookup, draft.body, asked, this.fetch);
     const symptomResearch = extra.symptom_research !== undefined ? extra.symptom_research : symptomLookup(this.tools, orig);
     const links = checkLinks(draft.body, { kbUrls: (this.tools && typeof this.tools.kbUrls === 'function' ? this.tools.kbUrls() : []), storeLookup, sarLookup: extra.sar_lookup, asked, extra: [...(extra.knowledge || knowledge || []).map(k => k && k.source).filter(Boolean), ...(researchDir.urlsOf(extra.research_lookup) || []), ...symptoms.urlsOf(symptomResearch), ...O.urlsOf(extra.order_lookup), this.newsletterJoinUrl].filter(Boolean) });
-    const x = await this.call(r, { original: { subject: orig.subject, text: orig.text }, draft: { subject: draft.subject, body: maskVerified(draft.body, links.ok) }, ...(() => { const v = verbatimOwner(draft.body, extra.knowledge || knowledge); return v.length ? { owner_approved_note: 'These sentences in the draft are quoted verbatim from an owner-approved knowledge base answer (John Coates). They are pre-approved: never treat them as invented, medical, health or unsupported claims, or as an unasked addition when they answer the question: ' + v.map(x => '"' + x + '"').join(' ') } : {}; })(), links_note: 'Each ' + VERIFIED + ' is a link already verified in code against the knowledge base and the live store (and the phone asked about). Verified links are pre-approved: never list one as an unasked addition. Grade the words around it as usual.', knowledge, ...extra }, { timeoutMs: checkerMs(this.effective(r).limits.model, !!(extra.medical_disclaimer || extra.hasDisclaimer || extra.symptom_research || extra.research_lookup), draft.body) });
+    const kIn = (extra.knowledge && extra.knowledge.length) ? extra.knowledge : knowledge;
+    // Always pass the URL-verified store lookup (withVerifiedHandles) to the model. Using extra.store_lookup first
+    // hid those products when the short search query was empty (r.86b605a8).
+    const trimmed = trimContext(kIn, storeLookup || extra.store_lookup);
+    const vOwn = verbatimOwner(draft.body, trimmed.knowledge);
+    const payload = R.checkerPayload({
+      original: { subject: orig.subject, text: orig.text },
+      draft: { subject: draft.subject, body: maskVerified(draft.body, links.ok) },
+      owner_approved_note: vOwn.length ? 'These sentences in the draft are quoted verbatim from an owner-approved knowledge base answer (John Coates). They are pre-approved: never treat them as invented, medical, health or unsupported claims, or as an unasked addition when they answer the question: ' + vOwn.map(x => '"' + x + '"').join(' ') : undefined,
+      links_note: 'Each ' + VERIFIED + ' is a link already verified in code against the knowledge base and the live store (and the phone asked about). Verified links are pre-approved: never list one as an unasked addition. Grade the words around it as usual. An empty store_lookup search is not evidence that a fact is invented: if the draft links a store product or ?variant= URL, those verified products are in store_evidence. Do not cut price, stock or color you could not check; fetch or use the verified URL facts instead.',
+      knowledge: trimmed.knowledge,
+      extra: { ...extra, store_lookup: trimmed.store_lookup || storeLookup || extra.store_lookup }
+    });
+    const x = await this.call(r, payload, { timeoutMs: checkerMs(this.effective(r).limits.model, !!(extra.medical_disclaimer || extra.hasDisclaimer || extra.symptom_research || extra.research_lookup), draft.body) });
     let verdict = ['pass', 'fail', 'unsure'].includes(x.verdict) ? x.verdict : 'unsure';
     // Deterministic: a draft that does not answer the email's main question never passes, and says so plainly.
     const mq = String(x.main_question || '').trim().slice(0, 160);
     if (x.answers_main_question === false) { verdict = 'fail'; x.notes = "Didn't answer the main question" + (mq ? ': ' + mq : '') + (x.notes ? '. ' + String(x.notes) : ''); }
     // Both sides of John's rule: answer everything that was asked (from the KB), and nothing that was not.
     const list = (v) => (Array.isArray(v) ? v : []).map(s => String(s || '').trim()).filter(Boolean).slice(0, 5);
-    const un = list(x.unanswered); const add = list(x.unasked_additions).filter(t => !shortCaveat(t, draft.body));
+    const un = list(x.unanswered); const add = list(x.unasked_additions).filter(t => !shortCaveat(t, draft.body) && !R.relatedHealthAddition(t, { asked: orig.subject + '\n' + orig.text, knowledge: (extra.knowledge && extra.knowledge.length) ? extra.knowledge : knowledge, research_lookup: extra.research_lookup, medical_disclaimer: extra.medical_disclaimer }));
     // Deterministic: a draft that affirms a blocking or protection percentage (e.g. "blocks 99%") never passes; the KB only says
     // a material's test percentage is not a measured change in a person's exposure.
     // Deterministic backstop (triage bug 5): a KB "Related:" line left in the draft never passes.
@@ -891,6 +1068,7 @@ class MailBots {
     const scaf = scaffolding(draft.body); if (scaf) { verdict = 'fail'; x.notes = 'Refers to internal knowledge-base material the customer never saw: "' + scaf.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
     // Links: verified in code before the checker call (see checkLinks); an invented, unknown or wrong-phone link fails.
     const lp = links.problems;
+    const cp = chooseColorProblem(draft.body, storeLookup); if (cp) { verdict = 'fail'; x.notes = cp + (x.notes ? '. ' + String(x.notes) : ''); }
     const ut = O.unverifiedTrackingProblem(draft.body, extra.order_lookup); if (ut) { verdict = 'fail'; x.notes = ut + (x.notes ? '. ' + String(x.notes) : ''); }
     if (lp.length) { verdict = 'fail'; x.notes = 'Wrong or unknown link: ' + lp.map(p => p.url.slice(0, 120) + ' (' + p.problem + ')').join('; ').slice(0, 300) + (x.notes ? '. ' + String(x.notes) : ''); }
     if (isReturnsQ(orig.subject, orig.text) && returnAddressRequired(orig, draft.body)) { const card = (extra.knowledge || knowledge || []).find(k => /To exchange or return a case, mail it back/.test(String((k && k.text) || ''))) || (this.tools ? await this.returnsCard(r) : null); const ad = card && returnAddress(card.text); if (ad && missingAddress(draft.body, ad)) { verdict = 'fail'; x.notes = 'Refund, return or exchange reply does not state the return address from the knowledge base (' + ad + ')' + (x.notes ? '. ' + String(x.notes) : ''); } }
@@ -912,8 +1090,12 @@ class MailBots {
     if (medQ || extra.medical_disclaimer || extra.research_lookup || extra.hasDisclaimer) { const rl = medicalResearchLinkProblem(draft.body, liveDisclaimer && liveDisclaimer.text); if (rl) { verdict = 'fail'; x.notes = 'Research link is not a real rfsafe.app study page: ' + rl.slice(0, 180) + (x.notes ? '. ' + String(x.notes) : ''); } }
     const sp = symptoms.linkProblem(draft.body, symptomResearch); if (sp) { verdict = 'fail'; x.notes = 'Mentions a symptom but links none of its rfsafe.app study pages from the Brain box symptom map: ' + sp.join('; ').slice(0, 200) + (x.notes ? '. ' + String(x.notes) : ''); }
     const gate = P.autoSendGate({ settings: { ...this.store.settings(), auto_send: true }, available: true, original: orig, draft, sentToday: this.store.autoSentToday(), ownDomains: this.ownDomains, disclaimer: liveDisclaimer ? liveDisclaimer.text : '', researched: !!(webAnswers.length || draft.web_research) });
-    const n = { bot: r.id, needed: String(x.needed || x.main_question || 'Customer request').slice(0, 500), verdict, notes: String(x.notes || 'No reason supplied').slice(0, 1000), improvements: (Array.isArray(x.improvements) ? x.improvements : []).map(x => String(x).slice(0, 300)).slice(0, 10), would: verdict === 'pass' && gate.ok ? 'would have sent' : 'would have held', draft: draft.id, ...(wp ? { web_problem: wp } : {}) };
+    const emptySearch = !storeLookup || !((storeLookup.products || []).length);
+    if (emptySearch && Array.isArray(x.lookup_facts) && x.lookup_facts.every(f => R.isEmptyLookupClaim((f && f.fact) || ''))) x.lookup_facts = [];
+    if (Array.isArray(x.edits)) x.edits = R.allowedEdits(x);
+    const edits = R.allowedEdits(x);
+    const n = { bot: r.id, needed: String(x.needed || x.main_question || 'Customer request').slice(0, 500), verdict, notes: String(x.notes || 'No reason supplied').slice(0, 1000), improvements: (Array.isArray(x.improvements) ? x.improvements : []).map(x => String(x).slice(0, 300)).slice(0, 10), ...(edits.length ? { edits } : {}), ...(x.missing_critical === true ? { missing_critical: true } : {}), ...(Array.isArray(x.lookup_facts) ? { lookup_facts: x.lookup_facts.slice(0, 10) } : {}), would: verdict === 'pass' && gate.ok ? 'would have sent' : 'would have held', draft: draft.id, ...(wp ? { web_problem: wp } : {}) };
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
