@@ -15,5 +15,5 @@ const MODULES = {
   rerun_api: { label: 'Rerun key: POST /admin/mail/messages/<id>/rerun and /redraft', entry: ['src/mailrerunapi.js'], routes: ['/admin/mail/messages/*/rerun', '/admin/mail/messages/*/redraft'], needs: ['mailbox'] },
 };
 // Always copied: the framework itself.
-const CORE = ['port/mount.js', 'port/lib/config.js', 'port/lib/modules.js', 'port/lib/closure.js', 'port/README.md', 'port/CHECKLIST.md', 'port/ROLLBACK.md', 'port/KB_GROWTH.md', 'port/tools/export-public-kb.js', 'port/site.config.template.js', 'src/util.js', 'src/kb.js', 'src/brand.js'];
+const CORE = ['port/mount.js', 'port/lib/config.js', 'port/lib/modules.js', 'port/lib/closure.js', 'port/README.md', 'port/CHECKLIST.md', 'port/ROLLBACK.md', 'port/KB_GROWTH.md', 'port/tools/export-public-kb.js', 'port/site.config.template.js', 'src/util.js', 'src/kb.js', 'src/kblight.js', 'src/brand.js', 'port/KB_LIGHT.md'];
 module.exports = { MODULES, CORE, IDS: Object.keys(MODULES) };

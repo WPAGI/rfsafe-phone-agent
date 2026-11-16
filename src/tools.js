@@ -60,7 +60,7 @@ class Tools {
     if (Object.values(args).some((v) => looksLikeCard(v))) { log('guard.payment_blocked', { tenant: t.id, tool: name }); return { ok: false, error: 'payment_details_refused', say: 'We never take payment details by phone or text. I can text you a link to order on the official website.' }; }
     try {
       switch (name) {
-        case 'kb_answer': { const q = String(args.question || '').slice(0, 500); const a = this.d.kbFor(t).answer(q); if (!a.found) this.gapLog({ tenant: t.id, question: q.slice(0, 200), reason: 'no_match', ...this.gapCtx(ctx) }); return { ok: true, ...a, ...(a.found ? { guidance: a.guidance + ' If these passages do not actually answer the question, call note_unanswered and do not guess.' } : {}) }; }
+        case 'kb_answer': { const q = String(args.question || '').slice(0, 500); const a = this.kbAnswer(t, q, ctx); if (!a.found) this.gapLog({ tenant: t.id, question: q.slice(0, 200), reason: 'no_match', ...this.gapCtx(ctx) }); return { ok: true, ...a, ...(a.found ? { guidance: a.guidance + ' If these passages do not actually answer the question, call note_unanswered and do not guess.' } : {}) }; }
         case 'note_unanswered': { this.gapLog({ tenant: t.id, question: String(args.question || '').slice(0, 200), reason: 'model_unanswered', ...this.gapCtx(ctx) }); return { ok: true, say: 'I do not have that information yet. I can take a message for the RF Safe team or text you a link to rfsafe.org.' }; }
         case 'website_lookup': return await this.websiteLookup(args);
         case 'sar_ranking': { const r = await this.d.sarFor(t).lowest({ metric: ['head', 'body', 'combined'].includes(args.metric) ? args.metric : 'combined', brand: String(args.brand || '').slice(0, 40), limit: Number(args.limit) || 5 }); if (!checkUrl(r.ranking, t.link_allowlist).ok) delete r.ranking; for (const p of r.phones) if (!checkUrl(p.sar_page, t.link_allowlist).ok) delete p.sar_page; return { ok: true, ...r }; }
@@ -165,6 +165,17 @@ class Tools {
     this.archive({ channel: 'sms', tenant: t.id, call: ctx.callId, to, text: body, provider_id: r.sid || null, error: r.ok ? null : r.reason, caller: ctx.caller });
     if (newsInvite) log('newsletter.sms_requested', { tenant: t.id, call: ctx.callId, to: fp(to), sent: !!r.ok });
     return r.ok ? { ok: true, sent: true, to_last4: last4(to), ...(newsInvite ? { news_invite: true, say_after: 'Tell the caller: to join the news texts, just reply YES to that text.' } : {}) } : { ok: false, error: r.reason };
+  }
+  // KB Light first, KB Full fallback (John, Nov 16, 2026, 3:06-3:08 AM ET; vendor/sitemail/port/KB_LIGHT.md). The host's
+  // kbLightFirst hook (the Brain box on /kb) answers first for a voice or SMS question; null (channel switched off,
+  // tenant not listed, Site Mail off, or any error) means the phone KB answers exactly as before. The model sees the
+  // same { found, guidance, passages } shape either way; which layer answered is only logged.
+  kbAnswer(t, q, ctx) {
+    const full = this.d.kbFor(t); let a = null;
+    if (typeof this.d.kbLightFirst === 'function' && ctx && (ctx.channel === 'voice' || ctx.channel === 'sms')) { try { a = this.d.kbLightFirst(t, q, ctx.channel, full); } catch { a = null; } }
+    if (!a) return full.answer(q);
+    const { kb_layer: layer, ...rest } = a; try { (this.d.log || (() => {}))('kb.layer', { tenant: t.id, channel: ctx.channel, layer, passages: (rest.passages || []).length }); } catch { /* log is best effort */ }
+    return rest.passages ? { ...rest, passages: rest.passages.map(({ layer: _l, ...p }) => p) } : rest;
   }
   // Where a gap came from, for the owner briefing: channel, conversation id, caller last 4 only.
   gapCtx(ctx) { return { channel: ctx && ctx.channel, call: (ctx && ctx.callId) || null, from_last4: ctx && ctx.caller ? String(ctx.caller).replace(/\D/g, '').slice(-4) || null : null }; }

@@ -44,6 +44,9 @@ module.exports = {
     seed_import: false,
     // Growth loop (modules.kb_growth): max proposals a day sent to the review inbox.
     growth: { proposals_per_day: 10 },
+    // KB Light first (src/kblight.js, port/KB_LIGHT.md): search this site's Brain box first and fall back to the full KB
+    // only when it has no good match. Off unless set. phone_tenants: host tenant ids whose phone/SMS lookup uses it.
+    // light_first: { mail: true, phone: true, sms: true, phone_tenants: ['<host tenant id>'] },
   },
 
   // --- Data -------------------------------------------------------------------------------------------------
