@@ -55,3 +55,23 @@ Set `modules.public_kb = { enabled: true, factory: './my-kb.js' }`. The factory 
 
 ## Updating a site later
 Updates go through `vendor/sitemail/INSTALL.json`: compare the hashes, roll back, then install the new version (setup never overwrites). The data namespace is kept across updates.
+
+## Public /kb layers, seed import, growth loop (Nov 16)
+
+- `public_kb.seed`: an exported public KB (port/tools/export-public-kb.js) shown under the site's own Brain box entries:
+  core position, answers and topics, body-system summaries with effect counts, safety-claim critiques.
+- `public_kb.host_kb`: the host's own KB folders on /kb through a read-only filtered adapter (src/publickb/hostkb.js;
+  the filter rules are listed at the top of that file).
+- `public_kb.brand`, `public_kb.research_base`: the site's header, menu, footer and hero text, and where body-system
+  study links point.
+- `kb.seed_import`: one-time additive import of the seed into the Brain box (owner-approved, locked).
+- `modules.kb_growth`: Brain box coverage metric + growth loop. See KB_GROWTH.md.
+
+
+## Mailbox verification (v1.2, Nov 16; rfsafe.app PRs #73-#75)
+
+Same code as rfsafe.app main d81e5e59f: color answers from the store lookup (`store.single_variant_color`, default
+Black), checker store evidence first, KB-backed health tips allowed, the revise loop (max 2), the store query from the
+full message, the draft's variant URL verified, no cuts on an empty lookup or when critical info is missing, draft
+version history (older drafts superseded), and separate Rerun / Redraft in the inbox and on the rerun key
+(`POST /admin/mail/messages/<id>/rerun` and `/redraft`, same limits).

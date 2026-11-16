@@ -1,7 +1,8 @@
 'use strict';
 // Jarvis rerun key (John, Nov 15, 9:11 PM ET: "Yes, have Coder build a rerun-only key for unanswered emails").
 // docs/MAIL_READ_API.md. Exactly one endpoint:
-//   POST /admin/mail/messages/<id>/rerun   (empty body or {}; any field or query parameter is refused with 422)
+//   POST /admin/mail/messages/<id>/rerun    (empty body or {}; any field or query parameter is refused with 422)
+//   POST /admin/mail/messages/<id>/redraft  (same key, same rate limits; keeps the current draft and runs a fresh check)
 // Runs the normal pipeline once (sorter, writer, checker, auto-send) through the owner's own reprocess; nothing is
 // forced, skipped or overridden. Refuses (409) an email that was already replied to, is in trash or spam, or is queued
 // or running. Loop guard: at most PER_EMAIL_PER_HOUR reruns per email per rolling hour (default 5; John, Nov 15 11:03 PM ET,
@@ -12,7 +13,7 @@
 const fs = require('fs'); const path = require('path');
 const kbApi = require('./kbapi');
 
-const PATH_RE = /^\/admin\/mail\/messages\/([A-Za-z0-9._-]{8,200})\/rerun\/?$/;
+const PATH_RE = /^\/admin\/mail\/messages\/([A-Za-z0-9._-]{8,200})\/(rerun|redraft)\/?$/;
 const HOUR = 3600000; const DAILY_CAP = 50; const PER_EMAIL_PER_HOUR = 5;
 const envInt = (v, d) => { const n = Number(String(v == null ? '' : v).trim()); return Number.isInteger(n) && n > 0 && n <= 10000 ? n : d; }; const MAX_BODY = 1024;
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store, max-age=0', 'x-robots-tag': 'noindex, nofollow', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
@@ -48,7 +49,7 @@ function createMailRerunApi({ hash, otherHashes = () => [], mailbox, dataDir, no
     }
     const mb = typeof mailbox === 'function' ? mailbox() : mailbox;
     if (!mb || !mb.enabled || !mb.rerunCheck || !mb.rerunByKey) return send(res, 503, { error: 'mailbox_unavailable' });
-    const id = m[1];
+    const id = m[1]; const action = m[2] === 'redraft' ? 'redraft' : 'rerun';
     try {
       const c = await mb.rerunCheck(id); if (c.code !== 200) return send(res, c.code, { error: c.error, ...(c.detail ? { detail: c.detail } : {}) });
       const t = +now(); const day = new Date(t).toISOString().slice(0, 10); const g = load(); g.byId ||= {};
@@ -59,9 +60,11 @@ function createMailRerunApi({ hash, otherHashes = () => [], mailbox, dataDir, no
       if (g.day !== day) { g.day = day; g.count = 0; }
       if (g.count >= dailyCap) return send(res, 429, { error: 'daily_cap', detail: 'At most ' + dailyCap + ' reruns a day (UTC).' });
       g.byId[id] = [...mine, t]; g.count += 1; save(g);
-      const r = mb.rerunByKey(id);
+      const r = action === 'redraft' ? (mb.redraftByKey ? mb.redraftByKey(id) : { no_draft: true }) : mb.rerunByKey(id);
       if (r && r.already_running) return send(res, 409, { error: 'already_running' });
-      return send(res, 202, { ok: true, id, run: r && r.run ? { status: r.run.status, label: r.run.label } : null, reruns_today: g.count, daily_cap: dailyCap, reruns_this_hour: g.byId[id].length, per_email_per_hour: perEmail });
+      if (r && r.already_replied) return send(res, 409, { error: 'already_replied' });
+      if (r && r.no_draft) return send(res, 409, { error: 'no_draft', detail: 'There is no current draft to redraft.' });
+      return send(res, 202, { ok: true, id, action, run: r && r.run ? { status: r.run.status, label: r.run.label } : null, reruns_today: g.count, daily_cap: dailyCap, reruns_this_hour: g.byId[id].length, per_email_per_hour: perEmail });
     } catch (e) { return send(res, 502, { error: 'mail_unavailable' }); }
   }
   return { route, isPath, isRerunKey };

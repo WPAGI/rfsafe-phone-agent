@@ -55,6 +55,9 @@ class MailboxStore {
     const cur = this.draft(id); if (!cur) return null;
     const { id: _i, status: st, created, updated, author, reply_to_id, ...content } = cur;
     const next = { ...content, ...patch };
+    if (patch && patch.body && cur.body && patch.body !== cur.body) {
+      next.versions = [...(cur.versions || []), { at: this.iso(), body: cur.body, reason: cur.reason || null, status: cur.status }].slice(-20);
+    }
     // A draft the owner discarded stays discarded: a bot step (held, sent) never brings it back.
     const keep = st === 'discarded' && status !== 'discarded';
     this.db.drafts[id] = { id, status: keep ? st : (status || st), created, updated: this.iso(), author, reply_to_id, box: this.sealer.seal(next) }; this.save(); return this.draft(id);

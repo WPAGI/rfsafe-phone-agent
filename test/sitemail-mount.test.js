@@ -44,3 +44,20 @@ test('sitemail off (SITEMAIL_ENABLED=0): none of its routes answer, host unchang
     assert.equal((await fetch(a.base + '/mail', { redirect: 'manual' })).status, 303);
   } finally { await a.close(); }
 });
+
+test('sitemail v1.2 verification (rfsafe.app #73-#75): Rerun and Redraft on the rerun key only, single-variant color Black, host routes unchanged', async () => {
+  const RERUN = 'test-sitemail-rerun-key-0123456789'; const READ = 'test-sitemail-read-key-01234567890';
+  const h = (k) => crypto.createHash('sha256').update(k).digest('hex');
+  const a = await startWith({ ...on, SITEMAIL_RERUN_HASH: h(RERUN), SITEMAIL_READ_HASH: h(READ) });
+  try {
+    const post = async (p, key) => (await fetch(a.base + p, { method: 'POST', headers: key ? { authorization: 'Bearer ' + key } : {} })).status;
+    assert.equal(await post('/admin/mail/messages/r.unknown-0001/redraft'), 401);
+    assert.equal(await post('/admin/mail/messages/r.unknown-0001/redraft', READ), 403);
+    assert.equal(await post('/admin/mail/messages/r.unknown-0001/redraft', RERUN), 404);
+    assert.equal(await post('/admin/mail/messages/r.unknown-0001/rerun', RERUN), 404);
+    const hl = await (await fetch(a.base + '/health')).json(); assert.equal(hl.ok, true); assert.equal(hl.active_calls, 0);
+    assert.equal((await fetch(a.base + '/mail', { redirect: 'manual' })).headers.get('location'), '/mail/login', 'host /mail unchanged');
+    const cfg = require('../vendor/sitemail/site.config.js'); assert.equal(cfg.store.single_variant_color, 'Black'); assert.equal(cfg.modules.kb_growth, false);
+    assert.ok(fs.existsSync(path.join(__dirname, '../vendor/sitemail/src/mailbox/revise.js')));
+  } finally { await a.close(); }
+});
