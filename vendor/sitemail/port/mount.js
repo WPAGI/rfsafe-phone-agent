@@ -60,7 +60,15 @@ function mountSiteMail(host = {}, cfg) {
     fpCache = { at: Date.now(), v: { dirs: hostDirs.length, files, sha256: h.digest('hex').slice(0, 16) } }; return fpCache.v;
   };
   const kb = () => kbCache || (kbCache = new KB({ dirs: hostDirs, overrideDirs: fs.existsSync(entriesDir) ? [entriesDir] : [], allowlist: B.link_allowlist }));
-  const kbReset = () => { kbCache = null; };
+  // KB Light first, KB Full fallback (src/kblight.js, port/KB_LIGHT.md; John, Nov 16, 2026, 3:06-3:08 AM ET).
+  // KB Light = this site's Brain box entries only. KB Full = kb() above, searched exactly as before. Per-channel switches
+  // in kb.light_first (mail, phone, sms); env KB_LIGHT_FIRST_<CHANNEL>=0 turns one back off. Read-only.
+  let lightCache = null;
+  const kbLight = () => lightCache || (lightCache = new KB({ dirs: fs.existsSync(entriesDir) ? [entriesDir] : [], allowlist: B.link_allowlist }));
+  const lightEnv = Object.fromEntries(Object.entries(hostEnv || {}).filter(([k]) => /^KB_LIGHT_FIRST_(MAIL|PHONE|SMS)$/.test(k)));
+  const LF = req('src/kblight.js').createKbLightFirst({ light: kbLight, env: lightEnv, cfg: cfg.kb.light_first || {} });
+  const kbMailSearch = (q, k, o) => (LF.channelOn('mail') ? LF.search(kb(), q, k, o) : kb().search(q, k, o));
+  const kbReset = () => { kbCache = null; lightCache = null; };
 
   const custom = (id, ctx) => { const m = cfg.modules[id]; if (!(m && typeof m === 'object' && m.factory)) return null; const f = require(path.resolve(host.rootDir || process.cwd(), m.factory)); return (f.create || f)(ctx); };
   const ctx = { cfg, env, log, now, ns, tenant, kb, kbReset, B };
@@ -129,7 +137,7 @@ function mountSiteMail(host = {}, cfg) {
       env, client: mail.client, siteName: B.name, fromAddress: B.from, log, now: host.mailNow, publicBaseUrl: () => cfg.site.public_base_url,
       file: path.join(ns, 'mailbox', 'mailbox.json'), fetchImpl, checker: host.mailChecker, bootReprocessWait: host.mailBootWait,
       shopifyCallbackUrl: cfg.site.public_base_url + C.mailBase(cfg) + '/tools/shopify/callback', mailBase: C.mailBase(cfg),
-      kb: { search: (q, k, o) => kb().search(q, k, o), urls: () => kb().urls(), version: () => kb().version(), entryBySlug: (s) => kb().entryBySlug(s), entriesOfType: (t) => kb().entriesOfType(t) },
+      kb: { search: (q, k, o) => kbMailSearch(q, k, o), urls: () => kb().urls(), version: () => kb().version(), entryBySlug: (s) => kb().entryBySlug(s), entriesOfType: (t) => kb().entriesOfType(t) },
       answerRules: () => '',
       onReplied: growth ? (ev) => growth.onReplied(ev) : undefined,
       kbGap: (g) => { try { appendJsonl(gapFile, { at: new Date().toISOString(), tenant: tenantId, question: String(g.question || '').slice(0, 200), reason: 'email_unanswered', channel: 'email', source: 'email', message_id: String(g.message_id || '').slice(0, 80) }); } catch {} },
@@ -202,7 +210,11 @@ function mountSiteMail(host = {}, cfg) {
   return {
     enabled: true, modules, failed, route, kbAdmin, publicKb, mailbox, mail,
     kbSearch: (q, k) => kb().search(q, k), // read-only: the same combined KB the Mailbox writer and checker search
-    status: () => ({ enabled: true, site: cfg.site.id, modules, ...(seedImport ? { seed_import: { imported: seedImport.imported, kept_existing: seedImport.kept_existing, ran: seedImport.ran } } : {}), ...(growth ? { brain_box_coverage: (() => { try { const c = growth.coverage(); return { questions: c.questions, share: c.share }; } catch { return null; } })() } : {}), host_kb: (() => { try { return hostKbFingerprint(); } catch { return null; } })(), ...(Object.keys(failed).length ? { failed: Object.keys(failed) } : {}), ...(mailbox && mailbox.enabled ? { mailbox: mailbox.status() } : {}) }),
+    // Phone/SMS hook (KB Light first): answerFor(hostTenantId, question, 'voice'|'sms', hostKb) returns a KB#answer-shaped
+    // result with kb_layer 'light' or 'full', or null when that channel is off or the tenant is not listed (the host then
+    // answers exactly as before). hostKb is the host's own phone KB (KB Full for the phone line), used read-only.
+    kbLightFirst: { answerFor: (t, q, ch, full) => LF.answerFor(t, q, ch, full), mailSearch: (q, k, o) => kbMailSearch(q, k, o), status: () => LF.status() },
+    status: () => ({ enabled: true, site: cfg.site.id, modules, ...(seedImport ? { seed_import: { imported: seedImport.imported, kept_existing: seedImport.kept_existing, ran: seedImport.ran } } : {}), ...(growth ? { brain_box_coverage: (() => { try { const c = growth.coverage(); return { questions: c.questions, share: c.share }; } catch { return null; } })() } : {}), host_kb: (() => { try { return hostKbFingerprint(); } catch { return null; } })(), kb_light_first: (() => { try { return LF.status(); } catch { return null; } })(), ...(Object.keys(failed).length ? { failed: Object.keys(failed) } : {}), ...(mailbox && mailbox.enabled ? { mailbox: mailbox.status() } : {}) }),
     close: () => { try { if (kbAdmin && kbAdmin.closeStreams) kbAdmin.closeStreams(); } catch {} try { if (mailbox && mailbox.close) mailbox.close(); } catch {} },
   };
 }

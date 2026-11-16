@@ -1,6 +1,6 @@
 {
   "site": "callbots",
-  "at": "2026-11-16T07:56:45.160Z",
+  "at": "2026-11-16T08:16:53.123Z",
   "modules": [
     "mail_viewer",
     "mailbox",
@@ -22,13 +22,14 @@
     "kb-agent-prompts/web_research.md": "8ecc553b7934429e",
     "port/CHECKLIST.md": "ac09863a487b5be6",
     "port/KB_GROWTH.md": "0a291acf8296e195",
+    "port/KB_LIGHT.md": "abcc4ebd79adfbb3",
     "port/README.md": "93b26ec2c5bfcb6a",
     "port/ROLLBACK.md": "d056d1b20b01f7db",
     "port/lib/closure.js": "0737a468668114c2",
-    "port/lib/config.js": "110b5bf6404334ba",
-    "port/lib/modules.js": "735258dae6701040",
-    "port/mount.js": "d07d4fcc349c4e56",
-    "port/site.config.template.js": "63ad20b6f4ab7d91",
+    "port/lib/config.js": "b7f745d7257e3a02",
+    "port/lib/modules.js": "e3a034d6f5914103",
+    "port/mount.js": "8f1f9084a03b6619",
+    "port/site.config.template.js": "c45c9b25f7fff613",
     "port/tools/export-public-kb.js": "59f668377211fc87",
     "seed/public-kb/rfsafe-app-public-kb.json": "9a36719406421537",
     "site/kb/assets/kb.css": "ee8085dd79e877d5",
@@ -48,6 +49,7 @@
     "src/kbapi.js": "cef58b9a1f1b077c",
     "src/kbcontrol.js": "593f6f2e60ac13fb",
     "src/kbgaps.js": "9b3acacb218e2768",
+    "src/kblight.js": "5b24639a3449ddf0",
     "src/linkguard.js": "80e32db3a27f65c6",
     "src/mail-forward.js": "c6f92498d1c353e6",
     "src/mail/auth.js": "c4d59312f1ec65ad",
@@ -99,7 +101,9 @@
     "HOST_PATCH.md",
     "INSTALL.json"
   ],
-  "allowed_routes": [],
+  "allowed_routes": [
+    "/mail"
+  ],
   "rollback": [
     "ROLLBACK (any time):",
     "  1. Instant, no deploy: set env SITEMAIL_ENABLED=0 on the host. The mount answers nothing; host routes run as before.",

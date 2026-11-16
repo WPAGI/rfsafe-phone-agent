@@ -27,6 +27,10 @@ module.exports = {
     seed_import: 'seed/public-kb/rfsafe-app-public-kb.json',
     // Growth loop: questions answered from the big phone KB propose compact Brain box entries for review (never live).
     growth: { proposals_per_day: 10 },
+    // KB Light first, KB Full fallback (John, Nov 16, 2026, 3:07-3:08 AM ET: "Yes, deploy KB Light first then KB Full
+    // to callbots.org for email and phones"). KB Light = this Brain box; KB Full = the phone KB folders above, read only.
+    // Env KB_LIGHT_FIRST_MAIL / _PHONE / _SMS = 0 turns a channel back to KB Full only (port/KB_LIGHT.md).
+    light_first: { mail: true, phone: true, sms: true, phone_tenants: ['rfsafe'] },
   },
   data: { namespace: 'sitemail' },                    // /var/data/sitemail: new, used by nothing else on Callbots
   modules: {

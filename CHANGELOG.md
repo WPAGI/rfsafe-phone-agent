@@ -1,4 +1,8 @@
 # Changelog
+## KB Light first, KB Full fallback (Nov 16, 2026; John approved deploy 3:07-3:08 AM ET)
+- Mailbox (writer and checker KB tool), phone `kb_answer` and texts search KB Light (the Callbots Brain box on /kb) first. A question with no good Light match is answered by KB Full (the phone KB) exactly as before. Rule and switches: `vendor/sitemail/port/KB_LIGHT.md`.
+- On by default for mail, phone and SMS, tenant `rfsafe` only (`vendor/sitemail/site.config.js`). Env `KB_LIGHT_FIRST_MAIL`, `KB_LIGHT_FIRST_PHONE` or `KB_LIGHT_FIRST_SMS` = `0` turns one channel off; `SITEMAIL_ENABLED=0` turns Site Mail off. KB Full files are read only. `/health` shows `sitemail.kb_light_first`.
+
 ## Owner email and feedback (unreleased, review only)
 - Verified-owner `owner_send_email` uses validated `tenant.owner_email` and fails closed when that value is missing, invalid, or still `SET_AT_DEPLOY`. It no longer requires a newsletter subscriber. Caller-supplied recipients are denied. Provider acceptance is not described as delivery.
 - PIN-gated `owner_leave_feedback` appends unreviewed feedback (`approval: false`) for one tenant after a read-back, and says it was saved only after the append is durable. It does not edit the knowledge base or send email. `GET /admin/owner-feedback` (session) and `GET /admin/owner-feedback.json` (scoped review token, not the admin token) are read-only. See `docs/OWNER_EMAIL_FEEDBACK.md`. Live `owner_email` is still a deploy setting.

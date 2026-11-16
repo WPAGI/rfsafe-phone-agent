@@ -35,7 +35,7 @@ function createApp(d) {
   // Public subscription preferences (/preferences). Site config picks branding, topics and legal text.
   const prefsSite = d.prefsSiteConfig || (() => { try { return require('./prefs/sites/' + String(d.prefsSite || 'rfsafe').replace(/[^a-z0-9-]/g, '')); } catch { return null; } })();
   const prefs = d.dataDir && prefsSite ? require('./prefs').createPrefs(d, prefsSite, { log }) : null;
-  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
+  const toolsFor = (t, callControl) => new Tools(t, { kbFor: d.kbFor, kbLightFirst: (tt, q, ch, full) => (sitemail && sitemail.enabled && sitemail.kbLightFirst ? sitemail.kbLightFirst.answerFor(tt.id, q, ch, full) : null), shopifyFor: d.shopifyFor, smsFor: d.smsFor, consent: d.consent, callControl: callControl || d.callControlFor(t), notify, approvals, log, now, rateLimit: d.rateLimit, websiteFetch: d.websiteFetch, sarFor: d.sarFor, emailFor: d.emailFor, emailLogFile: d.emailLogFile, sentMessages: d.sentMessages, kbGapFile: d.kbGapFile, newsletter: d.newsletter });
   const sec = (t, name) => resolveSecret(t, name, { env: d.env, store: d.secrets });
   const json = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const html = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(body); };
@@ -567,7 +567,7 @@ function createApp(d) {
       return json(res, 404, { error: 'not_found' });
     } catch (e) { log('http.error', { path: u.pathname, err: redactSecrets(e.message) }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
   };
-  return { handler, approvals, calls, owner, startDrain: () => { draining = true; }, isDraining: () => draining, smsIdle: () => Promise.all([...smsJobs]) };
+  return { handler, approvals, calls, owner, toolsFor, startDrain: () => { draining = true; }, isDraining: () => draining, smsIdle: () => Promise.all([...smsJobs]) };
 }
 
 function readGaps(f) { try { return require('fs').readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } }
