@@ -53,12 +53,35 @@ function index(opts = {}) {
   return { api, dir, logs, sealer };
 }
 
+// Render's build runs `npm test` without installing devDependencies, so the graphql parser is optional here.
+// The bracket check below has no dependencies and catches the stray `}` that broke the first go-live.
+function bracketsBalanced(q) {
+  const pairs = { '}': '{', ')': '(', ']': '[' }; const stack = [];
+  for (const ch of String(q)) {
+    if (ch === '{' || ch === '(' || ch === '[') stack.push(ch);
+    else if (pairs[ch]) { if (stack.pop() !== pairs[ch]) return false; }
+  }
+  return stack.length === 0;
+}
 test('LIST_QUERY, STATUS_QUERY, and COUNT_QUERY parse as valid GraphQL', () => {
-  const { parse } = require('graphql');
+  let parse = null; try { ({ parse } = require('graphql')); } catch {}
   for (const [name, q] of [['LIST_QUERY', OI.LIST_QUERY], ['STATUS_QUERY', OI.STATUS_QUERY], ['COUNT_QUERY', OI.COUNT_QUERY]]) {
     assert.ok(q && String(q).trim(), name + ' is missing');
-    assert.doesNotThrow(() => parse(q), name + ' must be valid GraphQL');
+    assert.ok(bracketsBalanced(q), name + ' must have balanced brackets');
+    if (parse) assert.doesNotThrow(() => parse(q), name + ' must be valid GraphQL');
   }
+  assert.strictEqual(bracketsBalanced('query{ a{ b } } }'), false);
+});
+
+test('importAll pages through every order until hasNextPage is false, with no date filter', async () => {
+  const pages = [0, 1, 2].map(i => ({ nodes: [{ ...ALICE, id: 'gid://shopify/Order/9' + i, name: '#90' + i, email: 'p' + i + '@example.com', phone: null, customer: { firstName: 'P' } }], pageInfo: { hasNextPage: i < 2, endCursor: 'c' + i } }));
+  const calls = [];
+  const { api } = index({ adminQuery: async (q, v) => { calls.push(v); return { data: { orders: pages[calls.length - 1] } }; } });
+  const r = await api.importAll();
+  assert.strictEqual(r.imported, 3); assert.strictEqual(r.pages, 3);
+  assert.deepStrictEqual(calls.map(v => v.cursor), [null, 'c0', 'c1']);
+  assert.ok(calls.every(v => v.q === null), 'full import must not filter by date or status');
+  assert.strictEqual(api.recordCount(), 3);
 });
 
 test('import filter keeps only first name, order number, email, phone, and unsubscribed flags', () => {
