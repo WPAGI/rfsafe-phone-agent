@@ -18,6 +18,8 @@ const { createOwner } = require('./owner'); // owner briefing module: inert unle
 
 const CALL_END_TYPES = new Set(['realtime.call.ended', 'realtime.call.completed', 'realtime.call.failed']);
 
+// Deploy SHA and package version on /health (Jarvis, Nov 16). Public values only: Render's RENDER_GIT_COMMIT and package.json.
+const VERSION = (() => { let pkg = ''; try { pkg = require('../package.json').version || ''; } catch {} const c = String(process.env.RENDER_GIT_COMMIT || ''); return { package: pkg, commit: /^[0-9a-f]{7,40}$/i.test(c) ? c.slice(0, 12) : null }; })();
 function createApp(d) {
   // d: { tenants, secrets, env, consent, kbFor, shopifyFor, smsFor, callControlFor, openRealtime, brain,
   //      notify, log, publicBaseUrl, adminToken, stateSecret, shopifyApp:{clientId,secret}, exchange, now }
@@ -560,7 +562,7 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
       if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
-      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown', ...sitemailHealth() });
+      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown', version: VERSION, ...sitemailHealth() });
       if (u.pathname === '/mail' || u.pathname.startsWith('/mail/')) return void await mail.route(req, res, u);
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
