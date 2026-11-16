@@ -15,6 +15,7 @@ const WR = require('./webresearch');
 const O = require('./orderlookup'); // Mailbox Shopify order lookup + order-question web-research block (John, Nov 15, 10:49 PM ET)
 const R = require('./revise'); // checker evidence order, health-tip allowance, revise loop (John, 12:20–12:23 AM ET)
 const { isOfficialGovUrl } = require('./govlinks');
+const PC = require('./phone-catalog');
 const err = (s, status = 400) => Object.assign(new Error(s), { status });
 const clone = x => JSON.parse(JSON.stringify(x));
 // Reasoning models think before answering: give them more time and a thinking-token allowance on top of the reply budget.
@@ -609,8 +610,8 @@ const LABELS = { sort: 'Sorting this email…', reply: 'Writing a reply…', che
 const dateParts = t => { const p = {}; for (const x of new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(t))) p[x.type] = x.value; return `${p.year}-${p.month}-${p.day}`; };
 class MailBots {
   #key;
-  constructor({ store, env, fetchImpl, now = () => Date.now(), tools, received, original, createDraft, ownDomains = [], answerRules = null, productSearch = null, hostOrderQuery = null, autoSend = null, sarLookup = null, sarNames = null, newsletterMember = null, newsletterJoinUrl = null, siteName = null, kbGap = null, webResearch = null }) {
-    this.live = new Map(); this.locks = new Set(); Object.assign(this, { store, fetch: fetchImpl, now, tools, received, original, createDraft, ownDomains, answerRules, productSearch, hostOrderQuery, autoSend, sarLookup, sarNames, newsletterMember, newsletterJoinUrl, siteName, kbGap, webResearch }); this.#key = env.XAI_API_KEY; this.orderCfg = O.orderLookupConfig(env || {}); this.colorCfg = colorVariantConfig(env || {}); this.models = new ModelCatalog({ key: env.XAI_API_KEY, fetchImpl, now });
+  constructor({ store, env, fetchImpl, now = () => Date.now(), tools, received, original, createDraft, ownDomains = [], answerRules = null, productSearch = null, hostOrderQuery = null, autoSend = null, sarLookup = null, sarNames = null, newsletterMember = null, newsletterJoinUrl = null, siteName = null, kbGap = null, webResearch = null, phoneCatalog = null }) {
+    this.live = new Map(); this.locks = new Set(); Object.assign(this, { store, fetch: fetchImpl, now, tools, received, original, createDraft, ownDomains, answerRules, productSearch, hostOrderQuery, autoSend, sarLookup, sarNames, newsletterMember, newsletterJoinUrl, siteName, kbGap, webResearch, phoneCatalog }); this.#key = env.XAI_API_KEY; this.orderCfg = O.orderLookupConfig(env || {}); this.colorCfg = colorVariantConfig(env || {}); this.models = new ModelCatalog({ key: env.XAI_API_KEY, fetchImpl, now });
     store.db.bots ||= { installed: {}, runs: [], usage: [], notes: {}, done: {}, cap: 10, last_schedule: 0, events: [] };
     for (const [id, b] of Object.entries(defaults)) if (!this.db.installed[id]) this.db.installed[id] = { id, default: clone(b), custom: null, enabled: false, source: 'default', versions: [], created: store.iso(), validated: true };
     // Defaults are owned by the code: refresh an installed Default when its version changes (Custom layers are kept).
@@ -878,7 +879,7 @@ class MailBots {
     }
     if (this.store.state(id).folder !== 'inbox') { this.finish(id, 'done', 'Sorted to ' + this.store.state(id).folder + '; no reply needed'); for (const k of ['reply', 'check', 'auto_send']) this.step(id, k, 'skipped', 'Sorted out of the Inbox'); doneAll(true); return 'processed'; }
     // 2. Reply writer: first decides whether a reply is needed at all.
-    const writers = kinds('replier'); let webAnswers = []; let draft = null; let lookup = null; let sar_lookup = null; let sarDone = false; let medical_disclaimer = null; let research_lookup = null; let symptom_research = null; let orderLookup = null;
+    const writers = kinds('replier'); let webAnswers = []; let draft = null; let lookup = null; let sar_lookup = null; let sarDone = false; let medical_disclaimer = null; let research_lookup = null; let symptom_research = null; let orderLookup = null; let catalogHit = null;
     const writerOn = enabled.some(r => this.effective(r).kind === 'replier');
     if (!writers.length) this.step(id, 'reply', 'skipped', writerOn ? 'Reply already written' : 'Reply writer is off');
     const signed = signedName(orig.text); let writerKnowledge = null;
@@ -982,7 +983,12 @@ class MailBots {
       const required = askedStoreProducts(orig.subject + '\n' + orig.text, store_lookup);
       if (required.length) store_lookup = { ...store_lookup, required_products: required.map(x => ({ model: x.model, title: x.product.title, url: String(x.product.url || '').split('?')[0], fact: x.fact })), note: ((store_lookup && store_lookup.note) ? String(store_lookup.note) + ' ' : '') + 'The reply MUST include each named model\'s colors, price, stock and product link, even when a knowledge-base answer covers another question (for example MagSafe).' };
       lookup = store_lookup;
-      const input = { message: safeOrig, questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}) };
+      catalogHit = null;
+      if (this.phoneCatalog && typeof this.phoneCatalog.resolve === 'function') {
+        try { catalogHit = await this.phoneCatalog.resolve(orig.subject, orig.text); } catch { catalogHit = null; }
+        if (catalogHit && catalogHit.found && catalogHit.found.length) this.step(id, 'reply', 'lookup', 'Phone catalog: ' + catalogHit.found.length + ' QuantaCase' + (catalogHit.found.length === 1 ? '' : 's') + ' for phones named in this email', { bot: r.id, tool: 'phone_catalog', models: catalogHit.found.map(x => x.model) });
+      }
+      const input = { message: safeOrig, questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}), ...PC.catalogFields(catalogHit) };
       const redrafting = this.db.redraft && this.db.redraft[id];
       if (redrafting && redrafting.draft_id) {
         let keep = this.store.draft(redrafting.draft_id);
@@ -1047,7 +1053,7 @@ class MailBots {
       const c = (this.db.ckpt || {})[id]; const saved = c && String(c.key).startsWith('check|') ? this.ckGet(id, c.key) : null;
       const d = saved && this.store.draft(saved.draft_id);
       if (d && d.status === 'draft' && !this.sentFor(id)) {
-        draft = d; ({ webAnswers = [], lookup = null, sar_lookup = null, medical_disclaimer = null, research_lookup = null, symptom_research = null, writerKnowledge = null, order_lookup: orderLookup = null } = saved.ctx || {});
+        draft = d; ({ webAnswers = [], lookup = null, sar_lookup = null, medical_disclaimer = null, research_lookup = null, symptom_research = null, writerKnowledge = null, order_lookup: orderLookup = null, catalogHit = null } = saved.ctx || {});
         this.step(id, 'check', 'resumed', 'Automatic retry: checking the saved draft again (the earlier check did not finish)', { draft_id: d.id });
       }
     }
@@ -1062,10 +1068,10 @@ class MailBots {
     }
     // 3. Checker, then 4. auto-send (only if the checker passes and every cap, block and owner-only rule allows).
     const checkers = kinds('checker'); let grade = null;
-    if (checkers.length) this.ckPut(id, 'check|' + draft.id, { draft_id: draft.id, ctx: { webAnswers, lookup, sar_lookup, medical_disclaimer, research_lookup, symptom_research, writerKnowledge, order_lookup: orderLookup } });
+    if (checkers.length) this.ckPut(id, 'check|' + draft.id, { draft_id: draft.id, ctx: { webAnswers, lookup, sar_lookup, medical_disclaimer, research_lookup, symptom_research, writerKnowledge, order_lookup: orderLookup, catalogHit } });
     if (!checkers.length) this.step(id, 'check', 'skipped', 'Checker bot is off; the built-in checker grades before any auto-send');
     lookup = await withVerifiedHandles(lookup, draft && draft.body, orig.subject + '\n' + orig.text, this.fetch);
-    for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
+    for (const r of checkers) { at_('check', r); const n = await this.review(r, orig, draft, { ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...PC.catalogFields(catalogHit) }); grade = n; this.step(id, 'check', n.verdict, n.notes, { bot: r.id }); this.db.done[id + ':' + r.id] = true; this.store.save(); }
     if (webAnswers.length) for (const w of webAnswers) this.webResearch.report(w.item_id, { checker: grade ? { verdict: grade.verdict, notes: grade.notes, problems: grade.web_problem ? [grade.web_problem] : [] } : { verdict: 'not_run', notes: 'Checker bot is off', problems: [] }, draft_id: draft.id, delivery: grade && grade.verdict === 'pass' ? 'checker_passed' : 'held' });
     if (grade && grade.verdict !== 'pass') {
       const disc = (readDisclaimer(this.tools) || medical_disclaimer || {});
@@ -1075,7 +1081,7 @@ class MailBots {
         this.finish(id, 'done', 'Held for you: the checker said ' + grade.verdict + ' — ' + String(grade.notes).slice(0, 160));
         this.step(id, 'auto_send', 'held', 'Checker ' + grade.verdict + ': waits for the owner'); this.store.updateDraft(draft.id, {}, 'held'); doneAll(true); return 'processed';
       }
-      const reviewExtra = () => ({ ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}) });
+      const reviewExtra = () => ({ ...(webAnswers.length ? { web_answers: webAnswers } : {}), store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, hasDisclaimer: !!medical_disclaimer, ...(orderLookup ? { order_lookup: orderLookup } : {}), kb_gaps: ((this.db.kb_gaps || {})[id] || {}).questions || [], ...(writerKnowledge && writerKnowledge.length ? { knowledge: writerKnowledge } : {}), sender: { signed_name: signed }, ...(draft.footer ? { footer: { kind: draft.footer.kind, text: draft.footer.text } } : {}), ...PC.catalogFields(catalogHit) });
       const alreadyRerun = !!(this.db.revise_rerun && this.db.revise_rerun[id]);
       let loops = 0;
       const replierRec = Object.values(this.db.installed).find(x => this.effective(x).kind === 'replier' && x.enabled);
@@ -1086,7 +1092,7 @@ class MailBots {
         loops++;
         this.step(id, 'check', 'revise_requested', 'Checker required ' + edits.length + ' edit' + (edits.length === 1 ? '' : 's') + ' (loop ' + loops + ' of ' + R.MAX_REVISE + '): ' + R.editSummary(edits), { loop: loops, edits, facts: grade.lookup_facts || [] });
         lookup = await withVerifiedHandles(lookup, draft.body, orig.subject + '\n' + orig.text, this.fetch);
-        const revised = await this.reviseDraft(replierRec, orig, draft, edits, { store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, knowledge: writerKnowledge || [], order_lookup: orderLookup, signed });
+        const revised = await this.reviseDraft(replierRec, orig, draft, edits, { store_lookup: lookup, sar_lookup, research_lookup, symptom_research, medical_disclaimer, knowledge: writerKnowledge || [], order_lookup: orderLookup, signed, catalogHit });
         if (!revised) break;
         draft = revised;
         this.step(id, 'reply', 'revised', 'Applied checker edits (loop ' + loops + ' of ' + R.MAX_REVISE + ')', { bot: replierRec.id, draft_id: draft.id, loop: loops });
@@ -1165,7 +1171,8 @@ class MailBots {
       ...(ctx.research_lookup ? { research_lookup: ctx.research_lookup } : {}),
       ...(ctx.symptom_research ? { symptom_research: ctx.symptom_research } : {}),
       ...(md ? { medical_disclaimer: md } : {}),
-      ...(ctx.order_lookup ? { order_lookup: ctx.order_lookup } : {})
+      ...(ctx.order_lookup ? { order_lookup: ctx.order_lookup } : {}),
+      ...PC.catalogFields(ctx.catalogHit)
     }, { timeoutMs: writerRound1Ms(this.effective(r).limits.model, !!md) });
     const body = String(y && y.body || '').trim();
     if (!body) return null;
@@ -1217,7 +1224,11 @@ class MailBots {
     const wp = webAnswers.length ? WR.webResearchProblem(draft.body, webAnswers) : null; if (wp) { verdict = 'fail'; x.notes = wp + (x.notes ? '. ' + String(x.notes) : ''); }
     const detEdits = [];
     for (const nc of noCarryProblems(draft.body, storeLookup)) { verdict = 'fail'; x.notes = 'Says we do not carry the ' + nc.model + ' without a verified store result: ' + nc.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: nc.sentence.slice(0, 500), reason: 'Unverified "we do not carry" claim', fact: nc.fact, source: nc.product ? 'store_lookup' : 'store' }); }
-    for (const mp of missingProductProblems(draft.body, storeLookup, asked)) { verdict = 'fail'; x.notes = 'Leaves out the store colors, price, stock or product link for the ' + mp.model + ': ' + mp.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'add', text: mp.fact.slice(0, 500), reason: 'Include the ' + mp.model + ' case colors, price, stock and product link even when a knowledge-base answer covers another question', fact: mp.fact.slice(0, 400), source: 'store_lookup' }); }
+    const catProds = (extra.phone_catalog && extra.phone_catalog.products) || [];
+    const catModels = new Set();
+    for (const cp of (catProds.length ? PC.claimProblems(draft.body, catProds, phoneKeys) : [])) { verdict = 'fail'; x.notes = 'Contradicts the pre-looked-up catalog for the ' + cp.model + ': ' + cp.reason + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: cp.sentence.slice(0, 500), reason: cp.reason, fact: cp.fact, source: 'phone_catalog' }); }
+    for (const mp of (catProds.length ? missingProductProblems(draft.body, { products: catProds }, asked) : [])) { verdict = 'fail'; x.notes = 'Leaves out the store colors, price, stock or product link for the ' + mp.model + ': ' + mp.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'add', text: mp.fact.slice(0, 500), reason: 'Include the ' + mp.model + ' case colors, price, stock and product link even when a knowledge-base answer covers another question', fact: mp.fact.slice(0, 400), source: 'phone_catalog' }); catModels.add(mp.model); }
+    for (const mp of missingProductProblems(draft.body, storeLookup, asked)) { if (catModels.has(mp.model)) continue; verdict = 'fail'; x.notes = 'Leaves out the store colors, price, stock or product link for the ' + mp.model + ': ' + mp.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'add', text: mp.fact.slice(0, 500), reason: 'Include the ' + mp.model + ' case colors, price, stock and product link even when a knowledge-base answer covers another question', fact: mp.fact.slice(0, 400), source: 'store_lookup' }); }
     const dp = await this.deferralProblems(r, draft.body, extra.kb_gaps, storeLookup); if (dp.length) { verdict = 'fail'; x.notes = 'Defers to the team although the knowledge base or store answers it: ' + dp.map(d => d.question).join('; ').slice(0, 240) + (x.notes ? '. ' + String(x.notes) : ''); for (const d of dp) detEdits.push({ action: 'add', text: d.fact.slice(0, 500), reason: 'Answer "' + d.question.slice(0, 120) + '" from ' + d.source + ' instead of deferring', fact: d.fact.slice(0, 400), source: d.source.slice(0, 80) }); }
     if (detEdits.length) x.edits = [...(Array.isArray(x.edits) ? x.edits : []), ...detEdits];
     const ho = handoffProblem(draft.body, extra.kb_gaps); if (ho) { verdict = 'fail'; x.notes = (x.notes ? String(x.notes) + '. ' : '') + 'Hands the question off to the team although the knowledge base answers it (no KB gap was logged): "' + ho.slice(0, 120) + '"'; }

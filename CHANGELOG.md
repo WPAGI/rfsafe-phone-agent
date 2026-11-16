@@ -1,4 +1,9 @@
 # Changelog
+## Mailbox QuantaCase catalog, daily refresh plus live stock (Nov 16, 2026; John approved deploy 4:11-4:21 AM ET)
+- Callbots.org mailbox only: the full QuantaCase catalog (models, colors, price, stock, product and variant URLs) is cached in the Site Mail data dir and refreshed daily, with a refresh on a miss. The last good cache is kept if a refresh fails. Phone and text lookup paths are unchanged. Order lookup stays off.
+- Before the writer runs, every phone model named in the email is matched (aliases such as "17 Pro Max", "S26 Ultra", and "wife's 17 Pro Max") and those products get a short live stock check. A titled block, "QuantaCases available for phones mentioned in this email", is given to the writer and the checker. The checker verifies against that block; existing store checks stay as fallback. A single Default Title variant is Black, one color.
+- Cached model and variant counts are shown on `/health` (`sitemail.phone_catalog`) and on `GET /admin/mail/kb-coverage`. No secrets. The "The RF Safe team" sign-off and KB Full files are unchanged.
+
 ## Always include store facts for a named phone model (Nov 16, 2026; John 3:55-3:56 AM ET)
 - When an email names a phone model the store carries, the reply must include that case's colors, price, stock and product link, even if a KB Light answer (for example MagSafe) covers another question. The checker fails a reply that leaves those facts out and supplies them as an edit so the revise loop can add them. The "The RF Safe team" sign-off is unchanged.
 - Dave-style two-model color/price/stock replies still pass.

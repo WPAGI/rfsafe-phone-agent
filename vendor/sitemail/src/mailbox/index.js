@@ -11,7 +11,9 @@ const P = require('./policy');
 const { GUIDE } = require('./guide');
 const { Attachments } = require('./attachments');
 const { MailTools } = require('./tools');
-const { MailBots, dateParts } = require('./bots');
+const path = require('path');
+const { MailBots, dateParts, extractPhoneModels, phoneKeys, handleGuesses } = require('./bots');
+const PC = require('./phone-catalog');
 const { WebResearch } = require('./webresearch');
 const pkg = require('../botpkg');
 const { verify: verifyWebhook } = require('../mail-forward');
@@ -54,7 +56,17 @@ function createMailbox(o = {}) {
     canSpend: (usd) => { const u = bots.usage(); return !u.paused && u.cost + usd <= u.cap; },
     prices: (m) => bots.models.price(m),
     onUsage: (u) => { bots.db.usage.push({ day: dateParts(now()), bot: 'web_research', model: u.model, input: u.input, output: u.output, cost: u.cost, estimated: u.cost_source !== 'provider', cost_source: u.cost_source }); store.save(); } });
-  const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, hostOrderQuery: o.orderLookupQuery || o.hostOrderQuery || null, kbGap: o.kbGap || null, webResearch });
+  const storeDomain = (() => { try { const b = require('../brand'); return String((b && b.store) || 'quantacase.com').replace(/^https?:\/\//, '').replace(/\/.*$/, ''); } catch { return 'quantacase.com'; } })();
+  const mockMail = String(env.SITEMAIL_MOCK || '') === '1';
+  const phoneCatalog = o.phoneCatalog || PC.createPhoneCatalog({
+    dataDir: path.dirname(o.file),
+    listCatalog: mockMail ? async () => { throw new Error('mock_no_network'); } : () => PC.listPublicCatalog(fetchImpl, storeDomain),
+    search: typeof o.productSearch === 'function' ? o.productSearch : null,
+    extractPhoneModels, phoneKeys, handleGuesses, fetchImpl, storeDomain,
+    now, log: (ev, d) => log('phone_catalog_' + ev, d || {})
+  });
+  phoneCatalog.start();
+  const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, hostOrderQuery: o.orderLookupQuery || o.hostOrderQuery || null, kbGap: o.kbGap || null, webResearch, phoneCatalog });
   if (typeof o.onReplied === 'function') bots.onReplied = o.onReplied; // optional observer (port/mount.js kb growth loop)
   if (o.mailBase) bots.mailBase = o.mailBase; // owner inbox path (portable package mail.base; rfsafe.app: /mail)
   // A boot-applied reprocess must not run during the restart itself (the site's own data, e.g. the SAR catalog, is
@@ -154,7 +166,7 @@ function createMailbox(o = {}) {
     record(errors.length ? 'partial' : 'applied', { errors }); return { applied: true, done, errors };
   }
   const bootstrap = applyBootstrap(env.MAILBOX_OWNER_BOOTSTRAP);
-  function status() { const s = store.settings(); const bl = bots.list(); return { bots_on: bl.bots.filter(x => x.enabled).map(x => x.id), auto_sent_today: store.autoSentToday(), auto_send: !!s.auto_send && !s.kill_switch, kill_switch: !!s.kill_switch, daily_cap: s.daily_cap, monthly_cap_usd: bl.usage.cap, month_cost_usd: Math.round(bl.usage.cost * 100) / 100, paused: bl.usage.paused, shopify: tools.state().shopify.connected ? tools.state().shopify.via : 'off', kb: !!tools.state().kb, webhook_secret_set: !!env.MAILBOX_RESEND_WEBHOOK_SECRET, bootstrap: store.db.bootstrap ? { id: store.db.bootstrap.id, status: store.db.bootstrap.status, at: store.db.bootstrap.at } : null }; }
+  function status() { const s = store.settings(); const bl = bots.list(); let phone_catalog = null; try { phone_catalog = phoneCatalog && phoneCatalog.status ? phoneCatalog.status() : null; } catch { phone_catalog = null; } return { bots_on: bl.bots.filter(x => x.enabled).map(x => x.id), auto_sent_today: store.autoSentToday(), auto_send: !!s.auto_send && !s.kill_switch, kill_switch: !!s.kill_switch, daily_cap: s.daily_cap, monthly_cap_usd: bl.usage.cap, month_cost_usd: Math.round(bl.usage.cost * 100) / 100, paused: bl.usage.paused, shopify: tools.state().shopify.connected ? tools.state().shopify.via : 'off', kb: !!tools.state().kb, webhook_secret_set: !!env.MAILBOX_RESEND_WEBHOOK_SECRET, bootstrap: store.db.bootstrap ? { id: store.db.bootstrap.id, status: store.db.bootstrap.status, at: store.db.bootstrap.at } : null, ...(phone_catalog ? { phone_catalog } : {}) }; }
   // No timer work/reads/provider requests while all bots are OFF. Timer is unref'd and may be stopped in tests.
   const timer = o.noSchedule ? null : setInterval(() => { if (bots.anyOn()) void bots.wake('schedule'); }, 60000);
   if (timer) timer.unref();
@@ -538,6 +550,6 @@ function createMailbox(o = {}) {
       drafts: Object.keys(store.db.drafts).map(k => store.draft(k)).filter(d => d && d.reply_to_id === id).sort((a, b) => String(a.updated).localeCompare(String(b.updated))).map(d => ({ id: d.id, author: d.author, status: d.status, updated: d.updated, subject: d.subject, reason: d.reason || null, body: d.body, ...(d.versions && d.versions.length ? { versions: d.versions } : {}) })),
       sent: store.sentList().filter(s => s.reply_to_id === id).map(s => ({ id: s.id, at: s.at, via: s.via || null, approved_by: s.approved_by || null, resend_id: s.resend_id || null, subject: s.subject, body: s.body })) };
   }
-  return { enabled: true, reason: null, webResearch, readList, readActivity, rerunCheck, rerunByKey, redraftByKey, store, keys, checker, botRoute, ownerRoute, createBotDraft, runAutoSend, fromAddress, site: primary, bots, tools, bootstrap, status, applyBootstrap, webhookRoute, shopifyCallback, close: () => { if (timer) clearInterval(timer); } };
+  return { enabled: true, reason: null, webResearch, readList, readActivity, rerunCheck, rerunByKey, redraftByKey, store, keys, checker, botRoute, ownerRoute, createBotDraft, runAutoSend, fromAddress, site: primary, bots, tools, bootstrap, status, applyBootstrap, webhookRoute, shopifyCallback, phoneCatalog, close: () => { if (timer) clearInterval(timer); try { if (phoneCatalog && phoneCatalog.stop) phoneCatalog.stop(); } catch {} } };
 }
 module.exports = { createMailbox, ID_RE };
