@@ -1,4 +1,9 @@
 # Changelog
+## Mailbox store lookup and checker fixes (Nov 16, 2026; John approved deploy 3:35 AM ET)
+- Every phone model in an email gets its own store lookup, and a missed one is checked read only at its public product page. "We do not carry" is only allowed when the model's search and its page both came back empty. The checker fails any other "don't carry" claim and supplies the store facts.
+- The checker fails a "the team will follow up" deferral when KB Light, KB Full or the store answers the logged gap, and adds the fact as an edit, so the revise loop runs.
+- A reasoning checker always gets 240 s.
+
 ## KB Light first, KB Full fallback (Nov 16, 2026; John approved deploy 3:07-3:08 AM ET)
 - Mailbox (writer and checker KB tool), phone `kb_answer` and texts search KB Light (the Callbots Brain box on /kb) first. A question with no good Light match is answered by KB Full (the phone KB) exactly as before. Rule and switches: `vendor/sitemail/port/KB_LIGHT.md`.
 - On by default for mail, phone and SMS, tenant `rfsafe` only (`vendor/sitemail/site.config.js`). Env `KB_LIGHT_FIRST_MAIL`, `KB_LIGHT_FIRST_PHONE` or `KB_LIGHT_FIRST_SMS` = `0` turns one channel off; `SITEMAIL_ENABLED=0` turns Site Mail off. KB Full files are read only. `/health` shows `sitemail.kb_light_first`.

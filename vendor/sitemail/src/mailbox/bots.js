@@ -63,7 +63,7 @@ function signedName(text) {
 const SAR_Q = /\b(?:sar|specific absorption|radiation|emissions?|emf|w\/kg|radiofrequency|rf exposure)\b/i;
 function expandShortPhones(s) {
   let t = String(s || '');
-  t = t.replace(/(?<!\b(?:galaxy|samsung)\s)(?<![A-Za-z])s\s*([1-9]\d)(?:\s*)(ultra|plus|\+|fe)?(?![A-Za-z])/gi, (_, num, suf) => {
+  t = t.replace(/(?<!\b(?:galaxy|samsung)\s)(?<![A-Za-z'’])s\s*([1-9]\d)(?:\s*)(ultra|plus|\+|fe)?(?![A-Za-z])/gi, (_, num, suf) => {
     const suffix = !suf ? '' : String(suf) === '+' ? ' Plus' : ' ' + suf.charAt(0).toUpperCase() + suf.slice(1).toLowerCase();
     return 'Samsung Galaxy S' + num + suffix;
   });
@@ -85,6 +85,24 @@ function extractPhoneModel(subject, text, names) {
   const extracted = m ? m[0].replace(/\s+/g, ' ').trim() : '';
   if (!extracted) return '';
   return matchCanonical(extracted, names) || extracted;
+}
+// Every phone model named in a message, in order, deduplicated (Jarvis bug 2, Nov 16: "iPhone 16 Pro and 17 Pro Max"
+// in one email looked up only the first one).
+function extractPhoneModels(subject, text, names) {
+  const s = stripColors(expandShortPhones(String(subject || '') + ' ' + String(text || '').slice(0, 1500)));
+  const re = /\b(iphone|galaxy|pixel|samsung\s+galaxy|motorola|moto|oneplus)\s*([a-z]?\d{1,3}[a-z]?)(\s+(pro max|pro|plus|ultra|max|mini|fe|e|fold\s?\d|flip\s?\d|xl|a))?\b/gi;
+  const out = []; const seen = new Set(); let m;
+  while ((m = re.exec(s))) { const raw = m[0].replace(/\s+/g, ' ').trim(); const name = matchCanonical(raw, names) || raw; const k = phoneKeys(name)[0] || name.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push(name); if (out.length >= 3) break; }
+  return out;
+}
+// Likely public product handles for a model on the official store ("iPhone 17 Pro Max" -> apple-iphone-17-pro-max).
+function handleGuesses(model) {
+  const k = phoneKeys(model)[0]; if (!k) return [];
+  const slug = k.replace(/\s+/g, '-');
+  if (/^iphone/.test(k)) return ['apple-' + slug, slug];
+  if (/^galaxy/.test(k)) return ['samsung-' + slug.replace(/^galaxy-/, ''), 'samsung-' + slug, slug];
+  if (/^pixel/.test(k)) return ['google-' + slug, slug];
+  return [slug];
 }
 function sarQuery(subject, text, names) {
   const raw = String(subject || '') + ' ' + String(text || '').slice(0, 1500);
@@ -135,7 +153,9 @@ function writerRound1Ms(model, medical) { return medical && isReasoning(model) ?
 // and 8:16 PM ET checks of two long medical drafts hit the 120 s limit; John, Nov 15, 7:30 + 7:50 PM ET). Everything else
 // keeps the default (0 = the built-in timeout). Only the time limit changes; the checker's input and rules do not.
 const LONG_DRAFT_CHARS = 2500;
-function checkerMs(model, medical, body) { return isReasoning(model) && (medical || String(body || '').length >= LONG_DRAFT_CHARS) ? WRITER_ROUND2_MS : 0; }
+// Jarvis bug 1 (Nov 16): ordinary drafts also hit 120 s (Mike 2:50 AM, Karen 2:55 and 2:58 AM ET; Mike's retry took 96 s), so a
+// reasoning checker always gets 240 s. medical/body stay in the signature for callers.
+function checkerMs(model, medical, body) { return isReasoning(model) ? WRITER_ROUND2_MS : 0; }
 function normUrl(u) { try { const x = new URL(u); let p = x.pathname; try { p = decodeURIComponent(p); } catch {} return (x.protocol + '//' + x.hostname.replace(/^www\./i, '') + p.replace(/\/+$/, '')).toLowerCase(); } catch { return null; } }
 // Phone models named in a text, as comparable keys ("pixel 9", "iphone 16 pro max", "galaxy s24 ultra").
 function phoneKeys(text) {
@@ -191,13 +211,37 @@ async function withVerifiedHandles(storeLookup, body, asked, fetchImpl) {
   if (!extra.length) return storeLookup;
   return { ...(storeLookup || { products: [] }), products: all.concat(extra) };
 }
+// A model with no matching product. "We do not carry" is allowed only for a model in store_lookup.verified_missing: its
+// own store search and the public product-page probe both answered and found nothing (Jarvis bug 2, Nov 16). Any other
+// miss (search not run for that model, an error, a timeout) is never a "don't carry" claim.
 function markMissingPhone(store_lookup, asked) {
   if (!store_lookup) return store_lookup;
   const want = phoneKeys(asked); if (!want.length) return store_lookup;
-  const has = ((store_lookup.products) || []).some(p => phoneKeys(p.title + ' ' + p.url + ' ' + (p.handle || '')).some(k => want.includes(k)));
-  if (has) return store_lookup;
-  const add = 'No case for the asked phone was found in the live store. Say plainly that we do not carry a case for that model. Do not invent a product link.';
-  return { ...store_lookup, carries_asked_phone: false, note: (store_lookup.note ? String(store_lookup.note) + ' ' : '') + add };
+  const haveKeys = new Set(((store_lookup.products) || []).flatMap(p => phoneKeys(p.title + ' ' + p.url + ' ' + (p.handle || ''))));
+  const missing = want.filter(k => !haveKeys.has(k)); if (!missing.length) return store_lookup;
+  const verified = new Set(store_lookup.verified_missing || []);
+  const sure = missing.filter(k => verified.has(k)); const unsure = missing.filter(k => !verified.has(k));
+  let add = '';
+  if (sure.length) add += 'The live store has no case for: ' + sure.join(', ') + ' (its own search and product page both checked). Say plainly that we do not carry a case for that model. Do not invent a product link. ';
+  if (unsure.length) add += 'The store lookup did not return a case for: ' + unsure.join(', ') + '. That is a lookup miss, not proof: never say we do not carry it. Do not invent a link or a price; say we will confirm that model and give the store link https://' + [...STORE_HOSTS][0] + '. ';
+  return { ...store_lookup, ...(unsure.length ? {} : { carries_asked_phone: false }), note: (store_lookup.note ? String(store_lookup.note) + ' ' : '') + add.trim() };
+}
+// Checker backstop: a "we don't carry / sell <model>" sentence must be backed by store_lookup.verified_missing; when the
+// store has that model it fails with the product facts so the revise loop can fix it.
+const NO_CARRY = /\b(?:do not|don't|dont|does not|doesn't|no longer|not)\s+(?:currently\s+|yet\s+)?(?:carry|sell|offer|make|stock|have)\b|\bnot\s+(?:available|offered)\s+for\b|\bno\s+(?:case|cases)\s+(?:for|available)\b/i;
+function noCarryProblems(body, storeLookup) {
+  const out = []; const verified = new Set((storeLookup && storeLookup.verified_missing) || []); const prods = (storeLookup && storeLookup.products) || [];
+  for (const sent of withoutUrls(body).split(/(?<=[.!?])\s+|\n+/)) {
+    const t = sent.trim(); if (!t || !NO_CARRY.test(t)) continue;
+    for (const k of phoneKeys(t)) {
+      if (verified.has(k)) continue;
+      const p = prods.find(x => phoneKeys(x.title + ' ' + x.url + ' ' + (x.handle || '')).includes(k));
+      const colors = p ? (p.variants || []).filter(v => v.available !== false).map(v => v.title).filter(v => v && v !== 'Default Title') : [];
+      const price = p ? ((p.price && p.price.amount) || ((p.variants || [])[0] || {}).price) : null;
+      out.push({ sentence: t, model: k, product: p || null, fact: p ? p.title + ' is in the store: ' + p.url + (price ? ', $' + price : '') + (colors.length ? ', colors in stock: ' + colors.join(', ') : '') : 'No verified store result says we do not carry the ' + k + '; a lookup miss is not proof.' });
+    }
+  }
+  return out;
 }
 // Deterministic link check (John, Nov 14 8:46 PM ET: be lenient on links that come from the knowledge base, but make sure
 // each is the right link). Every link must be a known KB, SAR or store URL (scheme + host + path; extra query params on a
@@ -273,6 +317,7 @@ function refundProblem(body) {
 // A hand-off line ("the RF Safe team will follow up", "we'll get back to you") is only for a real KB gap (John, 9:54 PM ET):
 // when the writer logged no gap, the knowledge answered everything and the line fails the checker.
 const HANDOFF = /\b(?:will|'ll|shall)\s+(?:be\s+)?(?:follow(?:ing)?\s+up|get(?:ting)?\s+back\s+to\s+you|be\s+in\s+touch|reach(?:ing)?\s+out|contact(?:ing)?\s+you|let\s+you\s+know)\b|\bfollow\s+up\s+(?:on|with\s+you|about)\b|\bsomeone\s+(?:will|from)\b[^.]{0,30}\b(?:contact|reach|follow)/i;
+const DEFER = /\b(?:team|we|someone|i)\b[^.]{0,40}\b(?:will|'ll|can)\s+(?:confirm|check|look into|find out|get you|send you)\b|\b(?:confirm|check)\s+(?:with|and get back)\b/i;
 function handoffProblem(body, kbGaps) {
   if ((kbGaps || []).some(q => String(q || '').trim())) return null;
   for (const sent of withoutUrls(body).split(/(?<=[.!?])\s+|\n+/)) { const t = sent.trim(); if (t && HANDOFF.test(t)) return t; }
@@ -611,6 +656,44 @@ class MailBots {
       status = 'ok'; return o;
     } finally { this.db.runs.push({ at: this.store.iso(), bot: r.id, status, duration_ms: this.now() - start }); this.db.runs = this.db.runs.slice(-5000); this.store.save(); }
   }
+  // Checker backstop (Jarvis bug 4, Nov 16): a deferral ("the team will follow up/confirm") passes only when the KB (Light
+  // first, then Full) and the store truly have nothing for the gap. Each logged gap is searched again; a good match
+  // becomes an "add" edit with the fact and its source, which sends the draft through the revise loop.
+  async deferralProblems(r, body, gaps, storeLookup) {
+    const qs = (gaps || []).map(q => String(q || '').trim()).filter(Boolean).slice(0, 5); if (!qs.length) return [];
+    const defers = withoutUrls(body).split(/(?<=[.!?])\s+|\n+/).some(t => HANDOFF.test(t) || DEFER.test(t)); if (!defers) return [];
+    const out = []; const LF = require('../kblight');
+    for (const q of qs) {
+      let hit = null;
+      try { const hs = (await this.tools.action(r.id, 'kb', 'search', { query: q, k: 3 })).hits || []; const qt = LF.queryTerms(q); hit = hs.find(h => h && !/^\s*Related:/i.test(String(h.text || '')) && (h.layer === 'light' || LF.goodMatch(qt, h))) || null; } catch { hit = null; }
+      if (hit) { out.push({ question: q, fact: String(hit.text || '').replace(/^Owner-approved answer[^\n]*\n/i, '').trim(), source: hit.title || 'knowledge base' }); continue; }
+      const k = phoneKeys(q)[0]; const p = k && ((storeLookup && storeLookup.products) || []).find(x => phoneKeys(x.title + ' ' + x.url + ' ' + (x.handle || '')).includes(k));
+      if (p) { const colors = (p.variants || []).filter(v => v.available !== false).map(v => v.title).filter(v => v && v !== 'Default Title'); const price = (p.price && p.price.amount) || ((p.variants || [])[0] || {}).price; out.push({ question: q, fact: p.title + ': ' + p.url + (price ? ', $' + price : '') + (colors.length ? ', in stock in ' + colors.join(', ') : ''), source: 'store_lookup' }); }
+    }
+    return out;
+  }
+  // Store lookup for every model in the message (Jarvis bug 2, Nov 16). Each model gets its own search; a model the
+  // search missed is probed read-only at its likely public /products/<handle>.js. A model is verified_missing only when
+  // its search and every probe answered and found nothing.
+  async storeLookupAll(r, orig, names) {
+    const models = extractPhoneModels(orig.subject, orig.text, names);
+    const queries = models.length ? models : [productQuery(orig.subject, orig.text, names)];
+    const products = []; const verified_missing = []; let anyOk = false;
+    const add = (p) => { if (p && p.url && !products.some(x => sameProduct(x, p.url))) products.push(p); };
+    for (const q of queries) {
+      let ok = false; let got = [];
+      try { const pl = await this.tools.action(r.id, 'shopify', 'product_link', { query: q }); got = (pl.products || []).slice(0, 4); ok = true; anyOk = true; } catch { ok = false; }
+      const k = phoneKeys(q)[0];
+      const match = k ? got.filter(p => phoneKeys(p.title + ' ' + p.url + ' ' + (p.handle || '')).includes(k)) : got;
+      got.forEach(add);
+      if (!k || match.length) continue;
+      let probed = null; let probeOk = true;
+      for (const h of handleGuesses(q)) { try { probed = await fetchPublicProduct('https://' + [...STORE_HOSTS][0] + '/products/' + h, this.fetch); } catch { probed = null; probeOk = false; } if (probed) break; }
+      if (probed) add(probed); else if (ok && probeOk && this.fetch) verified_missing.push(k);
+    }
+    if (!anyOk && !products.length) return null;
+    return { query: queries.join(' | '), models: queries, products: products.slice(0, 8), ...(verified_missing.length ? { verified_missing } : {}), note: 'Live from the store just now: verified product links, prices and available stock per variant, for every phone model in the email.' };
+  }
   // Activity timeline per message: every pipeline step, including skips and errors with their reason.
   // Optional observer (portable package: Brain box coverage + growth loop, src/mailbox/kbgrowth.js). Never changes the
   // reply; an error in it is ignored. rfsafe.app sets none.
@@ -788,7 +871,7 @@ class MailBots {
       if (!part.products && this.productSearch) { try { products = ((await this.productSearch(orig.subject + ' ' + orig.text.slice(0, 200))) || []).slice(0, 3); } catch { products = []; } }
       savePart('products');
       const names = this.sarNames ? await this.sarNames().catch(() => []) : [];
-      if (!part.shopify && (this.effective(r).tools.includes('shopify') || (this.tools.state().shopify || {}).connected)) { try { const q = productQuery(orig.subject, orig.text, names); const pl = await this.tools.action(r.id, 'shopify', 'product_link', { query: q }); store_lookup = { query: q, products: (pl.products || []).slice(0, 4), note: 'Live from the store just now: verified product links, prices and available stock per variant.' }; lookup = store_lookup; } catch { store_lookup = null; } }
+      if (!part.shopify && (this.effective(r).tools.includes('shopify') || (this.tools.state().shopify || {}).connected)) { store_lookup = await this.storeLookupAll(r, orig, names); lookup = store_lookup; }
       savePart('shopify');
       // Same live SAR lookup the phone line uses, for a SAR question about a named model (once per message).
       const sq = this.sarLookup ? sarQuery(orig.subject, orig.text, names) : null;
@@ -1073,6 +1156,10 @@ class MailBots {
     if (lp.length) { verdict = 'fail'; x.notes = 'Wrong or unknown link: ' + lp.map(p => p.url.slice(0, 120) + ' (' + p.problem + ')').join('; ').slice(0, 300) + (x.notes ? '. ' + String(x.notes) : ''); }
     if (isReturnsQ(orig.subject, orig.text) && returnAddressRequired(orig, draft.body)) { const card = (extra.knowledge || knowledge || []).find(k => /To exchange or return a case, mail it back/.test(String((k && k.text) || ''))) || (this.tools ? await this.returnsCard(r) : null); const ad = card && returnAddress(card.text); if (ad && missingAddress(draft.body, ad)) { verdict = 'fail'; x.notes = 'Refund, return or exchange reply does not state the return address from the knowledge base (' + ad + ')' + (x.notes ? '. ' + String(x.notes) : ''); } }
     const wp = webAnswers.length ? WR.webResearchProblem(draft.body, webAnswers) : null; if (wp) { verdict = 'fail'; x.notes = wp + (x.notes ? '. ' + String(x.notes) : ''); }
+    const detEdits = [];
+    for (const nc of noCarryProblems(draft.body, storeLookup)) { verdict = 'fail'; x.notes = 'Says we do not carry the ' + nc.model + ' without a verified store result: ' + nc.fact + (x.notes ? '. ' + String(x.notes) : ''); detEdits.push({ action: 'change', text: nc.sentence.slice(0, 500), reason: 'Unverified "we do not carry" claim', fact: nc.fact, source: nc.product ? 'store_lookup' : 'store' }); }
+    const dp = await this.deferralProblems(r, draft.body, extra.kb_gaps, storeLookup); if (dp.length) { verdict = 'fail'; x.notes = 'Defers to the team although the knowledge base or store answers it: ' + dp.map(d => d.question).join('; ').slice(0, 240) + (x.notes ? '. ' + String(x.notes) : ''); for (const d of dp) detEdits.push({ action: 'add', text: d.fact.slice(0, 500), reason: 'Answer "' + d.question.slice(0, 120) + '" from ' + d.source + ' instead of deferring', fact: d.fact.slice(0, 400), source: d.source.slice(0, 80) }); }
+    if (detEdits.length) x.edits = [...(Array.isArray(x.edits) ? x.edits : []), ...detEdits];
     const ho = handoffProblem(draft.body, extra.kb_gaps); if (ho) { verdict = 'fail'; x.notes = (x.notes ? String(x.notes) + '. ' : '') + 'Hands the question off to the team although the knowledge base answers it (no KB gap was logged): "' + ho.slice(0, 120) + '"'; }
     const rp = refundProblem(draft.body); if (rp) { verdict = 'fail'; x.notes = 'Promises a refund amount or timeline, or says a refund was issued or approved: "' + rp.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
     const off = discountOffer(draft.body); if (off) { verdict = 'fail'; x.notes = 'Offers or promises a discount, which the writer may never do: "' + off.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
@@ -1098,4 +1185,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { extractPhoneModels, handleGuesses, noCarryProblems, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
