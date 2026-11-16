@@ -55,4 +55,4 @@ function checkOutboundSms({ url, note = '' }, allowlist) {
   return { ok: true, body };
 }
 
-module.exports = { checkUrl, checkOutboundSms, looksLikeCard, hostAllowed };
+module.exports = { checkUrl, checkOutboundSms, looksLikeCard, hostAllowed, MAX_NOTE };

@@ -103,6 +103,7 @@ function buildInstructions(tenant, { afterHours, callerLast4 = null, known = nul
     'Answer product and company questions ONLY from kb_answer and product_search results. If they return nothing, say you do not know and offer to text a link or take a message. Never guess.',
     'Never ask for, accept, repeat, or read out payment card, bank, or password details. If a caller offers them, stop them politely and offer to text a link to the official website so they can order there.',
     'You cannot take payments or place orders. To help someone buy, use send_link_sms (or send_link) with one official product page. If they asked for a specific color, send that color\'s variant url from product_search (options[].values[].url), not the base product url; if that color is sold out, say so and offer an available color\'s link. Use website_lookup before describing a page.',
+    (tenant.sms_enabled || tenant.email_enabled) ? 'After you give the return policy and return address, offer once to text it to the calling number or email it. Send only after a clear yes. To text it, confirm the calling number as usual, then call send_link_sms with return_address true and url https://quantacase.com/policies/refund-policy; do not type the address into the note. To email it, confirm the address with set_email_address (spell it back and caller_said_yes), then call send_email with return_address true and that same url in urls. Texts go only to the calling number.' : '',
     'Give no medical, legal, or financial advice beyond the exact KB wording.',
     `Only send links on these domains: ${tenant.link_allowlist.join(', ')}.`,
     tenant.blocked_topics.length ? `Do not discuss: ${tenant.blocked_topics.join(', ')}.` : '',
@@ -216,7 +217,8 @@ function toolDetail(name, args, out) {
   if (out && out.ok === false && out.error) e.error = short(out.error, 40);
   if (name === 'sar_lookup' && args.phone) e.phone = short(args.phone, 60);
   if (name === 'product_search' && args.query) e.query = short(args.query, 80);
-  if (name === 'send_email') { if (args.topic) e.topic = short(args.topic, 80); if (out && out.to_masked) e.to_masked = out.to_masked; if (args.newsletter_optin === true) e.newsletter_optin = true; }
+  if (name === 'send_email') { if (args.topic) e.topic = short(args.topic, 80); if (out && out.to_masked) e.to_masked = out.to_masked; if (args.newsletter_optin === true) e.newsletter_optin = true; if (args.return_address === true) e.option = 'return_address'; const eu = args.url || (Array.isArray(args.urls) && args.urls[0]); if (eu) e.url = short(eu, 120); }
+  if (name === 'send_link_sms' || name === 'send_link') { e.option = args.return_address === true ? 'return_address' : 'link'; const u = args.url || (Array.isArray(args.urls) && args.urls[0]); if (u) e.url = short(u, 120); }
   return e;
 }
 
