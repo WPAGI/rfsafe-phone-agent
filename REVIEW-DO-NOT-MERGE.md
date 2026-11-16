@@ -20,6 +20,6 @@ This lists what is still open from Jarvis's Nov 16 stress-test report. Bugs 2 an
      - On a final timeout, run the deterministic checks so their edits go to the revise loop. The 240 s limit is already live.
 3. **Bug 3 leftovers.**
    - The `kidsCard` regex is case-sensitive ("We don't…" vs "we don't…").
-   - The drafts sign off "The RF Safe team" on Callbots, which may be a brand issue.
    - MagSafe is now a locked KB Light entry on both sites (`quantacase-magsafe-wireless-charging`).
-4. **rfsafe.app.** It runs the same Mailbox core, so it likely has bugs 1, 2 and 4. Nothing has been deployed there.
+   - Keep the "The RF Safe team" sign-off (John, 3:55 AM ET).
+4. **rfsafe.app.** No changes until a bug is seen there (John 3:55 AM ET). It runs the same Mailbox core, so it may share some of these findings, but nothing should be deployed there until a bug is seen.
