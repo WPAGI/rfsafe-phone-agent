@@ -16,5 +16,5 @@ if (sitemail && sitemail.enabled && await sitemail.route(req, res, u)) return;
 
 Optional, in /health: `...(sitemail.enabled ? { sitemail: sitemail.status() } : {})`.
 
-route() only answers: /inbox, /inbox/*, /api/mail/*, /api/mail/webhook/resend, /inbox/tools/shopify/callback, /admin/kb/entries, /admin/kb/entries/*, /admin/kb/agent/*, /inbox/kb, /inbox/kb/*, /kb, /kb/*, /admin/mail/messages, /admin/mail/messages/*/activity, /admin/mail/messages/*/rerun, /admin/mail/messages/*/redraft. Everything else falls through to the host unchanged.
+route() only answers: /inbox, /inbox/*, /api/mail/*, /api/mail/webhook/resend, /inbox/tools/shopify/callback, /admin/kb/entries, /admin/kb/entries/*, /admin/kb/agent/*, /inbox/kb, /inbox/kb/*, /kb, /kb/*, /admin/mail/kb-coverage, /admin/mail/messages, /admin/mail/messages/*/activity, /admin/mail/messages/*/rerun, /admin/mail/messages/*/redraft. Everything else falls through to the host unchanged.
 Set SITEMAIL_ENABLED=0 to turn the whole package off without a deploy.

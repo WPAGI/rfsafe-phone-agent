@@ -49,9 +49,60 @@
         "callbots.org/kb/"
       ]
     ],
-    "hide": [
-      "/kb/body-systems",
-      "/kb/safety-claims"
-    ]
+    "hide": [],
+    "brand": {
+      "name": "CallBots Knowledge Base",
+      "mark": "CB",
+      "wordmark": [
+        "CALLBOTS",
+        "KNOWLEDGE BASE"
+      ],
+      "home_url": "/",
+      "home_label": "callbots.org",
+      "twitter": "",
+      "menu_links": [
+        [
+          "/",
+          "callbots.org home"
+        ],
+        [
+          "https://rfsafe.app/research",
+          "RF Safe research"
+        ],
+        [
+          "/privacy",
+          "Privacy"
+        ],
+        [
+          "/terms",
+          "Terms"
+        ]
+      ],
+      "footer_label": "CallBots",
+      "footer_links": [
+        [
+          "/",
+          "CallBots home"
+        ],
+        [
+          "https://rfsafe.app/research",
+          "RF Safe research directory"
+        ],
+        [
+          "/privacy",
+          "Privacy"
+        ],
+        [
+          "/terms",
+          "Terms"
+        ]
+      ],
+      "footer_update": "This page updates by itself when an answer changes.",
+      "footer_note": "General information from RF Safe, the company behind CallBots, not medical advice. For a health concern, talk with your doctor. Call or text QuantaCase at (727) 677-5572.",
+      "trademark": "RF SAFE® is a registered trademark of Quanta X Technology LLC (U.S. Reg. No. 6,592,188).",
+      "hero_title": "The answers CallBots gives on wireless radiation, in plain words",
+      "hero_lead": "RF Safe's public positions, the body-system research summaries, and the answers the CallBots phone line uses, in one open place. Search it, browse it by topic, or point an AI tool here."
+    },
+    "research_base": "https://rfsafe.app"
   }
 }

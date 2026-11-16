@@ -1,8 +1,4 @@
 'use strict';
-// callbots.org, LIVE config + Mailbox verification only (package v1.2; rfsafe.app PRs #73-#75). This is the config that
-// is live today (phone-agent PR #56) with two additions: store.single_variant_color and modules.kb_growth: false.
-// It ships the verification work WITHOUT the /kb port (phone-agent PR #57), so the two can deploy separately.
-// When #57 ships, port/sites/callbots.config.js (which has both) replaces this file.
 // callbots.org (WPAGI/rfsafe-phone-agent, Render srv-dbi7t58u01pc7398c3j0). First install target.
 // Values marked "CONFIRM" need John's OK before the live install (see CHECKLIST.md). No secrets here: the
 // "secrets" section only names env variables that will be added to the Callbots Render service.
@@ -26,12 +22,17 @@ module.exports = {
     tenant_id: 'callbots',
     // The phone line's own knowledge, READ ONLY (same folders the rfsafe tenant answers calls from):
     host_kb_dirs: ['kb/curated/rfsafe', '$DATA_DIR/kb/rfsafe-live', '$DATA_DIR/kb/rfsafe-wiki'],
+    // John 12:37 AM: port all of rfsafe.app's Q&A into the Callbots Brain box (wording unchanged; owner-approved, so locked).
+    // One-time, additive import from the read-only package seed; rfsafe.app's live store is never written.
+    seed_import: 'seed/public-kb/rfsafe-app-public-kb.json',
+    // Growth loop: questions answered from the big phone KB propose compact Brain box entries for review (never live).
+    growth: { proposals_per_day: 10 },
   },
   data: { namespace: 'sitemail' },                    // /var/data/sitemail: new, used by nothing else on Callbots
   modules: {
     mail_viewer: true, mailbox: true, brainbox_api: true, brainbox_admin: true, public_kb: true,
     web_research: true, order_lookup: true,           // John 11:51 PM: reuse the read access the phone agent already has
-    kb_growth: false,   // the /kb port + growth loop ship with PR #57, not here
+    kb_growth: true,
     read_api: true, rerun_api: true,
   },
   store: { enabled: true, store_domain: 'quantacase.com', store_hosts: ['quantacase.com', 'rfsafe.com'], own_site_names: ['quantacase', 'rfsafe', 'truthcase'],
@@ -42,7 +43,30 @@ module.exports = {
       ['>rfsafe.app<', '>callbots.org<'],
       ['rfsafe.app/kb/', 'callbots.org/kb/'],
     ],
-    hide: ['/kb/body-systems', '/kb/safety-claims'],   // CONFIRM: these use rfsafe.app's research directory
+    hide: [],   // John 12:31 AM: keep the body systems and the safety-claim critiques ("it should be completely ported over")
+    // Callbots chrome: title, nav, home link (rfsafe.app keeps its own defaults in src/publickb/render.js).
+    brand: {
+      name: 'CallBots Knowledge Base', mark: 'CB', wordmark: ['CALLBOTS', 'KNOWLEDGE BASE'], home_url: '/', home_label: 'callbots.org', twitter: '',
+      menu_links: [['/', 'callbots.org home'], ['https://rfsafe.app/research', 'RF Safe research'], ['/privacy', 'Privacy'], ['/terms', 'Terms']],
+      footer_label: 'CallBots', footer_links: [['/', 'CallBots home'], ['https://rfsafe.app/research', 'RF Safe research directory'], ['/privacy', 'Privacy'], ['/terms', 'Terms']],
+      footer_update: 'This page updates by itself when an answer changes.',
+      footer_note: 'General information from RF Safe, the company behind CallBots, not medical advice. For a health concern, talk with your doctor. Call or text QuantaCase at (727) 677-5572.',
+      trademark: 'RF SAFE® is a registered trademark of Quanta X Technology LLC (U.S. Reg. No. 6,592,188).',
+      hero_title: 'The answers CallBots gives on wireless radiation, in plain words',
+      hero_lead: 'RF Safe\'s public positions, the body-system research summaries, and the answers the CallBots phone line uses, in one open place. Search it, browse it by topic, or point an AI tool here.',
+    },
+    // The full rfsafe.app KB experience (core position, answers and topics, body-system summaries with effect counts,
+    // safety-claim critiques), as an exported, read-only copy in the package. rfsafe.app's live store is never written.
+    seed: 'seed/public-kb/rfsafe-app-public-kb.json',
+    research_base: 'https://rfsafe.app',   // study links go to rfsafe.app's research directory (Callbots has none)
+    // The phone agent's own KB on top, read-only through the filtered adapter (src/publickb/hostkb.js).
+    host_kb: {
+      enabled: true,
+      page_types: ['curated', 'position', 'answer', 'topic'],
+      public_numbers: ['727-677-5572'],   // QuantaCase's published contact number (quantacase.com contact page)
+      public_emails: [],
+      topics: { curated: 'Phone line answers', position: 'Phone line answers', answer: 'Research summaries', topic: 'Research topics' },
+    },
   },
   prompts: { replace: [] },
   secrets: {

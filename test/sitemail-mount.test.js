@@ -57,7 +57,49 @@ test('sitemail v1.2 verification (rfsafe.app #73-#75): Rerun and Redraft on the 
     assert.equal(await post('/admin/mail/messages/r.unknown-0001/rerun', RERUN), 404);
     const hl = await (await fetch(a.base + '/health')).json(); assert.equal(hl.ok, true); assert.equal(hl.active_calls, 0);
     assert.equal((await fetch(a.base + '/mail', { redirect: 'manual' })).headers.get('location'), '/mail/login', 'host /mail unchanged');
-    const cfg = require('../vendor/sitemail/site.config.js'); assert.equal(cfg.store.single_variant_color, 'Black'); assert.equal(cfg.modules.kb_growth, false);
+    const cfg = require('../vendor/sitemail/site.config.js'); assert.equal(cfg.store.single_variant_color, 'Black'); assert.equal(cfg.modules.kb_growth, true);
     assert.ok(fs.existsSync(path.join(__dirname, '../vendor/sitemail/src/mailbox/revise.js')));
   } finally { await a.close(); }
+});
+
+test('sitemail /kb port: full public rfsafe.app KB with Callbots chrome, phone KB on top read-only, filters, Brain box seed import, public number on the page', async () => {
+  const READ = 'test-sitemail-read-key-01234567890';
+  const dataDir0 = fs.mkdtempSync(path.join(os.tmpdir(), 'pa-sitemail-kb-'));
+  const wiki = path.join(dataDir0, 'kb', 'rfsafe-wiki', 'wiki');
+  const w = (rel, s) => { fs.mkdirSync(path.dirname(path.join(wiki, rel)), { recursive: true }); fs.writeFileSync(path.join(wiki, rel), s); };
+  w('answers/fcc-dose.md', '---\ntitle: "4,200 Times Too High"\npage_type: answer\n---\n# 4,200 Times Too High\n\nThe FCC limit is far above the cancer-risk dose.\n');
+  w('answers/phone-agent-build-brief.md', '---\ntitle: "phone-agent-build-brief"\npage_type: answer\n---\nBuild notes.\n');
+  w('research/study-1.md', '---\ntitle: "A study"\npage_type: study\n---\nA rat study.\n');
+  const hash = (d) => { const h = crypto.createHash('sha256'); const walk = (x) => { for (const e of fs.readdirSync(x, { withFileTypes: true }).sort((p, q) => p.name.localeCompare(q.name))) { const f = path.join(x, e.name); if (e.isDirectory()) walk(f); else { h.update(f); h.update(fs.readFileSync(f)); } } }; walk(d); return h.digest('hex'); };
+  const before = hash(path.join(dataDir0, 'kb')); const curatedBefore = hash(path.join(__dirname, '../kb/curated/rfsafe'));
+  const deps = buildDeps({ mode: 'demo', env: { ...ENV, ...on, SITEMAIL_READ_HASH: crypto.createHash('sha256').update(READ).digest('hex') }, tenantsDir: path.join(__dirname, '../demo/tenants'), dataDir: dataDir0, log: () => {} });
+  deps.tenants.save = () => {}; deps.mailFetch = require('../src/mail/mock').mockFetch();
+  const app = createApp(deps); const srv = http.createServer(app.handler); await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + srv.address().port;
+  try {
+    const start = await (await fetch(base + '/kb')).text();
+    assert.match(start, /<title>CallBots Knowledge Base/); assert.match(start, /Start here · RF Safe's core position/); assert.doesNotMatch(start, /core position will appear here|rfsafe\.app home/);
+    assert.match(start, /class="kb-site" href="\/">callbots\.org</);
+    assert.match(start, /\(727\) 677-5572/);
+    const phones = start.match(/(?:\+?1[-.\s]*)?\(?\d{3}\)?[-.\s]*\d{3}[-.\s]*\d{4}/g) || [];
+    const digits = (s) => s.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    assert.ok(phones.length >= 1 && phones.every((p) => digits(p) === '7276775572'), 'only the approved QuantaCase number is shown');
+    const j = await (await fetch(base + '/kb/api/v1/kb.json')).json();
+    assert.ok(j.counts.entries >= 226 + 1, 'rfsafe.app entries + phone KB pages: ' + j.counts.entries); assert.ok(j.counts.topics >= 21); assert.equal(j.counts.body_systems, 13);
+    assert.ok(j.body_systems.every((b) => b.summary && /studies/.test(b.summary) && b.research_url.startsWith('https://rfsafe.app/research?system=')));
+    assert.equal((await fetch(base + '/kb/fcc-dose')).status, 200); assert.equal((await fetch(base + '/kb/mission')).status, 200, 'repo curated card shown');
+    assert.equal((await fetch(base + '/kb/phone-agent-build-brief')).status, 404); assert.equal((await fetch(base + '/kb/study-1')).status, 404);
+    const list = await (await fetch(base + '/admin/kb/entries', { headers: { authorization: 'Bearer ' + KB_KEY } })).json();
+    assert.ok(list.entries.length >= 200, 'rfsafe.app Q&A imported into the Callbots Brain box: ' + list.entries.length);
+    const h = await (await fetch(base + '/health')).json(); assert.equal(h.ok, true); assert.equal(h.active_calls, 0); assert.ok(h.sitemail.seed_import.imported >= 200); assert.ok(h.sitemail.brain_box_coverage);
+    assert.equal((await fetch(base + '/admin/mail/kb-coverage')).status, 401);
+    const covRes = await fetch(base + '/admin/mail/kb-coverage', { headers: { authorization: 'Bearer ' + READ } });
+    assert.equal(covRes.status, 200);
+    const cov = await covRes.json();
+    assert.ok(cov.coverage && typeof cov.coverage.questions === 'number');
+    assert.ok('share' in cov.coverage);
+    assert.ok(cov.seed_import && cov.seed_import.imported >= 200);
+    assert.equal(hash(path.join(dataDir0, 'kb')), before, 'phone KB files on the data disk unchanged');
+    assert.equal(hash(path.join(__dirname, '../kb/curated/rfsafe')), curatedBefore, 'repo curated KB unchanged');
+  } finally { await new Promise(r => srv.close(r)); }
 });
