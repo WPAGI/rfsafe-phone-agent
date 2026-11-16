@@ -27,8 +27,8 @@ const SYNC_MS = 4 * 60 * 60 * 1000;
 const FILE_NAME = 'order-index.sealed';
 const FLAG = 'SITEMAIL_ORDER_INDEX';
 
-const LIST_QUERY = 'query($n:Int!,$cursor:String,$q:String){ orders(first:$n, after:$cursor, query:$q, sortKey:UPDATED_AT){ pageInfo{ hasNextPage endCursor } nodes{ id name updatedAt email phone customer{ firstName defaultEmailAddress{ emailAddress } defaultPhoneNumber{ phoneNumber } } } } } }';
-const STATUS_QUERY = 'query($q:String!){ orders(first:5, query:$q){ nodes{ name cancelledAt displayFulfillmentStatus fulfillments(first:5){ displayStatus trackingInfo(first:3){ company number url } } } } } }';
+const LIST_QUERY = 'query($n:Int!,$cursor:String,$q:String){ orders(first:$n, after:$cursor, query:$q, sortKey:UPDATED_AT){ pageInfo{ hasNextPage endCursor } nodes{ id name updatedAt email phone customer{ firstName defaultEmailAddress{ emailAddress } defaultPhoneNumber{ phoneNumber } } } } }';
+const STATUS_QUERY = 'query($q:String!){ orders(first:5, query:$q){ nodes{ name cancelledAt displayFulfillmentStatus fulfillments(first:5){ displayStatus trackingInfo(first:3){ company number url } } } } }';
 const COUNT_QUERY = 'query { ordersCount { count } }';
 
 function flagOn(env = {}) { return /^(1|true|yes|on)$/i.test(String(env[FLAG] || '').trim()); }

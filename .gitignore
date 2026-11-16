@@ -6,3 +6,6 @@ dist/
 
 # Past-customer order index (server disk only; never commit)
 **/order-index.sealed
+
+# devDependencies (graphql parser used in tests only)
+node_modules/
