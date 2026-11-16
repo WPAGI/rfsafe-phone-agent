@@ -140,7 +140,7 @@ function mountSiteMail(host = {}, cfg) {
       kb: { search: (q, k, o) => kbMailSearch(q, k, o), urls: () => kb().urls(), version: () => kb().version(), entryBySlug: (s) => kb().entryBySlug(s), entriesOfType: (t) => kb().entriesOfType(t) },
       answerRules: () => '',
       onReplied: growth ? (ev) => growth.onReplied(ev) : undefined,
-      productSearch: host.productSearch, orderLookupQuery: host.orderLookupQuery,
+      productSearch: host.productSearch, orderLookupQuery: host.orderLookupQuery, orderIndexQuery: host.orderIndexQuery,
       kbGap: (g) => { try { appendJsonl(gapFile, { at: new Date().toISOString(), tenant: tenantId, question: String(g.question || '').slice(0, 200), reason: 'email_unanswered', channel: 'email', source: 'email', message_id: String(g.message_id || '').slice(0, 80) }); } catch {} },
       brainBox: on('web_research') && kbAdmin && kbAdmin.webResearchFor ? () => kbAdmin.webResearchFor() : () => null,
     }));
@@ -201,6 +201,10 @@ function mountSiteMail(host = {}, cfg) {
     if (kbAdmin && kbAdmin.isAgentPath && kbAdmin.isAgentPath(p)) { await kbAdmin.agentRoute(rq, res, u); return true; }
     if (publicKb && KB_ASSET.test(p) && rq.method === 'GET') { const f = path.join(ROOT, 'site', 'kb', 'assets', p.match(KB_ASSET)[1]); if (!fs.existsSync(f)) return false; res.writeHead(200, { 'content-type': f.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=300' }); res.end(fs.readFileSync(f)); return true; }
     if (publicKb && publicKb.isKbPath && publicKb.isKbPath(p)) { if (await publicKb.route(rq, res, u)) return true; return false; }
+    if (mailbox && p === '/api/mail/webhook/shopify/orders') {
+      if (rq.method !== 'POST' || !mailbox.enabled || !mailbox.shopifyOrdersWebhook) { json(res, 404, { error: 'not_found' }); return true; }
+      await mailbox.shopifyOrdersWebhook(rq, res); return true;
+    }
     if (mailbox && p === '/api/mail/webhook/resend' && rq.method === 'POST') { if (!mailbox.enabled) { json(res, 401, { error: 'bad_signature' }); return true; } await mailbox.webhookRoute(rq, res); return true; }
     if (mailbox && p === MB + '/tools/shopify/callback' && rq.method === 'GET') { if (!mailbox.enabled) { json(res, 503, { error: 'mailbox_not_configured' }); return true; } await mailbox.shopifyCallback(rq, res, u); return true; }
     if (mail && (p === MB || p.startsWith(MB + '/'))) { await mail.route(rq, res, u); return true; }

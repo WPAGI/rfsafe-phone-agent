@@ -14,6 +14,7 @@ const { MailTools } = require('./tools');
 const path = require('path');
 const { MailBots, dateParts, extractPhoneModels, phoneKeys, handleGuesses } = require('./bots');
 const PC = require('./phone-catalog');
+const OI = require('./orderindex');
 const { WebResearch } = require('./webresearch');
 const pkg = require('../botpkg');
 const { verify: verifyWebhook } = require('../mail-forward');
@@ -66,7 +67,17 @@ function createMailbox(o = {}) {
     now, log: (ev, d) => log('phone_catalog_' + ev, d || {})
   });
   phoneCatalog.start();
-  const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, hostOrderQuery: o.orderLookupQuery || o.hostOrderQuery || null, kbGap: o.kbGap || null, webResearch, phoneCatalog });
+  const orderIndex = o.orderIndex || OI.createOrderIndex({
+    dataDir: path.dirname(o.file),
+    sealer,
+    adminQuery: o.orderIndexQuery || null,
+    env,
+    hmacSecret: env.SITEMAIL_SHOPIFY_ORDERS_HMAC || env.SHOPIFY_ORDERS_WEBHOOK_SECRET || null,
+    now, log,
+    mock: String(env.SITEMAIL_MOCK || '') === '1'
+  });
+  orderIndex.start();
+  const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, hostOrderQuery: o.orderLookupQuery || o.hostOrderQuery || null, kbGap: o.kbGap || null, webResearch, phoneCatalog, orderIndex });
   if (typeof o.onReplied === 'function') bots.onReplied = o.onReplied; // optional observer (port/mount.js kb growth loop)
   if (o.mailBase) bots.mailBase = o.mailBase; // owner inbox path (portable package mail.base; rfsafe.app: /mail)
   // A boot-applied reprocess must not run during the restart itself (the site's own data, e.g. the SAR catalog, is
@@ -550,6 +561,12 @@ function createMailbox(o = {}) {
       drafts: Object.keys(store.db.drafts).map(k => store.draft(k)).filter(d => d && d.reply_to_id === id).sort((a, b) => String(a.updated).localeCompare(String(b.updated))).map(d => ({ id: d.id, author: d.author, status: d.status, updated: d.updated, subject: d.subject, reason: d.reason || null, body: d.body, ...(d.versions && d.versions.length ? { versions: d.versions } : {}) })),
       sent: store.sentList().filter(s => s.reply_to_id === id).map(s => ({ id: s.id, at: s.at, via: s.via || null, approved_by: s.approved_by || null, resend_id: s.resend_id || null, subject: s.subject, body: s.body })) };
   }
-  return { enabled: true, reason: null, webResearch, readList, readActivity, rerunCheck, rerunByKey, redraftByKey, store, keys, checker, botRoute, ownerRoute, createBotDraft, runAutoSend, fromAddress, site: primary, bots, tools, bootstrap, status, applyBootstrap, webhookRoute, shopifyCallback, phoneCatalog, close: () => { if (timer) clearInterval(timer); try { if (phoneCatalog && phoneCatalog.stop) phoneCatalog.stop(); } catch {} } };
+  async function shopifyOrdersWebhook(req, res) {
+    const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    let raw; try { raw = await new Promise((resolve, reject) => { let s = ''; req.on('data', c => { s += c; if (s.length > 256 * 1024) { reject(Object.assign(new Error('too_large'), { status: 413 })); req.destroy(); } }); req.on('end', () => resolve(s)); req.on('error', reject); }); } catch (e) { return json(res, e.status || 413, { error: 'too_large' }); }
+    const r = orderIndex.ingestWebhook(raw, req.headers || {});
+    return json(res, r.status || 200, { ok: !!r.ok, action: r.action || undefined, error: r.error || undefined });
+  }
+  return { enabled: true, reason: null, webResearch, readList, readActivity, rerunCheck, rerunByKey, redraftByKey, store, keys, checker, botRoute, ownerRoute, createBotDraft, runAutoSend, fromAddress, site: primary, bots, tools, bootstrap, status, applyBootstrap, webhookRoute, shopifyCallback, phoneCatalog, shopifyOrdersWebhook, close: () => { if (timer) clearInterval(timer); try { if (phoneCatalog && phoneCatalog.stop) phoneCatalog.stop(); } catch {} try { if (orderIndex && orderIndex.stop) orderIndex.stop(); } catch {} } };
 }
 module.exports = { createMailbox, ID_RE };

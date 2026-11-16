@@ -54,7 +54,8 @@ function checkerPayload({ original, draft, links_note, owner_approved_note, know
     ...(extra.sender ? { sender: extra.sender } : {}),
     ...(extra.footer ? { footer: extra.footer } : {}),
     ...(extra.quanta_cases_block ? { quanta_cases_block: extra.quanta_cases_block } : {}),
-    ...(extra.phone_catalog ? { phone_catalog: extra.phone_catalog } : {})
+    ...(extra.phone_catalog ? { phone_catalog: extra.phone_catalog } : {}),
+    ...(extra.order_index_note ? { order_index_note: extra.order_index_note } : {})
   };
 }
 

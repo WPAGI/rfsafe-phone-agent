@@ -11,7 +11,7 @@ const EMAIL = /^[^\s@<>]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 const ENVNAME = /^[A-Z][A-Z0-9_]{1,63}$/;
 // Data folders a host may already use; the package namespace may never be one of them.
 const RESERVED_NS = new Set(['kb', 'kb-api', 'mailbox', 'mail', 'tenants', 'secrets', 'calls', 'sms', 'backups', 'data', 'tmp', '.', '..']);
-const SECRET_KEYS = ['RESEND_MAIL_READ_KEY', 'MAILBOX_ENC_KEY', 'MAIL_SESSION_SECRET', 'MAILBOX_RESEND_WEBHOOK_SECRET', 'XAI_API_KEY', 'KB_API_WRITE_TOKEN_HASH', 'MAIL_READ_TOKEN_HASH', 'MAIL_RERUN_TOKEN_HASH', 'SHOPIFY_ADMIN_SHOP', 'SHOPIFY_ADMIN_CLIENT_ID', 'SHOPIFY_ADMIN_CLIENT_SECRET'];
+const SECRET_KEYS = ['RESEND_MAIL_READ_KEY', 'MAILBOX_ENC_KEY', 'MAIL_SESSION_SECRET', 'MAILBOX_RESEND_WEBHOOK_SECRET', 'XAI_API_KEY', 'KB_API_WRITE_TOKEN_HASH', 'MAIL_READ_TOKEN_HASH', 'MAIL_RERUN_TOKEN_HASH', 'SHOPIFY_ADMIN_SHOP', 'SHOPIFY_ADMIN_CLIENT_ID', 'SHOPIFY_ADMIN_CLIENT_SECRET', 'SITEMAIL_SHOPIFY_ORDERS_HMAC'];
 const SHOP_KEYS = ['SHOPIFY_ADMIN_SHOP', 'SHOPIFY_ADMIN_CLIENT_ID', 'SHOPIFY_ADMIN_CLIENT_SECRET'];
 
 function loadConfig(file) { const f = path.resolve(file); delete require.cache[f]; return require(f); }
@@ -93,7 +93,9 @@ function moduleEnv(hostEnv, cfg) {
   if (hostEnv.XAI_TEXT_MODEL) out.XAI_TEXT_MODEL = hostEnv.XAI_TEXT_MODEL;
   // Color answers for a product with no color option (rfsafe.app PR #73; John: "it's always black"). Config, not host env.
   const sv = String(((cfg.store || {}).single_variant_color) || '').trim(); if (sv) out.MAIL_SINGLE_VARIANT_COLOR = sv;
-  if (hostEnv.MAIL_MOCK === '1' || hostEnv.SITEMAIL_MOCK === '1') out.MAIL_MOCK = '1';
+  if (hostEnv.MAIL_MOCK === '1' || hostEnv.SITEMAIL_MOCK === '1') { out.MAIL_MOCK = '1'; out.SITEMAIL_MOCK = '1'; }
+  // Past-customer index flag (default off). The HMAC secret is copied via cfg.secrets when set.
+  if (hostEnv.SITEMAIL_ORDER_INDEX != null && String(hostEnv.SITEMAIL_ORDER_INDEX).trim() !== '') out.SITEMAIL_ORDER_INDEX = String(hostEnv.SITEMAIL_ORDER_INDEX).trim();
   for (const [k, name] of Object.entries(cfg.secrets || {})) {
     if (SHOP_KEYS.includes(k) && !moduleOn(cfg, 'order_lookup')) continue; // store off: no store credentials at all
     const v = hostEnv[name]; if (v != null && String(v) !== '') out[k] = String(v);

@@ -86,6 +86,7 @@ module.exports = {
     MAILBOX_OWNER_BOOTSTRAP: 'SITEMAIL_OWNER_BOOTSTRAP',        // optional one-time owner switches (bots, auto-send, daily cap)
     SHOPIFY_ADMIN_CLIENT_ID: 'SHOPIFY_ADMIN_CLIENT_ID',          // the phone agent's existing read-only store app (shared_env)
     SHOPIFY_ADMIN_CLIENT_SECRET: 'SHOPIFY_ADMIN_CLIENT_SECRET',
+    SITEMAIL_SHOPIFY_ORDERS_HMAC: 'SITEMAIL_SHOPIFY_ORDERS_HMAC', // orders/create receiver; not registered at Shopify until John approves
   },
   shared_env: ['RESEND_MAIL_READ_KEY', 'SHOPIFY_ADMIN_CLIENT_ID', 'SHOPIFY_ADMIN_CLIENT_SECRET'],
   enable_env: 'SITEMAIL_ENABLED',

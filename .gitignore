@@ -3,3 +3,6 @@ data/
 dist/
 *.pem
 *.key
+
+# Past-customer order index (server disk only; never commit)
+**/order-index.sealed

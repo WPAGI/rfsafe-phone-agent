@@ -1,4 +1,9 @@
 # Changelog
+## Mailbox past-customer order index (Nov 16, 2026; REVIEW ONLY — do not merge or deploy without John's OK)
+- Callbots.org mailbox only: an optional (`SITEMAIL_ORDER_INDEX`, default off) index of past Shopify orders, keeping only first name, order number, email (lowercased) and phone (E.164). Every record is marked unsubscribed from email and text and is never used for marketing. Stored sealed on the persistent disk with mode 0600; never in git, logs, /health, admin pages, or any public GET route. Phone and text lookup paths and `order_lookup_enabled` are unchanged.
+- Updates: HMAC-verified `orders/create` receiver (not registered at Shopify in this PR) plus a light incremental sync every few hours. On each inbound email, a system note is given to the writer and checker only. An order is treated as the sender's only when the sender email matches; a phone-only hit is unverified and includes no order numbers, status or tracking.
+- Off until John approves go-live: deploy, flag on, webhook registration, and order lookup.
+
 ## Mailbox QuantaCase catalog, daily refresh plus live stock (Nov 16, 2026; John approved deploy 4:11-4:21 AM ET)
 - Callbots.org mailbox only: the full QuantaCase catalog (models, colors, price, stock, product and variant URLs) is cached in the Site Mail data dir and refreshed daily, with a refresh on a miss. The last good cache is kept if a refresh fails. Phone and text lookup paths are unchanged. Order lookup stays off.
 - Before the writer runs, every phone model named in the email is matched (aliases such as "17 Pro Max", "S26 Ultra", and "wife's 17 Pro Max") and those products get a short live stock check. A titled block, "QuantaCases available for phones mentioned in this email", is given to the writer and the checker. The checker verifies against that block; existing store checks stay as fallback. A single Default Title variant is Black, one color.
