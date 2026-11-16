@@ -52,7 +52,9 @@ function checkerPayload({ original, draft, links_note, owner_approved_note, know
     ...(extra.hasDisclaimer ? { hasDisclaimer: true } : {}),
     ...(Array.isArray(extra.kb_gaps) ? { kb_gaps: extra.kb_gaps } : {}),
     ...(extra.sender ? { sender: extra.sender } : {}),
-    ...(extra.footer ? { footer: extra.footer } : {})
+    ...(extra.footer ? { footer: extra.footer } : {}),
+    ...(extra.quanta_cases_block ? { quanta_cases_block: extra.quanta_cases_block } : {}),
+    ...(extra.phone_catalog ? { phone_catalog: extra.phone_catalog } : {})
   };
 }
 

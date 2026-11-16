@@ -194,7 +194,8 @@ function mountSiteMail(host = {}, cfg) {
     if (growth && p === '/admin/mail/kb-coverage' && rq.method === 'GET') {
       // Same read key as /admin/mail/messages. Counts and titles only, never email text or addresses.
       if (!env.MAIL_READ_TOKEN_HASH || !kbApi.authorized(rq.headers.authorization, env.MAIL_READ_TOKEN_HASH)) { json(res, 401, { error: 'unauthorized' }); return true; }
-      json(res, 200, { coverage: growth.coverage(), recent: growth.recent(50), seed_import: seedImport }); return true;
+      let phone_catalog = null; try { phone_catalog = mailbox && mailbox.status ? (mailbox.status().phone_catalog || null) : null; } catch { phone_catalog = null; }
+      json(res, 200, { coverage: growth.coverage(), recent: growth.recent(50), seed_import: seedImport, ...(phone_catalog ? { phone_catalog } : {}) }); return true;
     }
     if (kbApiStore && KB_API_RE.test(p)) return kbApiRoute(rq, res, p);
     if (kbAdmin && kbAdmin.isAgentPath && kbAdmin.isAgentPath(p)) { await kbAdmin.agentRoute(rq, res, u); return true; }
@@ -215,7 +216,7 @@ function mountSiteMail(host = {}, cfg) {
     // result with kb_layer 'light' or 'full', or null when that channel is off or the tenant is not listed (the host then
     // answers exactly as before). hostKb is the host's own phone KB (KB Full for the phone line), used read-only.
     kbLightFirst: { answerFor: (t, q, ch, full) => LF.answerFor(t, q, ch, full), mailSearch: (q, k, o) => kbMailSearch(q, k, o), status: () => LF.status() },
-    status: () => ({ enabled: true, site: cfg.site.id, modules, ...(seedImport ? { seed_import: { imported: seedImport.imported, kept_existing: seedImport.kept_existing, ran: seedImport.ran } } : {}), ...(growth ? { brain_box_coverage: (() => { try { const c = growth.coverage(); return { questions: c.questions, share: c.share }; } catch { return null; } })() } : {}), host_kb: (() => { try { return hostKbFingerprint(); } catch { return null; } })(), kb_light_first: (() => { try { return LF.status(); } catch { return null; } })(), ...(Object.keys(failed).length ? { failed: Object.keys(failed) } : {}), ...(mailbox && mailbox.enabled ? { mailbox: mailbox.status() } : {}) }),
+    status: () => ({ enabled: true, site: cfg.site.id, modules, ...(seedImport ? { seed_import: { imported: seedImport.imported, kept_existing: seedImport.kept_existing, ran: seedImport.ran } } : {}), ...(growth ? { brain_box_coverage: (() => { try { const c = growth.coverage(); return { questions: c.questions, share: c.share }; } catch { return null; } })() } : {}), host_kb: (() => { try { return hostKbFingerprint(); } catch { return null; } })(), kb_light_first: (() => { try { return LF.status(); } catch { return null; } })(), phone_catalog: (() => { try { return mailbox && mailbox.status ? (mailbox.status().phone_catalog || null) : null; } catch { return null; } })(), ...(Object.keys(failed).length ? { failed: Object.keys(failed) } : {}), ...(mailbox && mailbox.enabled ? { mailbox: mailbox.status() } : {}) }),
     close: () => { try { if (kbAdmin && kbAdmin.closeStreams) kbAdmin.closeStreams(); } catch {} try { if (mailbox && mailbox.close) mailbox.close(); } catch {} },
   };
 }
