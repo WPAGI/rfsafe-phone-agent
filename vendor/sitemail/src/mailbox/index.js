@@ -54,7 +54,7 @@ function createMailbox(o = {}) {
     canSpend: (usd) => { const u = bots.usage(); return !u.paused && u.cost + usd <= u.cap; },
     prices: (m) => bots.models.price(m),
     onUsage: (u) => { bots.db.usage.push({ day: dateParts(now()), bot: 'web_research', model: u.model, input: u.input, output: u.output, cost: u.cost, estimated: u.cost_source !== 'provider', cost_source: u.cost_source }); store.save(); } });
-  const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, kbGap: o.kbGap || null, webResearch });
+  const bots = new MailBots({ store, env, fetchImpl, now, tools, received: () => received(true), original, createDraft: createBotDraft, autoSend: (d, g) => runAutoSend(d, g), ownDomains: [...allowed], answerRules: o.answerRules, sarLookup: o.sarLookup || null, newsletterMember: o.newsletterMember || null, newsletterJoinUrl: o.newsletterJoinUrl || null, siteName: o.siteName, productSearch: o.productSearch, hostOrderQuery: o.orderLookupQuery || o.hostOrderQuery || null, kbGap: o.kbGap || null, webResearch });
   if (typeof o.onReplied === 'function') bots.onReplied = o.onReplied; // optional observer (port/mount.js kb growth loop)
   if (o.mailBase) bots.mailBase = o.mailBase; // owner inbox path (portable package mail.base; rfsafe.app: /mail)
   // A boot-applied reprocess must not run during the restart itself (the site's own data, e.g. the SAR catalog, is

@@ -140,6 +140,7 @@ function mountSiteMail(host = {}, cfg) {
       kb: { search: (q, k, o) => kbMailSearch(q, k, o), urls: () => kb().urls(), version: () => kb().version(), entryBySlug: (s) => kb().entryBySlug(s), entriesOfType: (t) => kb().entriesOfType(t) },
       answerRules: () => '',
       onReplied: growth ? (ev) => growth.onReplied(ev) : undefined,
+      productSearch: host.productSearch, orderLookupQuery: host.orderLookupQuery,
       kbGap: (g) => { try { appendJsonl(gapFile, { at: new Date().toISOString(), tenant: tenantId, question: String(g.question || '').slice(0, 200), reason: 'email_unanswered', channel: 'email', source: 'email', message_id: String(g.message_id || '').slice(0, 80) }); } catch {} },
       brainBox: on('web_research') && kbAdmin && kbAdmin.webResearchFor ? () => kbAdmin.webResearchFor() : () => null,
     }));

@@ -153,9 +153,7 @@ function writerRound1Ms(model, medical) { return medical && isReasoning(model) ?
 // and 8:16 PM ET checks of two long medical drafts hit the 120 s limit; John, Nov 15, 7:30 + 7:50 PM ET). Everything else
 // keeps the default (0 = the built-in timeout). Only the time limit changes; the checker's input and rules do not.
 const LONG_DRAFT_CHARS = 2500;
-// Jarvis bug 1 (Nov 16): ordinary drafts also hit 120 s (Mike 2:50 AM, Karen 2:55 and 2:58 AM ET; Mike's retry took 96 s), so a
-// reasoning checker always gets 240 s. medical/body stay in the signature for callers.
-function checkerMs(model, medical, body) { return isReasoning(model) ? WRITER_ROUND2_MS : 0; }
+function checkerMs(model, medical, body) { return isReasoning(model) && (medical || String(body || '').length >= LONG_DRAFT_CHARS) ? WRITER_ROUND2_MS : 0; }
 function normUrl(u) { try { const x = new URL(u); let p = x.pathname; try { p = decodeURIComponent(p); } catch {} return (x.protocol + '//' + x.hostname.replace(/^www\./i, '') + p.replace(/\/+$/, '')).toLowerCase(); } catch { return null; } }
 // Phone models named in a text, as comparable keys ("pixel 9", "iphone 16 pro max", "galaxy s24 ultra").
 function phoneKeys(text) {
@@ -571,8 +569,8 @@ const LABELS = { sort: 'Sorting this email…', reply: 'Writing a reply…', che
 const dateParts = t => { const p = {}; for (const x of new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(t))) p[x.type] = x.value; return `${p.year}-${p.month}-${p.day}`; };
 class MailBots {
   #key;
-  constructor({ store, env, fetchImpl, now = () => Date.now(), tools, received, original, createDraft, ownDomains = [], answerRules = null, productSearch = null, autoSend = null, sarLookup = null, sarNames = null, newsletterMember = null, newsletterJoinUrl = null, siteName = null, kbGap = null, webResearch = null }) {
-    this.live = new Map(); this.locks = new Set(); Object.assign(this, { store, fetch: fetchImpl, now, tools, received, original, createDraft, ownDomains, answerRules, productSearch, autoSend, sarLookup, sarNames, newsletterMember, newsletterJoinUrl, siteName, kbGap, webResearch }); this.#key = env.XAI_API_KEY; this.orderCfg = O.orderLookupConfig(env || {}); this.colorCfg = colorVariantConfig(env || {}); this.models = new ModelCatalog({ key: env.XAI_API_KEY, fetchImpl, now });
+  constructor({ store, env, fetchImpl, now = () => Date.now(), tools, received, original, createDraft, ownDomains = [], answerRules = null, productSearch = null, hostOrderQuery = null, autoSend = null, sarLookup = null, sarNames = null, newsletterMember = null, newsletterJoinUrl = null, siteName = null, kbGap = null, webResearch = null }) {
+    this.live = new Map(); this.locks = new Set(); Object.assign(this, { store, fetch: fetchImpl, now, tools, received, original, createDraft, ownDomains, answerRules, productSearch, hostOrderQuery, autoSend, sarLookup, sarNames, newsletterMember, newsletterJoinUrl, siteName, kbGap, webResearch }); this.#key = env.XAI_API_KEY; this.orderCfg = O.orderLookupConfig(env || {}); this.colorCfg = colorVariantConfig(env || {}); this.models = new ModelCatalog({ key: env.XAI_API_KEY, fetchImpl, now });
     store.db.bots ||= { installed: {}, runs: [], usage: [], notes: {}, done: {}, cap: 10, last_schedule: 0, events: [] };
     for (const [id, b] of Object.entries(defaults)) if (!this.db.installed[id]) this.db.installed[id] = { id, default: clone(b), custom: null, enabled: false, source: 'default', versions: [], created: store.iso(), validated: true };
     // Defaults are owned by the code: refresh an installed Default when its version changes (Custom layers are kept).
@@ -672,19 +670,34 @@ class MailBots {
     }
     return out;
   }
-  // Store lookup for every model in the message (Jarvis bug 2, Nov 16). Each model gets its own search; a model the
-  // search missed is probed read-only at its likely public /products/<handle>.js. A model is verified_missing only when
-  // its search and every probe answered and found nothing.
+  // Map a phone/text product_search row (or a mailbox product_link row) into the mailbox store_lookup shape.
+  fromPhoneProduct(p) {
+    if (!p || !p.url) return null;
+    const amount = p.price && typeof p.price === 'object' ? p.price.amount : p.price;
+    const currency = (p.price && typeof p.price === 'object' && p.price.currency) || p.currency || 'USD';
+    const idOf = (v) => { const s = v && v.id != null ? String(v.id) : ''; const m = s.match(/(\d+)$/); return m ? m[1] : (s || null); };
+    const variants = (p.variants || []).map(v => ({ ...(idOf(v) ? { id: idOf(v) } : {}), title: v.title, price: v.price != null ? String(v.price) : null, available: v.available !== false, ...(v.in_stock != null ? { in_stock: v.in_stock } : {}) }));
+    return { title: p.title, url: p.url, ...(p.handle ? { handle: p.handle } : {}), ...(amount != null && amount !== '' ? { price: { amount: String(amount), currency } } : {}), ...(p.options ? { options: p.options } : {}), variants, ...(p.available != null ? { available: p.available } : {}) };
+  }
+  // Store lookup for every model in the message (Jarvis bug 2, Nov 16). Prefers the phone/text product_search path
+  // (ShopifyClient.searchProducts); falls back to the mailbox Shopify product_link. A model the search missed is probed
+  // read-only at its likely public /products/<handle>.js. A model is verified_missing only when its search and every
+  // probe answered and found nothing. A lookup miss is never "we do not carry".
   async storeLookupAll(r, orig, names) {
     const models = extractPhoneModels(orig.subject, orig.text, names);
     const queries = models.length ? models : [productQuery(orig.subject, orig.text, names)];
     const products = []; const verified_missing = []; let anyOk = false;
-    const add = (p) => { if (p && p.url && !products.some(x => sameProduct(x, p.url))) products.push(p); };
+    const add = (p) => { const n = this.fromPhoneProduct(p) || p; if (n && n.url && !products.some(x => sameProduct(x, n.url))) products.push(n); };
     for (const q of queries) {
       let ok = false; let got = [];
-      try { const pl = await this.tools.action(r.id, 'shopify', 'product_link', { query: q }); got = (pl.products || []).slice(0, 4); ok = true; anyOk = true; } catch { ok = false; }
+      if (typeof this.productSearch === 'function') {
+        try { got = ((await this.productSearch(q)) || []).slice(0, 4); ok = true; anyOk = true; } catch { ok = false; }
+      }
+      if (!ok && this.tools) {
+        try { const pl = await this.tools.action(r.id, 'shopify', 'product_link', { query: q }); got = (pl.products || []).slice(0, 4); ok = true; anyOk = true; } catch { ok = false; }
+      }
       const k = phoneKeys(q)[0];
-      const match = k ? got.filter(p => phoneKeys(p.title + ' ' + p.url + ' ' + (p.handle || '')).includes(k)) : got;
+      const match = k ? got.filter(p => phoneKeys((p.title || '') + ' ' + (p.url || '') + ' ' + (p.handle || '')).includes(k)) : got;
       got.forEach(add);
       if (!k || match.length) continue;
       let probed = null; let probeOk = true;
@@ -692,7 +705,7 @@ class MailBots {
       if (probed) add(probed); else if (ok && probeOk && this.fetch) verified_missing.push(k);
     }
     if (!anyOk && !products.length) return null;
-    return { query: queries.join(' | '), models: queries, products: products.slice(0, 8), ...(verified_missing.length ? { verified_missing } : {}), note: 'Live from the store just now: verified product links, prices and available stock per variant, for every phone model in the email.' };
+    return { query: queries.join(' | '), models: queries, products: products.slice(0, 8), source: typeof this.productSearch === 'function' ? 'phone_product_search' : 'mailbox_shopify', ...(verified_missing.length ? { verified_missing } : {}), note: 'Live from the store just now: verified product links, prices and available stock per variant, for every phone model in the email.' };
   }
   // Activity timeline per message: every pipeline step, including skips and errors with their reason.
   // Optional observer (portable package: Brain box coverage + growth loop, src/mailbox/kbgrowth.js). Never changes the
@@ -871,7 +884,7 @@ class MailBots {
       if (!part.products && this.productSearch) { try { products = ((await this.productSearch(orig.subject + ' ' + orig.text.slice(0, 200))) || []).slice(0, 3); } catch { products = []; } }
       savePart('products');
       const names = this.sarNames ? await this.sarNames().catch(() => []) : [];
-      if (!part.shopify && (this.effective(r).tools.includes('shopify') || (this.tools.state().shopify || {}).connected)) { store_lookup = await this.storeLookupAll(r, orig, names); lookup = store_lookup; }
+      if (!part.shopify && (this.productSearch || this.effective(r).tools.includes('shopify') || (this.tools && this.tools.state && (this.tools.state().shopify || {}).connected))) { store_lookup = await this.storeLookupAll(r, orig, names); lookup = store_lookup; }
       savePart('shopify');
       // Same live SAR lookup the phone line uses, for a SAR question about a named model (once per message).
       const sq = this.sarLookup ? sarQuery(orig.subject, orig.text, names) : null;
@@ -909,8 +922,10 @@ class MailBots {
       let order_lookup = ck.order_lookup || null;
       if (!order_lookup && O.isOrderStatusQ(orig.subject, orig.text)) {
         const sender = (String(orig.from || '').match(/<([^>]+)>/) || [null, orig.from])[1];
-        const res = this.tools && typeof this.tools.orderLookupQuery === 'function' && this.tools.connectedForOrders()
-          ? await O.lookupOrder({ query: (q) => this.tools.orderLookupQuery(q), sender, subject: orig.subject, text: orig.text, db: this.db, cfg: this.orderCfg, now: this.now() })
+        const orderQuery = typeof this.hostOrderQuery === 'function' ? ((q) => this.hostOrderQuery(q))
+          : (this.tools && typeof this.tools.orderLookupQuery === 'function' && this.tools.connectedForOrders() ? ((q) => this.tools.orderLookupQuery(q)) : null);
+        const res = orderQuery
+          ? await O.lookupOrder({ query: orderQuery, sender, subject: orig.subject, text: orig.text, db: this.db, cfg: this.orderCfg, now: this.now() })
           : { matched: false, reason: 'not_connected', order_number: O.orderRefs(orig.subject, orig.text).number, test_sender: (this.orderCfg.testSenders || []).includes(String(sender || '').trim().toLowerCase()) };
         this.store.save();
         this.step(id, 'reply', 'order_lookup', O.activityLine(res), { bot: r.id, tool: 'shopify_order', matched: !!res.matched, ...(res.test_sender ? { test_sender: true } : {}) });
