@@ -189,3 +189,61 @@ test('Karen pipeline: the "do not carry" draft goes through the revise loop and 
   assert.ok(s.includes('reply:revised'), s.join(' | '));
   for (const m of h.sent) assert.doesNotMatch(m.body, /do not carry/i);
 });
+
+const SAM = { id: 'r.sam-magsafe-test', subject: 'MagSafe wallet with the QuantaCase?', text: 'Hi, I have an iPhone 17 Pro Max. Does the QuantaCase work with a MagSafe wallet, and can I charge it on a wireless pad?' };
+const SAM_MAGSAFE_ONLY = 'Hi Sam,\n\nNo, the QuantaCase is not MagSafe compatible, so it will not work with a MagSafe wallet. As a design preference, RF Safe chose not to add metal plates or magnets to the back of the case.\n\nIt does not interfere with wireless charging, so it will work with a wireless charging pad.\n\nThe RF Safe team';
+const DAVE = { id: 'r.dave-two-model-test', subject: 'Cases for my wife and me', text: 'Hi, I need a case for my iPhone 17 Pro Max and one for my wife\'s iPhone 16 Pro. What colors, price, and stock for each, and how long to ship to Oregon?' };
+const DAVE_OK = 'Hi Dave,\n\nFor the iPhone 17 Pro Max, Black, Brown, and Turquoise are in stock at $69 each.\nhttps://quantacase.com/products/apple-iphone-17-pro-max\n\nFor the iPhone 16 Pro, Black is in stock at $69.\nhttps://quantacase.com/products/apple-iphone-16-pro\n\nOrders ship by USPS from Seminole, Florida. Most arrive in about 4 to 6 business days on the West Coast.\n\nThe RF Safe team';
+
+test('Sam: a MagSafe KB Light answer that skips the named iPhone 17 Pro Max product fails; the edit supplies colors, price, stock and the link', async () => {
+  const h = harness(({ sys }) => /Independently review/.test(sys) ? passGrade('MagSafe answer is correct') : { folder: 'inbox' });
+  h.bots.tools.action = async () => ({ hits: [MAGSAFE_LIGHT] });
+  const draft = h.store.createDraft({ author: 'bot:replier', reply_to_id: SAM.id, to: 's@sample.example', subject: 'Re: MagSafe wallet with the QuantaCase?', body: SAM_MAGSAFE_ONLY });
+  const g = await h.bots.review(h.bots.db.installed.checker, SAM, draft, { store_lookup: { products: [TURQ] }, kb_gaps: [] });
+  assert.strictEqual(g.verdict, 'fail', g.notes);
+  assert.match(g.notes, /iphone 17 pro max/i);
+  assert.match(g.notes, /apple-iphone-17-pro-max|Turquoise|\$69/i);
+  const add = (g.edits || []).find(x => x.action === 'add');
+  assert.ok(add, JSON.stringify(g.edits));
+  assert.match(add.fact, /apple-iphone-17-pro-max/);
+  assert.match(add.fact, /Turquoise/);
+  assert.match(add.fact, /\$69/);
+  assert.match(add.source, /store_lookup/);
+});
+
+test('Sam pipeline: MagSafe-only draft is revised to include the 17 Pro Max case and keeps the MagSafe answer and RF Safe team sign-off', async () => {
+  const h = harness(({ sys, user }) => {
+    if (/Classify/.test(sys)) return { folder: 'inbox', reason: 'customer question' };
+    if (/Independently review/.test(sys)) return passGrade('magsafe ok');
+    if (user.revise) {
+      let b = user.previous_draft.body;
+      for (const e of user.edits || []) if (e.action === 'add' && !b.includes(e.text)) b = b.replace(/\s*The RF Safe team\s*$/, '\n\n' + e.text + '\n\nThe RF Safe team');
+      return { needs_reply: true, reason: 'added product', body: b };
+    }
+    return { needs_reply: true, reason: 'first', body: SAM_MAGSAFE_ONLY };
+  });
+  h.bots.productSearch = async () => [TURQ];
+  h.bots.tools.action = async (bot, tool) => (tool === 'kb' ? { hits: [MAGSAFE_LIGHT] } : { products: [TURQ] });
+  h.arrive({ id: SAM.id, subject: SAM.subject, text: SAM.text, from: 'Sam Sample <sam@sample.example>' });
+  await h.run();
+  const s = h.steps(SAM.id);
+  assert.ok(s.includes('check:revise_requested'), s.join(' | '));
+  assert.ok(s.includes('reply:revised'), s.join(' | '));
+  assert.ok(h.sent.length, 'reply was sent after the revise');
+  for (const m of h.sent) {
+    assert.match(m.body, /not MagSafe compatible/i);
+    assert.match(m.body, /apple-iphone-17-pro-max/);
+    assert.match(m.body, /Turquoise/i);
+    assert.match(m.body, /\$69/);
+    assert.match(m.body, /The RF Safe team\s*$/);
+  }
+});
+
+test("Dave: a two-model color, price, stock and link reply still passes (r.14ff0159 regression)", async () => {
+  const h = harness(({ sys }) => /Independently review/.test(sys) ? passGrade('all product facts present') : { folder: 'inbox' });
+  h.bots.tools.action = async () => ({ hits: [] });
+  const draft = h.store.createDraft({ author: 'bot:replier', reply_to_id: DAVE.id, to: 'd@sample.example', subject: 'Re: Cases for my wife and me', body: DAVE_OK });
+  const g = await h.bots.review(h.bots.db.installed.checker, DAVE, draft, { store_lookup: { products: [TURQ, P16] }, kb_gaps: [] });
+  assert.strictEqual(g.verdict, 'pass', g.notes);
+  assert.ok(!(g.edits || []).some(e => /product link|colors, price/i.test(e.reason || e.fact || '')), JSON.stringify(g.edits));
+});
