@@ -53,6 +53,14 @@ function index(opts = {}) {
   return { api, dir, logs, sealer };
 }
 
+test('LIST_QUERY, STATUS_QUERY, and COUNT_QUERY parse as valid GraphQL', () => {
+  const { parse } = require('graphql');
+  for (const [name, q] of [['LIST_QUERY', OI.LIST_QUERY], ['STATUS_QUERY', OI.STATUS_QUERY], ['COUNT_QUERY', OI.COUNT_QUERY]]) {
+    assert.ok(q && String(q).trim(), name + ' is missing');
+    assert.doesNotThrow(() => parse(q), name + ' must be valid GraphQL');
+  }
+});
+
 test('import filter keeps only first name, order number, email, phone, and unsubscribed flags', () => {
   const r = OI.keepRecord(ALICE);
   assert.deepStrictEqual(Object.keys(r).sort(), ['email', 'email_unsubscribed', 'first_name', 'order_number', 'phone', 'sms_unsubscribed']);

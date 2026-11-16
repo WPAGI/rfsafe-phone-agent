@@ -10,5 +10,8 @@
     "demo": "node demo/run-demo.js",
     "test": "node --test ./test/*.test.js",
     "build": "bash scripts/build-zip.sh"
+  },
+  "devDependencies": {
+    "graphql": "^17.1.0"
   }
 }
