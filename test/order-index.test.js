@@ -246,16 +246,16 @@ test('writer and checker receive the system note only when the flag is on', asyn
   for (let i = 0; i < 10; i++) { if (on.bots.pending) await on.bots.pending; await new Promise(r => setTimeout(r, 30)); if (!on.bots.running && !on.bots.again) break; }
   const writer = on.captured.find(c => c.user && c.user.message && !/Independently review/.test(c.sys) && !/Classify/.test(c.sys));
   const checker = on.captured.find(c => /Independently review/.test(c.sys));
-  assert.ok(writer && writer.user.order_index_note, JSON.stringify(on.captured.map(c => Object.keys(c.user || {}))));
-  assert.match(writer.user.order_index_note, /#1001/);
-  assert.match(JSON.stringify(checker.user), /#1001|order_index_note/);
+  assert.ok(writer && writer.user.system_notes, JSON.stringify(on.captured.map(c => Object.keys(c.user || {}))));
+  assert.match(writer.user.system_notes, /Orders on file for this sender\nThis email address matches these orders:\n- #1001/);
+  assert.match(String(checker.user.system_notes || ''), /#1001/);
 
   const off = harness(false);
   off.messages.set(m.id, m); off.store.putCopy(m.id, m);
   await off.bots.wake('owner');
   for (let i = 0; i < 10; i++) { if (off.bots.pending) await off.bots.pending; await new Promise(r => setTimeout(r, 30)); if (!off.bots.running && !off.bots.again) break; }
   assert.ok(off.captured.length, 'flag-off pipeline still ran');
-  assert.ok(off.captured.every(c => !c.user || c.user.order_index_note == null));
+  assert.ok(off.captured.every(c => !c.user || !/Orders on file/.test(String(c.user.system_notes || ''))));
 });
 
 test('/health and public routes never expose the order index, even when the flag is on', async () => {

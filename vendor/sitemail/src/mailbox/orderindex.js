@@ -28,7 +28,7 @@ const FILE_NAME = 'order-index.sealed';
 const FLAG = 'SITEMAIL_ORDER_INDEX';
 
 const LIST_QUERY = 'query($n:Int!,$cursor:String,$q:String){ orders(first:$n, after:$cursor, query:$q, sortKey:UPDATED_AT){ pageInfo{ hasNextPage endCursor } nodes{ id name updatedAt email phone customer{ firstName defaultEmailAddress{ emailAddress } defaultPhoneNumber{ phoneNumber } } } } }';
-const STATUS_QUERY = 'query($q:String!){ orders(first:5, query:$q){ nodes{ name cancelledAt displayFulfillmentStatus fulfillments(first:5){ displayStatus trackingInfo(first:3){ company number url } } } } }';
+const STATUS_QUERY = 'query($q:String!){ orders(first:5, query:$q){ nodes{ name cancelledAt displayFulfillmentStatus lineItems(first:10){ nodes{ title variantTitle quantity } } fulfillments(first:5){ displayStatus trackingInfo(first:3){ company number url } } } } }';
 const COUNT_QUERY = 'query { ordersCount { count } }';
 
 function flagOn(env = {}) { return /^(1|true|yes|on)$/i.test(String(env[FLAG] || '').trim()); }
@@ -126,6 +126,15 @@ function trackingOf(o) {
   return out;
 }
 
+// Ordered items for a reply-time note only (never stored in the index): product title and color, no address or payment.
+// A single "Default Title" variant is the store's one color (callbots: Black).
+function itemsOf(o, singleColor = 'Black') {
+  const li = o && o.lineItems; const list = Array.isArray(li) ? li : ((li && li.nodes) || []);
+  return list.filter(x => x && x.title).slice(0, 10).map(x => {
+    const vt = String(x.variantTitle || '').trim();
+    return { title: String(x.title).slice(0, 160), color: (!vt || vt === 'Default Title') ? singleColor : vt.slice(0, 60), quantity: Number(x.quantity) || 1 };
+  });
+}
 function formatMatchLine(orderNumber, status, tracking) {
   let s = orderNumber + ' (' + status + ')';
   if (tracking && tracking.length) {
@@ -135,7 +144,7 @@ function formatMatchLine(orderNumber, status, tracking) {
   return s;
 }
 
-function createOrderIndex({ dataDir, fileName = FILE_NAME, sealer, adminQuery, now = () => new Date(), log = () => {}, env = {}, hmacSecret = null, fetchImpl, syncMs = SYNC_MS, mock = false } = {}) {
+function createOrderIndex({ dataDir, fileName = FILE_NAME, sealer, adminQuery, now = () => new Date(), log = () => {}, env = {}, hmacSecret = null, fetchImpl, syncMs = SYNC_MS, mock = false, singleColor = 'Black' } = {}) {
   if (!dataDir) throw new Error('order-index: dataDir is required');
   const file = path.join(dataDir, fileName);
   let data = { version: 1, updated_at: null, cursor: { last_updated_at: null, last_id: null }, records: [] };
@@ -209,10 +218,26 @@ function createOrderIndex({ dataDir, fileName = FILE_NAME, sealer, adminQuery, n
       const nodes = (((j || {}).data || {}).orders || {}).nodes || [];
       const o = nodes.find(x => orderNumberOf(x.name) === '#' + num);
       if (!o) return null;
-      return { order_number: '#' + num, status: statusLabel(o), tracking: trackingOf(o) };
+      return { order_number: '#' + num, status: statusLabel(o), tracking: trackingOf(o), items: itemsOf(o, singleColor) };
     } catch {
       return null;
     }
+  }
+
+  // Structured facts for the "Orders on file for this sender" section. Details only for email-matched orders.
+  async function factsFor(orig) {
+    if (!flagOn(env)) return null;
+    const hit = match(orig && orig.from, orig && orig.subject, orig && orig.text);
+    if (hit.emailHits.length) {
+      const orders = [];
+      for (const r of hit.emailHits) {
+        const live = await liveStatus(r.order_number);
+        orders.push(live || { order_number: r.order_number, status: null, tracking: [], items: [] });
+      }
+      return { match: 'email', orders };
+    }
+    if (hit.phoneHits.length) return { match: 'phone_unverified', orders: [] };
+    return { match: 'none', orders: [] };
   }
 
   async function noteFor(orig) {
@@ -325,7 +350,7 @@ function createOrderIndex({ dataDir, fileName = FILE_NAME, sealer, adminQuery, n
   // Count of stored records only (no payloads). Not for /health or admin pages.
   function recordCount() { return (data.records || []).length; }
 
-  const api = { enabled: () => flagOn(env), load, save, upsert, match, noteFor, importAll, incremental, ingestWebhook, start, stop, fileMode, recordCount, keepRecord, file, data: () => data };
+  const api = { enabled: () => flagOn(env), load, save, upsert, match, noteFor, factsFor, importAll, incremental, ingestWebhook, start, stop, fileMode, recordCount, keepRecord, file, data: () => data };
   return api;
 }
 
@@ -347,5 +372,5 @@ async function countOrders(adminQuery) {
 
 module.exports = {
   FLAG, NOTE_MATCH, NOTE_NONE_EMAIL, NOTE_NONE_BOTH, NOTE_UNVERIFIED_PHONE, LIST_QUERY, STATUS_QUERY, COUNT_QUERY, SYNC_MS,
-  flagOn, normEmail, toE164, firstNameOf, orderNumberOf, keepRecord, extractPhones, senderEmail, verifyHmac, statusLabel, trackingOf, formatMatchLine, createOrderIndex, countOrders
+  flagOn, normEmail, toE164, firstNameOf, orderNumberOf, keepRecord, extractPhones, senderEmail, verifyHmac, statusLabel, trackingOf, itemsOf, formatMatchLine, createOrderIndex, countOrders
 };

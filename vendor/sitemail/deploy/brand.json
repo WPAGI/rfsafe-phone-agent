@@ -32,7 +32,13 @@
       "rfsafe",
       "truthcase"
     ],
-    "prompt_replace": []
+    "prompt_replace": [
+      [
+        "a sign-off from the site team",
+        "the sign-off \"The RF Safe team\" (always exactly that, never another team or store name)"
+      ]
+    ],
+    "signoff": "The RF Safe team"
   },
   "public_kb": {
     "replace": [
@@ -99,7 +105,7 @@
       ],
       "footer_update": "This page updates by itself when an answer changes.",
       "footer_note": "General information from RF Safe, the company behind CallBots, not medical advice. For a health concern, talk with your doctor. Call or text QuantaCase at (727) 677-5572.",
-      "trademark": "RF SAFE® is a registered trademark of Quanta X Technology LLC (U.S. Reg. No. 6,592,188).",
+      "trademark": "RF SAFE\u00ae is a registered trademark of Quanta X Technology LLC (U.S. Reg. No. 6,592,188).",
       "hero_title": "The answers CallBots gives on wireless radiation, in plain words",
       "hero_lead": "RF Safe's public positions, the body-system research summaries, and the answers the CallBots phone line uses, in one open place. Search it, browse it by topic, or point an AI tool here."
     },
