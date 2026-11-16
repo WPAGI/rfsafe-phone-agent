@@ -66,7 +66,7 @@ const SAR_Q = /\b(?:sar|specific absorption|radiation|emissions?|emf|w\/kg|radio
 // Customer typos (r.cb45d453, Nov 16 3:35 PM ET: "iphone 17 promax ... turqouise"): "promax" / "pro-max" is "pro max", and
 // common misspellings of turquoise are turquoise, so the model and the color resolve the same way the spelled-out words do.
 const TURQUOISE_TYPO = /\bt[ou]r?q[uoia]{1,4}s[e]?\b/gi;
-function fixTypos(s) { return String(s || '').replace(/(?<![a-z])pro[\s.-]*max(?![a-z])/gi, ' pro max').replace(TURQUOISE_TYPO, 'turquoise'); }
+function fixTypos(s) { return String(s || '').replace(/(?<![a-z])(\d?)(pro)\s*[.-]?\s*(max)(?![a-z])/gi, (m, d, a, b) => (d ? d + ' ' : '') + a + ' ' + b).replace(TURQUOISE_TYPO, (m) => (/^[A-Z]/.test(m) ? 'Turquoise' : 'turquoise')); }
 function expandShortPhones(s) {
   let t = fixTypos(s);
   t = t.replace(/(?<!\b(?:galaxy|samsung)\s)(?<![A-Za-z'’])s\s*([1-9]\d)(?:\s*)(ultra|plus|\+|fe)?(?![A-Za-z])/gi, (_, num, suf) => {
