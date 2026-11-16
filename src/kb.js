@@ -23,14 +23,15 @@ function parse(text, file) {
 class KB {
   // Inverted index (term -> flat [passageIdx, tf, ...]) so the whole wiki fits a 512 MB instance.
   constructor({ dirs = [], allowlist = [], maxDocs = 400000 } = {}) {
-    this.docs = []; this.post = new Map(); this.totalLen = 0; this.allowlist = allowlist;
+    this.docs = []; this.post = new Map(); this.totalLen = 0; this.allowlist = allowlist; this.cards = new Map();
     for (const d of dirs) this.loadDir(d, maxDocs);
   }
   get df() { const m = new Map(); for (const [t, p] of this.post) m.set(t, p.length / 2); return m; }
   loadDir(dir, maxDocs) {
-    const walk = (p) => { for (const e of fs.readdirSync(p, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else if (e.name.endsWith('.md') && this.docs.length < maxDocs) this.addDoc(parse(fs.readFileSync(q, 'utf8'), q)); } };
+    const walk = (p) => { for (const e of fs.readdirSync(p, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else if (e.name.endsWith('.md') && this.docs.length < maxDocs) { const id = path.relative(dir, q).replace(/\\/g, '/').replace(/\.md$/, ''); const doc = parse(fs.readFileSync(q, 'utf8'), q); this.cards.set(id, doc); this.addDoc(doc); } } };
     walk(dir);
   }
+  card(id) { return this.cards.get(String(id || '')) || null; }
   addDoc(doc) {
     // split into ~600-char passages on paragraph boundaries; title/alias terms count extra; curated and position pages rank higher
     const head = doc.title + ' ' + (doc.aliases || ''); const headTerms = new Set(tok(head));
@@ -66,7 +67,7 @@ class KB {
   answer(question) {
     const hits = this.search(question, 3);
     if (!hits.length) return { found: false, guidance: 'No KB passage matches. Say you do not have that information and offer to text a link to rfsafe.org or take a message. Do not guess.' };
-    return { found: true, guidance: 'Answer ONLY from these passages, briefly, in plain words. When a passage gives RF Safe\'s position, say it is RF Safe\'s position. No medical advice or health claims beyond this wording. Offer to text the source link.', passages: hits };
+    return { found: true, guidance: 'Answer ONLY from these passages, briefly, in plain words. When a passage gives RF Safe\'s position, say it is RF Safe\'s position. No medical advice or health claims beyond this wording. Offer to text the source link. If you just gave a return address or the return policy, offer once to text it to the calling number or email it, and send only after a clear yes.', passages: hits };
   }
 }
 

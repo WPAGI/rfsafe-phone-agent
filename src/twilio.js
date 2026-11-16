@@ -54,10 +54,10 @@ class MockTwilio {
 }
 
 // The one function that sends any SMS to a customer. Gate order: consent -> link guard (caller) -> send.
-async function sendCustomerSms({ tenant, transport, consent, to, body, log }) {
+async function sendCustomerSms({ tenant, transport, consent, to, body, log, option, url }) {
   if (!consent.canText(tenant.id, to)) { log && log('sms.blocked', { tenant: tenant.id, to: fp(to), reason: 'no_consent_or_opted_out' }); return { ok: false, reason: 'no_consent_or_opted_out' }; }
   const r = await transport.sendSms({ from: tenant.numbers[0], to, body, messagingServiceSid: tenant.twilio && tenant.twilio.messaging_service_sid });
-  log && log('sms.sent', { tenant: tenant.id, to: fp(to), sid: r.sid, chars: body.length });
+  log && log('sms.sent', { tenant: tenant.id, to: fp(to), sid: r.sid, chars: body.length, ...(option ? { option } : {}), ...(url ? { url } : {}) });
   return { ok: true, sid: r.sid };
 }
 
