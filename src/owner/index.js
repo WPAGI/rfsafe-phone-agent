@@ -35,7 +35,7 @@ function createOwner(d, { log: rawLog = () => {}, tokenSecretFor = d.ownerTokenS
   const writeState = (s) => { if (!F.state) return; const tmp = F.state + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(s), { mode: 0o600 }); fs.renameSync(tmp, F.state); };
   const feedbackFile = dir ? path.join(dir, 'owner-feedback.jsonl') : null;
   const feedback = d.ownerFeedback || new FeedbackStore({ file: feedbackFile });
-  const files = () => ({ callRecords: d.callRecords && d.callRecords.file, sentMessages: d.sentMessages && d.sentMessages.file, outbox: dir && path.join(dir, 'owner-outbox.jsonl'), kbGaps: d.kbGapFile, events: F.events, feedback: feedbackFile });
+  const files = () => ({ callRecords: d.callRecords && d.callRecords.file, sentMessages: d.sentMessages && d.sentMessages.file, outbox: dir && path.join(dir, 'owner-outbox.jsonl'), kbGaps: d.kbGapFile, events: F.events, feedback: feedbackFile, sitemail: d.sitemailDir || (d.dataDir ? path.join(d.dataDir, 'sitemail') : null) });
   const base = () => String(d.publicBaseUrl || '').replace(/\/$/, '');
 
   const collectToday = (t) => S.collect({ tenant: t, files: files(), now: now(), tz: C.settings(t).timezone });
