@@ -86,7 +86,7 @@ test('admin pages: session required, list/detail escaped, pagination, CSV, dashb
     const p = await post('/admin/auth', { csrf: csrfIn(await g.text()), t: new URL(link).hash.slice(3) }, 'pa_csrf=' + c);
     const H = { cookie: 'pa_admin=' + cookieOf(p, 'pa_admin') };
     const dash = await (await fetch(a.base + '/admin', { headers: H })).text();
-    assert.match(dash, /href="\/admin\/messages\?type=sms">Review texts/); assert.match(dash, /href="\/admin\/messages\?type=email">Review emails/);
+    assert.match(dash, /href="\/admin\/messages\?type=sms">[\s\S]*?Review texts/); assert.match(dash, /href="\/admin\/messages\?type=email">[\s\S]*?Review emails/);
     let h = await (await fetch(a.base + '/admin/messages?type=sms', { headers: H })).text();
     assert.match(h, /55 texts/); assert.match(h, /Page 1 of 2/); assert.match(h, /msg 54 /); assert.doesNotMatch(h, /msg 0 /); assert.match(h, /E[DS]T/);
     h = await (await fetch(a.base + '/admin/messages?type=sms&page=2', { headers: H })).text(); assert.match(h, /msg 0 /);

@@ -23,7 +23,9 @@ test('sitemail on: own routes answer, host routes unchanged, host data untouched
     const h = await (await st('/health')).json(); assert.equal(h.ok, true); assert.equal(h.active_calls, 0); assert.equal(h.sitemail.enabled, true); assert.ok(h.sitemail.host_kb && h.sitemail.host_kb.files >= 0);
     const m = await st('/mail'); assert.equal(m.status, 303); assert.equal(m.headers.get('location'), '/mail/login'); // the host's own viewer
     const i = await st('/inbox'); assert.equal(i.status, 303); assert.equal(i.headers.get('location'), '/inbox/login');
-    assert.equal((await st('/inbox/login')).status, 200);
+    // Unified admin: the Mailbox sign-in page hands over to the one admin sign-in (Brain box keeps next=kb).
+    const il = await st('/inbox/login'); assert.equal(il.status, 303); assert.equal(il.headers.get('location'), '/admin/login?next=inbox');
+    assert.equal((await st('/inbox/login?next=kb')).headers.get('location'), '/admin/login?next=kb');
     assert.equal((await st('/kb')).status, 200);
     assert.equal((await st('/api/mail/guide')).status, 200);
     assert.equal((await st('/admin/kb/entries')).status, 401);
