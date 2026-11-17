@@ -18,7 +18,8 @@ async function signIn(a) {
   const dash = await (await fetch(a.base + '/admin', { headers: { cookie: sess } })).text();
   return { sess, csrf: csrfIn(dash) };
 }
-const dash = async (a, s, qs = '') => (await fetch(a.base + '/admin' + qs, { headers: { cookie: s.sess } })).text();
+// Unified admin: the switches live on /admin/channels (old /admin?err= links redirect there).
+const dash = async (a, s, qs = '') => (await fetch(a.base + '/admin/channels' + qs, { headers: { cookie: s.sess } })).text();
 
 test('dashboard toggles: show state, need session + CSRF, email sets email_enabled, logged with time', async () => {
   const a = await startApp();
@@ -57,7 +58,7 @@ test('dashboard texting toggle reuses sender-pool check and existing Messaging S
     const tr = a.deps.smsFor(t); tr.pool = ['+15550000000'];
     r = await post(a.base, '/admin/channels', on, s.sess);
     const loc = r.headers.get('location'); assert.strictEqual(t.sms_enabled, false);
-    const html = await dash(a, s, loc.replace('/admin', ''));
+    const html = await dash(a, s, loc.replace('/admin/channels', ''));
     assert.match(html, /Could not change setting:<\/strong> Twilio says this number is not in the approved texting group/);
     assert.match(html, /Texting<\/td><td>on<\/td><td>failed: number_not_in_sender_pool/);
     tr.pool = [t.numbers[0]];

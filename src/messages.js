@@ -97,7 +97,7 @@ function listPage({ shell, channel, rows, page }) {
   const pager = pages > 1 ? `<p>${p > 1 ? nav(p - 1, '&larr; Newer') : ''} Page ${p} of ${pages} ${p < pages ? nav(p + 1, 'Older &rarr;') : ''}</p>` : '';
   const other = channel === 'email' ? '<a href="/admin/messages?type=sms">Review texts</a>' : '<a href="/admin/messages?type=email">Review emails</a>';
   const title = channel === 'email' ? 'Review emails' : 'Review texts';
-  return shell(title, `<p><a href="/admin">&larr; Dashboard</a> · ${other}</p><h1>${title}</h1>
+  return shell(title, `<p><a href="/admin">&larr; Admin home</a> · ${other}</p><h1>${title}</h1>
 <p>${total} ${label(channel)}. <a href="/admin/messages.csv?type=${channel}">Download CSV</a> <small>Exact copies of what was sent, kept ${MSG_RETENTION_DAYS} days. Times are Eastern.</small></p>${pager}
 <table><tr><th>Time (ET)</th><th>Recipient</th><th>${channel === 'email' ? 'Subject' : 'Message'}</th><th>Links</th><th>Status</th></tr>${tr || `<tr><td colspan="5">No ${label(channel)} recorded yet.</td></tr>`}</table>${pager}`);
 }

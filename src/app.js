@@ -302,6 +302,10 @@ function createApp(d) {
   function clientIp(req) { const x = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim(); return x || (req.socket && req.socket.remoteAddress) || ''; }
   const SEC_HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'same-origin', 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" };
   const SC = 'HttpOnly; Secure; SameSite=Strict; Path=/admin';
+  // Unified admin: after sign-in, go where the owner was headed (fixed list only). mailBase = the Mailbox path when Site Mail runs.
+  const NEXT = Object.assign(Object.create(null), { inbox: '/admin/go/inbox', kb: '/admin/go/kb', mail: '/admin/mail' });
+  const PAGES = new Set(['/admin/messages', '/admin/calls', '/admin/newsletter', '/admin/channels']);
+  let mailBase = null;
   function adminUiSend(res, code, body, extra = {}, cookies = []) { res.writeHead(code, { 'content-type': 'text/html; charset=utf-8', ...SEC_HEADERS, ...extra, ...(cookies.length ? { 'set-cookie': cookies } : {}) }); res.end(body); }
   // Origin check (the CSRF token is always required as well). Accept an Origin matching this host or PUBLIC_BASE_URL.
   // A missing Origin, or "null" (sent by Chrome/Brave when the page's Referrer-Policy is no-referrer, or by privacy
@@ -325,12 +329,21 @@ function createApp(d) {
     const sess = auth.session(cookies.pa_admin);
     const p = u.pathname;
     const form = async () => (req.method === 'POST' ? Object.fromEntries(new URLSearchParams(await readBody(req, 8192))) : {});
+    const pageCsrf = sess ? auth.csrfFor(sess.sid) : '';
     if (p === '/admin/mail') {
       if (!sess) return adminUiSend(res, 303, '', { location: '/admin/login' });
       return adminUiSend(res, 303, '', { location: '/mail' }, [`mail_session=${cookies.pa_admin}; HttpOnly; Secure; SameSite=Strict; Path=/mail; Max-Age=${adm.SESSION_MS / 1000}`]);
     }
+    // Mailbox and Brain box (vendor/sitemail, base /inbox) share this sign-in: the same AdminAuth session, handed over
+    // as mail_session for that path, exactly like /admin/mail does for /mail. Logging out anywhere revokes it everywhere.
+    if (p === '/admin/go/inbox' || p === '/admin/go/kb') {
+      if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
+      if (!sess) return adminUiSend(res, 303, '', { location: '/admin/login?next=' + (p.endsWith('/kb') ? 'kb' : 'inbox') });
+      if (!mailBase) return adminUiSend(res, 404, adm.shell('Not available', '<h1>Mailbox is off</h1><p>The Site Mail package is not running on this server.</p><p><a href="/admin">Back to admin home</a></p>', { mailOn: false }));
+      return adminUiSend(res, 303, '', { location: mailBase + (p.endsWith('/kb') ? '/kb' : '') }, [`mail_session=${cookies.pa_admin}; HttpOnly; Secure; SameSite=Strict; Path=${mailBase}; Max-Age=${adm.SESSION_MS / 1000}`]);
+    }
     if (p === '/admin/login') {
-      if (req.method === 'GET') { const c = preCsrf(req); return adminUiSend(res, 200, adm.loginPage(c.tok), {}, c.set); }
+      if (req.method === 'GET') { const c = preCsrf(req); const nx = NEXT[u.searchParams.get('next')] ? [`pa_next=${u.searchParams.get('next')}; ${SC}; Max-Age=3600`] : []; return adminUiSend(res, 200, adm.loginPage(c.tok), {}, [...c.set, ...nx]); }
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
       const f = await form();
       if (!sameOrigin(req) || !cookies.pa_csrf || !f.csrf || !safeEq(f.csrf, cookies.pa_csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Please reload the sign-in page and try again.'));
@@ -352,21 +365,21 @@ function createApp(d) {
       if (!sameOrigin(req) || !cookies.pa_csrf || !f.csrf || !safeEq(f.csrf, cookies.pa_csrf)) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Open the link from the email again and press Sign in.'));
       if (!auth.consumeLink(f.t)) { log('admin.login_failed', {}); return adminUiSend(res, 400, adm.msgPage('Link expired or used', 'This sign-in link is invalid, used, or expired. Request a new one.')); }
       log('admin.login', { ip: fp(clientIp(req)) });
-      return adminUiSend(res, 303, '', { location: '/admin' }, [`pa_admin=${auth.newSession()}; ${SC}; Max-Age=${adm.SESSION_MS / 1000}`, `pa_csrf=; ${SC}; Max-Age=0`]);
+      return adminUiSend(res, 303, '', { location: NEXT[cookies.pa_next] || '/admin' }, [`pa_admin=${auth.newSession()}; ${SC}; Max-Age=${adm.SESSION_MS / 1000}`, `pa_csrf=; ${SC}; Max-Age=0`, ...(cookies.pa_next ? [`pa_next=; ${SC}; Max-Age=0`] : [])]);
     }
     if (p === '/admin/logout') {
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
       const f = await form();
       if (!sess || !sameOrigin(req) || !f.csrf || !safeEq(f.csrf, auth.csrfFor(sess.sid))) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the dashboard and try again.'));
       auth.revoke(sess.sid); log('admin.logout', {});
-      return adminUiSend(res, 303, '', { location: '/admin/login' }, [`pa_admin=; ${SC}; Max-Age=0`]);
+      return adminUiSend(res, 303, '', { location: '/admin/login' }, [`pa_admin=; ${SC}; Max-Age=0`, 'mail_session=; HttpOnly; Secure; SameSite=Strict; Path=/mail; Max-Age=0', ...(mailBase ? [`mail_session=; HttpOnly; Secure; SameSite=Strict; Path=${mailBase}; Max-Age=0`] : [])]);
     }
-    if (p === '/admin/channels') {
+    if (p === '/admin/channels' && req.method !== 'GET') {
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
       const f = await form();
       if (!sess || !sameOrigin(req) || !f.csrf || !safeEq(f.csrf, auth.csrfFor(sess.sid))) return adminUiSend(res, 403, adm.msgPage('Request blocked', 'Reload the dashboard and try again.'));
       const t = d.tenants.get(String(f.tenant || '')); const ch = f.channel; const on = f.enabled === 'on' ? true : f.enabled === 'off' ? false : null;
-      const back = (msg) => adminUiSend(res, 303, '', { location: '/admin' + (msg ? '?err=' + encodeURIComponent(msg) : '') });
+      const back = (msg) => adminUiSend(res, 303, '', { location: '/admin/channels' + (msg ? '?err=' + encodeURIComponent(msg) : '') });
       if (!t || !['sms', 'email', 'instant'].includes(ch) || on === null) return back('Unknown line or setting. Reload the dashboard and try again.');
       // Texts: send instantly (instant_link_reply) or hold for review (approval queue). Recipient/allowlist/per-call limits unchanged.
       if (ch === 'instant') { t.instant_link_reply = on; if (!on) t.approval_mode = true; d.tenants.save(t); log('tenant.instant_texts', { tenant: t.id, enabled: on }); logChannel({ tenant: t.id, channel: 'instant', enabled: on, ok: true }); return back(); }
@@ -387,7 +400,7 @@ function createApp(d) {
         const dq = String(u.searchParams.get('date') || ''); const date = OB.DATE.test(dq) && dq <= today ? dq : today;
         const nonce = require('crypto').randomBytes(16).toString('base64');
         const body = OB.page({ csrf, nonce, tenants: list, t, date, today, unanswered: owner.unansweredFor(t, date), preview: owner.briefingPreview(t), calls: owner.recentCalls(t), pinSet: owner.pins.has(t.id), audit: owner.auditLog(t), msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 300), ...extra });
-        return adminUiSend(res, 200, adm.shell('Outbound', body));
+        return adminUiSend(res, 200, adm.shell('Outbound', body, { active: 'outbound', csrf, mailOn: !!mailBase }));
       };
       if (req.method === 'GET' && p === '/admin/outbound') { const t = pick(String(u.searchParams.get('t') || '')); if (!t) return json(res, 404, { error: 'no_tenant' }); return render(t); }
       if (req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
@@ -428,7 +441,7 @@ function createApp(d) {
         else if (act === 'unsubscribe') r = subs.unsubscribe(String(f.key || ''), f.channel, who);
         else if (act === 'merge') r = f.from ? subs.merge(String(f.into || ''), String(f.from), who) : { ok: false, error: 'cannot_merge' };
         else if (act === 'delete') {
-          if (f.confirm !== 'yes') { const row = subs.get(String(f.key || '')); return row ? adminUiSend(res, 200, adm.shell('Delete entry', S.confirmDeletePage({ csrf: f.csrf, r: row }))) : back('err=' + encodeURIComponent(S.MSG.not_found)); }
+          if (f.confirm !== 'yes') { const row = subs.get(String(f.key || '')); return row ? adminUiSend(res, 200, adm.shell('Delete entry', S.confirmDeletePage({ csrf: f.csrf, r: row }), { active: 'subscribers', csrf: pageCsrf, mailOn: !!mailBase })) : back('err=' + encodeURIComponent(S.MSG.not_found)); }
           r = subs.remove(String(f.key || ''), who);
         } else return json(res, 404, { error: 'not_found' });
         log('admin.subscribers', { action: act, ok: !!r.ok, error: r.ok ? undefined : r.error });
@@ -439,7 +452,7 @@ function createApp(d) {
       const q = (u.searchParams.get('q') || '').slice(0, 80);
       if (!sess) return json(res, 200, { entries: subs.list(q).map(({ key, ...r }) => r) });
       const nonce = require('crypto').randomBytes(16).toString('base64');
-      return adminUiSend(res, 200, adm.shell('Subscribers', S.subscribersPage({ csrf: auth.csrfFor(sess.sid), nonce, rows: subs.list(q), q, msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 200), audit: subs.auditLog(30) })), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
+      return adminUiSend(res, 200, adm.shell('Subscribers', S.subscribersPage({ csrf: auth.csrfFor(sess.sid), nonce, rows: subs.list(q), q, msg: (u.searchParams.get('msg') || '').slice(0, 100), err: (u.searchParams.get('err') || '').slice(0, 200), audit: subs.auditLog(30) }), { active: 'subscribers', csrf: pageCsrf, mailOn: !!mailBase }), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
     }
     // Owner feedback: HTML is the existing admin session (read only). JSON is a tenant-scoped review token.
     // The master admin token is not accepted. Nothing here writes, sends, or edits the knowledge base.
@@ -463,7 +476,7 @@ function createApp(d) {
       const list = d.tenants.list();
       const t = tenantId ? d.tenants.get(tenantId) : (list.length === 1 ? list[0] : null);
       const items = t ? owner.feedbackFor(t).filter((r) => r && r.tenant === t.id) : [];
-      return adminUiSend(res, 200, adm.shell('Owner feedback', FB.reviewPage({ tenant: t, tenants: list, items })));
+      return adminUiSend(res, 200, adm.shell('Owner feedback', FB.reviewPage({ tenant: t, tenants: list, items }), { active: 'feedback', csrf: pageCsrf, mailOn: !!mailBase }));
     }
     // Usage & costs: GET only, admin session only (no Bearer), rate-limited per session. Provider keys stay server-side.
     if (p === '/admin/usage' || p === '/admin/usage.json') {
@@ -479,7 +492,7 @@ function createApp(d) {
       return adminUiSend(res, 200, require('./usagepage').page({ snap, nonce }), { 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; frame-ancestors 'none'` });
     }
     // Data views: session cookie, or Bearer admin token for scripts.
-    if (!sess && !isAdmin(req)) return (p === '/admin' || p === '/admin/messages') && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+    if (!sess && !isAdmin(req)) return (p === '/admin' || PAGES.has(p)) && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
     if (req.method !== 'GET') return json(res, 405, { error: 'method_not_allowed' });
     const q = { from: /^\d{4}-\d{2}-\d{2}$/.test(u.searchParams.get('from') || '') ? u.searchParams.get('from') : '', to: /^\d{4}-\d{2}-\d{2}$/.test(u.searchParams.get('to') || '') ? u.searchParams.get('to') : '', number: (u.searchParams.get('number') || '').replace(/[^\d+]/g, '').slice(0, 16) };
     const nlRows = d.newsletterFile ? adm.newsletterRows(d.newsletterFile) : [];
@@ -492,14 +505,22 @@ function createApp(d) {
       const sm = d.sentMessages; const rows = sm ? sm.list(type) : [];
       if (p === '/admin/messages.csv') return csv(type === 'email' ? 'sent-emails.csv' : 'sent-texts.csv', adm.toCsv(M.MSG_COLS, M.csvRows(rows)));
       const id = (u.searchParams.get('id') || '').slice(0, 80);
-      if (id) { const r = rows.find((x) => x.id === id); return r ? adminUiSend(res, 200, M.detailPage({ shell: adm.shell, r, inbound: type === 'sms' && sm ? sm.inbound() : [] })) : adminUiSend(res, 404, adm.shell('Not found', '<h1>Message not found</h1><p><a href="/admin/messages?type=' + type + '">Back</a></p>')); }
-      return adminUiSend(res, 200, M.listPage({ shell: adm.shell, channel: type, rows, page: parseInt(u.searchParams.get('page') || '1', 10) || 1 }));
+      const ui = { active: type === 'email' ? 'emails' : 'texts', csrf: pageCsrf, mailOn: !!mailBase }; const sh = (t, b) => adm.shell(t, b, ui);
+      if (id) { const r = rows.find((x) => x.id === id); return r ? adminUiSend(res, 200, M.detailPage({ shell: sh, r, inbound: type === 'sms' && sm ? sm.inbound() : [] })) : adminUiSend(res, 404, sh('Not found', '<h1>Message not found</h1><p><a href="/admin/messages?type=' + type + '">Back</a></p>')); }
+      return adminUiSend(res, 200, M.listPage({ shell: sh, channel: type, rows, page: parseInt(u.searchParams.get('page') || '1', 10) || 1 }));
     }
     if (p === '/admin/calls.csv') return csv('calls.csv', adm.toCsv(adm.CALL_COLS, adm.callCsvRows(calls)));
     const nowMs = now().getTime ? now().getTime() : Date.now();
-    return adminUiSend(res, 200, adm.dashboard({ csrf: sess ? auth.csrfFor(sess.sid) : '', nl: nlRows, calls, q, now: nowMs, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }));
+    const ui = (active) => ({ active, csrf: pageCsrf, mailOn: !!mailBase });
+    // Old one-page links: /admin?from=&to=&number= is now the call log, /admin?err= is the Texting & email page.
+    if (p === '/admin' && (u.searchParams.has('from') || u.searchParams.has('to') || u.searchParams.has('number'))) return adminUiSend(res, 303, '', { location: '/admin/calls' + u.search });
+    if (p === '/admin' && u.searchParams.has('err')) return adminUiSend(res, 303, '', { location: '/admin/channels' + u.search });
+    if (p === '/admin/calls') return adminUiSend(res, 200, adm.shell('Call log', adm.callsPage({ calls, q }), ui('calls')));
+    if (p === '/admin/newsletter') return adminUiSend(res, 200, adm.shell('Newsletter', adm.newsletterPage({ nl: nlRows, now: nowMs }), ui('newsletter')));
+    if (p === '/admin/channels') return adminUiSend(res, 200, adm.shell('Texting and email', adm.channelsPage({ csrf: pageCsrf, tenants: d.tenants.list(), channelLog: readChannelLog(), err: (u.searchParams.get('err') || '').slice(0, 300) }), ui('channels')));
+    return adminUiSend(res, 200, adm.shell('CallBots admin', adm.homePage({ mailOn: !!mailBase }), ui('home')));
   }
-  const ADMIN_UI = new Set(['/admin/mail', '/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv', '/admin/usage', '/admin/usage.json']);
+  const ADMIN_UI = new Set(['/admin/calls', '/admin/newsletter', '/admin/go/inbox', '/admin/go/kb', '/admin/mail', '/admin/login', '/admin/auth', '/admin/logout', '/admin/newsletter.csv', '/admin/calls.csv', '/admin/kb-gaps.csv', '/admin/channels', '/admin/messages', '/admin/messages.csv', '/admin/usage', '/admin/usage.json']);
   // Daily usage snapshot push: POST only, Bearer USAGE_SNAPSHOT_SECRET (no session/CSRF), rate-limited per IP.
   // Never logs the body or the secret: status and byte count only.
   const snapLimiter = new (require('./usage').SimpleLimiter)({ max: d.usageSnapshotRateMax || 10, windowMs: 60000 });
@@ -559,13 +580,16 @@ function createApp(d) {
         const admin = new ShopifyAdmin({ shop: t.shopify.admin_shop, clientId, clientSecret, fetchImpl: globalThis.fetch });
         return admin.query(query, variables);
       } : null;
-      sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: envAll, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log, productSearch, orderLookupQuery, orderIndexQuery }, require('../vendor/sitemail/site.config.js'));
+      sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: envAll, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log, auth: d.adminAuth || undefined, productSearch, orderLookupQuery, orderIndexQuery }, require('../vendor/sitemail/site.config.js'));
     }
   } catch (e) { log('sitemail.mount_failed', { err: String(e && e.message || e).slice(0, 200) }); sitemail = null; }
+  try { mailBase = sitemail && sitemail.enabled && sitemail.mail ? require('../vendor/sitemail/port/lib/config').mailBase(require('../vendor/sitemail/site.config.js')) : null; } catch { mailBase = null; }
   const sitemailHealth = () => { try { return sitemail && sitemail.enabled ? { sitemail: sitemail.status() } : {}; } catch { return { sitemail: { error: true } }; } };
   const handler = async (req, res) => {
     const u = new URL(req.url, 'http://x');
     try {
+      // One sign-in: the Mailbox's own sign-in page sends the owner to the admin sign-in, then back (Brain box: next=kb).
+      if (mailBase && req.method === 'GET' && u.pathname === mailBase + '/login') return void adminUiSend(res, 303, '', { location: '/admin/login?next=' + (u.searchParams.get('next') === 'kb' ? 'kb' : 'inbox') });
       if (sitemail && sitemail.enabled && await sitemail.route(req, res, u)) return;
       if (prefs && (u.pathname === '/preferences' || u.pathname.startsWith('/preferences/')) && await prefs.route(req, res, u)) return;
       if (req.method === 'GET' && u.pathname === '/') return html(res, 200, renderLanding());

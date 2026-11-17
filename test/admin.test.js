@@ -75,7 +75,9 @@ test('sign-in flow: session cookie, dashboard, CSVs, logout', async () => {
     a.deps.callRecords.add({ at: '2026-10-29T13:00:00.000Z', caller: '+17275551234', seconds: 95, tools: ['kb_answer', 'send_email'], kb_queries: ['FCC limits'], emails: [{ to_masked: 'j***@e***.com', topic: 'FCC limits', ok: true }], newsletter_optin: true, summary: 'FCC limits' });
     a.deps.callRecords.add({ at: '2026-10-20T13:00:00.000Z', caller: '+18135550000', seconds: 20, tools: [], kb_queries: [], emails: [], newsletter_optin: false, summary: null });
     const ck = 'pa_admin=' + sess;
-    const dash = await (await fetch(a.base + '/admin', { headers: { cookie: ck } })).text();
+    // Unified admin: the old one-page dashboard is now Home + Newsletter + Call log pages (same data).
+    const home = await (await fetch(a.base + '/admin', { headers: { cookie: ck } })).text();
+    const dash = home + await (await fetch(a.base + '/admin/newsletter', { headers: { cookie: ck } })).text() + await (await fetch(a.base + '/admin/calls', { headers: { cookie: ck } })).text();
     assert.match(dash, /Newsletter/); assert.match(dash, /jo@example.com/); assert.match(dash, /\+17275551234/); assert.match(dash, /j\*\*\*@e\*\*\*.com: FCC limits/);
     assert.match(dash, /<b>1<\/b>email confirmed \(active\)/); assert.match(dash, /<b>1<\/b>email unsubscribed/); assert.match(dash, /<b>1<\/b>new, last 7 days/);
     const filtered = await (await fetch(a.base + '/admin?number=8135550000', { headers: { cookie: ck } })).text();

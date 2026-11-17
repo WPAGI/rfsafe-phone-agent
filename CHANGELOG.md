@@ -1,4 +1,8 @@
 # Changelog
+## Unified admin, one magic-link sign-in (Nov 16, 2026; John 9:13-9:22 PM ET, merge + deploy approved 9:18 PM ET)
+- `/admin` is now a home page with icon tiles grouped as Callbots, People, Mailbox and Downloads. The old one-page dashboard is split into Call log, Texting & email, Newsletter and Subscribers pages. Every admin page uses the Mailbox look, with a left nav that becomes the Mailbox's scrollable top menu on small screens.
+- One session for Admin, Mailbox (`/inbox`) and Brain box (`/inbox/kb`). The Site Mail package now uses the host's AdminAuth, so signing out anywhere ends the session everywhere. No new env vars.
+- Every old feature and URL is kept. The full list is in `FEATURE_PARITY.md`, checked by `test/unified-admin.test.js`.
 ## Mailbox "System notes for this email" (Nov 16, 2026; John 12:14 PM ET)
 - Callbots.org mailbox only. One block placed right under the customer's email, for the writer and the checker: "System notes for this email" / "Added automatically by our system, not written by the customer. Use these facts when replying." It replaces the separate QuantaCases block and order note. It has two sections: "QuantaCases for phones mentioned in this email" (the catalog) and "Orders on file for this sender".
 - Email-matched orders show the number, status, tracking and the ordered items (product and color). Items are fetched live through STATUS_QUERY `lineItems` at reply time and are not stored in the index. The section also lists the other in-stock colors, price and link for the ordered phones. A phone-only match stays unverified and shows no details. No address or payment details ever appear.

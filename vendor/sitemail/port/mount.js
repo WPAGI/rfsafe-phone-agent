@@ -5,7 +5,9 @@
 //   // first line of the host's request handler:
 //   if (await sitemail.route(req, res, new URL(req.url, 'http://x'))) return;
 //
-// host = { env, dataDir, rootDir, log, now, sendEmail?, fetchImpl?, mailChecker?, mailNow? }
+// host = { env, dataDir, rootDir, log, now, sendEmail?, fetchImpl?, mailChecker?, mailNow?, auth? }
+// auth: the host's owner sign-in (same interface as src/mail/auth.js MagicAuth). Given, the inbox and Brain box use the
+// host's session (one sign-in for the whole admin); not given, the package keeps its own MagicAuth exactly as before.
 // route() answers ONLY the paths of enabled modules and returns false for everything else, so the host's own
 // routes (phone, text, admin) run exactly as before. All data goes to DATA_DIR/<data.namespace>; the host's KB
 // folders (kb.host_kb_dirs) are read, never written. Set the kill-switch env (enable_env) to "0" to turn it off.
@@ -131,7 +133,7 @@ function mountSiteMail(host = {}, cfg) {
 
   // Mail: the /mail inbox and the Mailbox bots (sorter, writer, checker, auto-send gate, order lookup, web research).
   let mailbox = null;
-  const mail = on('mail_viewer') ? safe('mail_viewer', () => custom('mail_viewer', ctx) || req('src/mail/index.js').createMail({ base: C.mailBase(cfg), env, mailbox: () => mailbox, kbAdmin: () => kbAdmin, siteName: B.name, log, publicBaseUrl: () => cfg.site.public_base_url, sendEmail, fetchImpl })) : null;
+  const mail = on('mail_viewer') ? safe('mail_viewer', () => custom('mail_viewer', ctx) || req('src/mail/index.js').createMail({ base: C.mailBase(cfg), env, auth: host.auth || undefined, mailbox: () => mailbox, kbAdmin: () => kbAdmin, siteName: B.name, log, publicBaseUrl: () => cfg.site.public_base_url, sendEmail, fetchImpl })) : null;
   if (on('mailbox') && mail) {
     mailbox = safe('mailbox', () => custom('mailbox', ctx) || req('src/mailbox/index.js').createMailbox({
       env, client: mail.client, siteName: B.name, fromAddress: B.from, log, now: host.mailNow, publicBaseUrl: () => cfg.site.public_base_url,

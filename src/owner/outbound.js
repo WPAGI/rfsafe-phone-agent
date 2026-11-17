@@ -24,7 +24,7 @@ function page({ csrf, nonce, tenants, t, date, today, unanswered, preview, calls
   const cr = calls.map((c) => `<tr><td>${esc(edt(c.at, s.timezone))}</td><td>${esc(c.kind)}${c.alert ? ' (' + esc(c.alert) + ')' : ''}</td><td>…${esc(c.to_last4 || '')}</td><td>${esc(c.status || '')}</td><td>${c.seconds != null ? esc(c.seconds) + 's' : ''}</td></tr>`).join('');
   const au = (audit || []).map((a) => `<tr><td>${esc(edt(a.at, s.timezone))}</td><td>${esc(a.action)}</td><td>${esc(a.by || '')}</td></tr>`).join('');
   const own = C.ownerNumbers(t);
-  return `<p><a href="/admin">← Dashboard</a></p><h1>Outbound &amp; owner briefing</h1>${sel}
+  return `<p><a href="/admin">← Admin home</a></p><h1>Outbound &amp; owner briefing</h1>${sel}
 ${err ? `<p role="alert" style="color:#b00;background:#fff0f0;padding:8px">${esc(err)}</p>` : ''}${msg ? `<p role="status" style="background:#f0fff4;padding:8px">${esc(msg)}</p>` : ''}
 <p><small>Briefing is <b>${C.enabled(t) ? 'ON' : 'OFF'}</b> · voice ${esc(C.voiceMode(t))} · PIN ${pinSet ? 'set' : '<b>not set</b>'}. Times are Eastern (${esc(s.timezone)}).</small></p>
 <h2>Owner PIN</h2><form method="post" action="/admin/outbound/pin" autocomplete="off">${h}

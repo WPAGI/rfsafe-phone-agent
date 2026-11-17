@@ -107,7 +107,7 @@ function reviewPage({ tenant, tenants, items }) {
   const opts = (tenants || []).map((x) => `<option value="${esc(x.id)}"${tenant && x.id === tenant.id ? ' selected' : ''}>${esc(x.name || x.id)}</option>`).join('');
   const rows = (items || []).map((r) => `<tr><td>${esc(r.at)}</td><td>${esc(r.call_id || '')}</td><td>${esc(r.provenance)}</td><td>unreviewed</td><td>false</td><td><pre style="white-space:pre-wrap;margin:0">${esc(r.content)}</pre></td></tr>`).join('');
   const which = tenant ? esc(tenant.name || tenant.id) : 'Choose a line';
-  return `<p><a href="/admin">← Dashboard</a></p><h1>Owner feedback</h1>
+  return `<p><a href="/admin">← Admin home</a></p><h1>Owner feedback</h1>
 <p><small>Read only. Every item is <b>unreviewed</b> and <b>approval is false</b>. This page does not edit the knowledge base and does not send email. Feedback text is untrusted data, shown as text.</small></p>
 <form method="get" action="/admin/owner-feedback"><label>Line <select name="tenant">${opts}</select></label> <button type="submit">Show</button></form>
 <h2>${which}</h2>
