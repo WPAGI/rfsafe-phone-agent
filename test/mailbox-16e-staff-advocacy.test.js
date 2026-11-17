@@ -36,17 +36,11 @@ test('r.65159806: an iPhone 16 email needs only the iPhone 16 facts, never the 1
   }
 });
 
-test('staff names: attributions are dropped; John Coates becomes "the founder of RF Safe", never "owner"', () => {
-  assert.strictEqual(B.stripStaffNames("RF Safe's position, as John Coates approved it: we don't recommend that children use cell phones."), "RF Safe's position: we don't recommend that children use cell phones.");
-  assert.strictEqual(B.stripStaffNames('The policy, approved by Katie Webb, is simple.'), 'The policy is simple.');
-  assert.strictEqual(B.stripStaffNames('Our policy (approved by John Coates) is simple.'), 'Our policy is simple.');
+test('staff names: replaced by "the founder of RF Safe", never "owner" (approval wording: see mailbox-rfsafe-approved.test.js)', () => {
   assert.strictEqual(B.stripStaffNames('John Coates started RF Safe in 2009.'), 'The founder of RF Safe started RF Safe in 2009.');
   assert.strictEqual(B.stripStaffNames('Ask our owner.'), 'Ask the founder of RF Safe.');
   const greet = 'Hi John,\n\nThanks for writing.\n\nThe RF Safe team';
   assert.strictEqual(B.stripStaffNames(greet), greet, "a customer's own first name stays");
-  assert.match(defaults.replier.prompt, /Never name staff in a reply/); assert.match(defaults.replier.prompt, /the founder of RF Safe/);
-  assert.match(defaults.checker.prompt, /Fail a draft that names staff/);
-  assert.strictEqual(defaults.replier.version, '1.9.25');
 });
 
 test('r.4c0eb3df: an advocacy entry never backs a deferral edit; date words alone are not a topic match', () => {

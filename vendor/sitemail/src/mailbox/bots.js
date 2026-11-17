@@ -142,22 +142,40 @@ function fixSignoff(body) {
   }
   return lines.join('\n');
 }
-// Staff names out of customer replies (r.65159806; John, Nov 16 8:12 PM ET: "keep me out of the KB, except ... as the
-// founder, not owner"). Drops "as John Coates approved it"-style attributions and says "the founder of RF Safe" instead of
-// his name; other staff names become "RF Safe". A customer's own first name in the greeting is untouched.
-function stripStaffNames(body) {
+// Staff names out of customer replies (r.65159806). John, Nov 16 8:12 PM ET: "keep me out of the KB, except ... as the
+// founder, not owner"; 8:24 PM ET: "rather than saying John Coats approved it, you would say that something is RF safe
+// approved." Approval attributions become "RF Safe approved" wording ("RF Safe's position, as John Coates approved it:" ->
+// "RF Safe's approved position:"). "Owner"/"operator" always becomes "the founder of RF Safe". His name stays only when the
+// customer asked about RF Safe's founder or history (opts.founderOk); otherwise it becomes "the founder of RF Safe". Other
+// staff names become "RF Safe". A customer's own first name in the greeting is untouched.
+const FOUNDER_Q = /\b(?:founder|founded|co-?founder|who\s+(?:started|created|runs|owns|is\s+behind)|(?:history|story|origin)\s+of\s+(?:RF\s*Safe|the\s+company)|RF\s*Safe['\u2019]?s\s+(?:history|story|origins?|beginnings?)|how\s+(?:did\s+)?RF\s*Safe\s+(?:start|begin|get\s+started)|John\s+Coates)\b/i;
+const founderQ = (subject, text) => FOUNDER_Q.test(String(subject || '') + '\n' + String(text || ''));
+function stripStaffNames(body, opts = {}) {
   let t = String(body || '');
   const NAME = '(?:John\\s+Coates|Mr\\.?\\s+Coates|Katie\\s+Webb|Ms\\.?\\s+Webb|our\\s+owner|the\\s+owner|RF\\s+Safe[\'\u2019]s\\s+owner)';
-  t = t.replace(new RegExp(',\\s*(?:as\\s+)?(?:approved|confirmed|signed\\s+off|reviewed)\\s+by\\s+' + NAME + '\\s*,', 'gi'), '');
-  t = t.replace(new RegExp('(?:,\\s*(?:as\\s+)?|\\s*\\(\\s*(?:as\\s+)?|\\s+\\bas\\s+)(?:approved|confirmed|signed\\s+off|reviewed)\\s+by\\s+' + NAME + '\\s*\\)?(?=[\\s,.:;!?]|$)', 'gi'), '');
-  t = t.replace(new RegExp('\\b(approved|confirmed|signed\\s+off|reviewed)\\s+by\\s+' + NAME, 'gi'), '$1 by RF Safe');
-  t = t.replace(new RegExp(',?\\s*as\\s+' + NAME + '\\s+(?:has\\s+)?(?:approved|confirmed|signed\\s+off\\s+on|wrote|put)\\s*(?:it|this|them)?(?=[\\s,.:;!?]|$)', 'gi'), '');
-  t = t.replace(/\bJohn\s+Coates\b|\bMr\.?\s+Coates\b/g, 'the founder of RF Safe').replace(/\b(?:our|the)\s+owner\b|\bRF\s+Safe['\u2019]s\s+owner\b/gi, 'the founder of RF Safe');
+  const VERB = '(?:approved|confirmed|signed\\s+off|reviewed)';
+  const ATTR = '(?:,?\\s*as\\s+' + NAME + '\\s+(?:has\\s+)?(?:approved|confirmed|signed\\s+off\\s+on|reviewed)(?:\\s+(?:it|this|them))?|,\\s*(?:as\\s+)?' + VERB + '\\s+by\\s+' + NAME + '\\s*,?|\\s*\\(\\s*(?:as\\s+)?' + VERB + '\\s+by\\s+' + NAME + '\\s*\\)|\\s+(?:as\\s+)?' + VERB + '\\s+by\\s+' + NAME + ')';
+  // "RF Safe's position, as John Coates approved it:" / "Our policy (approved by John Coates)" -> "RF Safe's approved position/policy"
+  t = t.replace(new RegExp('\\b(?:RF\\s+Safe[\'\u2019]s|[Oo]ur)\\s+(position|policy|stance|answer|guidance|recommendation|view|advice|wording|statement)' + ATTR + '(?=[\\s,.:;!?)]|$)', 'g'), (m, noun) => "RF Safe's approved " + noun + (/,\s*$/.test(m) ? ',' : ''));
+  // "This wording was approved by John Coates" -> "This wording is RF Safe approved"
+  t = t.replace(new RegExp('\\b(?:is|was|has\\s+been|were|are|have\\s+been)\\s+' + VERB + '\\s+by\\s+' + NAME, 'gi'), 'is RF Safe approved');
+  // Remaining attributions: ", approved by NAME," / "(approved by NAME)" / "as NAME approved it" -> "(RF Safe approved)"-style
+  t = t.replace(new RegExp(',\\s*(?:as\\s+)?' + VERB + '\\s+by\\s+' + NAME + '\\s*,', 'gi'), ', RF Safe approved,');
+  t = t.replace(new RegExp('\\(\\s*(?:as\\s+)?' + VERB + '\\s+by\\s+' + NAME + '\\s*\\)', 'gi'), '(RF Safe approved)');
+  t = t.replace(new RegExp(',?\\s*as\\s+' + NAME + '\\s+(?:has\\s+)?(?:approved|confirmed|signed\\s+off\\s+on|reviewed)(?:\\s+(?:it|this|them))?(?=[\\s,.:;!?]|$)', 'gi'), ' (RF Safe approved)');
+  t = t.replace(new RegExp('\\b' + VERB + '\\s+by\\s+' + NAME, 'gi'), 'RF Safe approved');
+  // Never owner or operator: "John Coates, the owner of RF Safe" / "RF Safe's owner and operator"
+  const JOHN = '(?:John\\s+Coates|Mr\\.?\\s+Coates)';
+  const ROLE = '(?:the\\s+|our\\s+|RF\\s+Safe[\'\u2019]s\\s+)?(?:owner|operator|CEO|boss)(?:\\s+(?:and|&|\\/)\\s+(?:owner|operator|CEO))?(?:\\s+of\\s+(?:RF\\s+Safe|the\\s+(?:company|business)))?';
+  t = t.replace(new RegExp(JOHN + '\\s*,\\s*' + ROLE + '(\\s*,)?(?=[\\s.:;!?)]|$)', 'g'), (m, c) => opts.founderOk ? 'John Coates, the founder of RF Safe' + (c || '') : 'the founder of RF Safe');
+  t = t.replace(new RegExp('\\b(?:our|the|RF\\s+Safe[\'\u2019]s)\\s+(?:owner|operator)(?:\\s+(?:and|&|\\/)\\s+(?:owner|operator))?(?:\\s+of\\s+(?:RF\\s+Safe|the\\s+(?:company|business)))?\\b', 'gi'), 'the founder of RF Safe');
+  if (!opts.founderOk) t = t.replace(/\bJohn\s+Coates\b|\bMr\.?\s+Coates\b/g, 'the founder of RF Safe');
   t = t.replace(/\bKatie\s+Webb\b|\bMs\.?\s+Webb\b/g, 'RF Safe');
-  return t.replace(/(^|[.!?]\s+|\n)the founder of RF Safe/g, (m, a) => a + 'The founder of RF Safe').replace(/ +([,.:;])/g, '$1').replace(/:\s*:/g, ':');
+  return t.replace(/(^|[.!?]\s+|\n)the founder of RF Safe/g, (m, a) => a + 'The founder of RF Safe').replace(/ +([,.:;])/g, '$1').replace(/:\s*:/g, ':').replace(/,\s*,/g, ',');
 }
-function fixGreeting(body, name) {
-  return fixSignoff(stripStaffNames(String(body))).replace(/^(\s*(?:hi|hello|hey|dear)\s+)([A-Z][a-zA-Z'’-]+)([,!])/i, (all, g, n, p) => (name && n.toLowerCase() === name.toLowerCase()) || /^(there|team|all|friend)$/i.test(n) ? all : g + 'there' + p);
+function fixGreeting(body, name, opts = {}) {
+  return fixSignoff(stripStaffNames(String(body), opts))
+.replace(/^(\s*(?:hi|hello|hey|dear)\s+)([A-Z][a-zA-Z'’-]+)([,!])/i, (all, g, n, p) => (name && n.toLowerCase() === name.toLowerCase()) || /^(there|team|all|friend)$/i.test(n) ? all : g + 'there' + p);
 }
 // Plain words for an auto-send hold, naming exactly what matched and where (e.g. topic money: "quote" in the draft reply).
 const TOPICS = { chargeback: 'a chargeback or payment dispute', money_request: 'a request that we send them money directly', refund: 'refunds', legal: 'legal', medical: 'medical', complaint: 'a complaint', names_staff: 'a staff name' };
@@ -1110,7 +1128,7 @@ class MailBots {
       if (x.hold || !String(x.body || '').trim()) { const why = String(x.reason || 'Not enough information').slice(0, 300); this.finish(id, 'done', 'Held for you: ' + why); this.step(id, 'reply', 'held', why, { bot: r.id }); this.note(id, { bot: r.id, verdict: 'unsure', needed: 'Customer reply', notes: why, improvements: ['Owner review'], would: 'would have held' }); finish(); continue; }
       // The disclaimer always closes a medical reply (John, Nov 15, 9:38 PM ET): if the writer left it out or put it at the top,
       // it is moved to its own block right before the sign-off, exactly once. Short paragraphs, one topic each (bug 1).
-      const bodyOut = P.formatParagraphs(medical_disclaimer ? P.ensureDisclaimerLast(fixGreeting(String(x.body), signed), medical_disclaimer.text) : fixGreeting(String(x.body), signed), medical_disclaimer ? medical_disclaimer.text : '', { keep: useKb ? verbatimOwner(medical_disclaimer ? P.ensureDisclaimerLast(String(x.body), medical_disclaimer.text) : String(x.body), knowledge) : [] });
+      const bodyOut = P.formatParagraphs(medical_disclaimer ? P.ensureDisclaimerLast(fixGreeting(String(x.body), signed, { founderOk: founderQ(orig.subject, orig.text) }), medical_disclaimer.text) : fixGreeting(String(x.body), signed, { founderOk: founderQ(orig.subject, orig.text) }), medical_disclaimer ? medical_disclaimer.text : '', { keep: useKb ? verbatimOwner(medical_disclaimer ? P.ensureDisclaimerLast(String(x.body), medical_disclaimer.text) : String(x.body), knowledge) : [] });
       const result = await this.createDraft('bot:' + r.id, { reply_to_id: id, body: P.stripRelated(bodyOut).slice(0, 20000), reason: String(x.reason || 'Reply based on supplied facts').slice(0, 300) }, { autoSend: false });
       if (result.code !== 201) { this.step(id, 'reply', 'error', 'Draft refused: ' + (result.body && result.body.error), { bot: r.id }); finish(); continue; }
       writerKnowledge = useKb ? trimContext(knowledge, null).knowledge : null;
@@ -1247,7 +1265,7 @@ class MailBots {
     }, { timeoutMs: writerRound1Ms(this.effective(r).limits.model, !!md) });
     const body = String(y && y.body || '').trim();
     if (!body) return null;
-    const bodyOut = P.formatParagraphs(md ? P.ensureDisclaimerLast(fixGreeting(body, signed), md.text) : fixGreeting(body, signed), md ? md.text : '', { keep: verbatimOwner(md ? P.ensureDisclaimerLast(body, md.text) : body, ctx.knowledge || []) });
+    const bodyOut = P.formatParagraphs(md ? P.ensureDisclaimerLast(fixGreeting(body, signed, { founderOk: founderQ(orig.subject, orig.text) }), md.text) : fixGreeting(body, signed, { founderOk: founderQ(orig.subject, orig.text) }), md ? md.text : '', { keep: verbatimOwner(md ? P.ensureDisclaimerLast(body, md.text) : body, ctx.knowledge || []) });
     return this.store.updateDraft(draft.id, { body: P.stripRelated(bodyOut).slice(0, 20000), reason: String(y.reason || 'Revised from checker edits').slice(0, 300) }) || this.store.draft(draft.id);
   }
 
@@ -1330,4 +1348,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { stripStaffNames, supportHit, advocacyEntry, fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { stripStaffNames, founderQ, supportHit, advocacyEntry, fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
