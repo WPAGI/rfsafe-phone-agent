@@ -383,7 +383,9 @@ function scaffolding(body) {
   return null;
 }
 // A sentence that offers, promises or invents a discount, code or percentage off (John, 8:25 PM ET: never). Saying we
-// can't authorize discounts, or to check back during holiday sales, is fine; so is the $20 replacement-case policy.
+// can't offer coupon codes or other discounts, or to check back during holiday sales, is fine; so is the $20 replacement-case
+// policy and how to get one (reply with the order number and phone model; the RF Safe team will set up the $20 replacement;
+// RF Safe approved, Nov 17 2026).
 // Refunds (John, Nov 14 9:28 PM ET): the reply only explains how to ask for one. A draft fails if it promises a refund amount
 // or timeline, or says a refund was issued, approved or processed.
 function refundProblem(body) {
