@@ -24,7 +24,7 @@ const SWAP = { id: 'r.mock-promax-swap', subject: 'promax case swap?', text: 'Hi
 const ASKED = SWAP.subject + '\n' + SWAP.text;
 const DRAFT = 'Hi there,\n\nYour order #1173 has not shipped yet, so we can switch it from Black to Turquoise before it ships. Just reply with the color you want.\n\n'
   + 'The iPhone 17 Pro Max QuantaCase is $69 and in stock in Black, Brown and Turquoise:\nBlack: ' + PM_URL + '?variant=55171787751703\nBrown: ' + PM_URL + '?variant=55171787784471\nTurquoise: ' + PM_URL + '?variant=' + TURQ_ID + '\n\n'
-  + 'The QuantaCase is not MagSafe compatible. It does not interfere with wireless charging.\n\nThe RF Safe team';
+  + 'The QuantaCase is not MagSafe compatible. As a design preference, RF Safe chose not to add metal plates or magnets to the back of the case. It does not interfere with wireless charging.\n\nThe RF Safe team';
 const MODELS = { models: [
   { id: 'grok-4.7', aliases: [], prompt_text_token_price: 20000, cached_prompt_text_token_price: 5000, completion_text_token_price: 60000, output_modalities: ['text'] },
   { id: 'grok-4.20-0309-non-reasoning', aliases: [], prompt_text_token_price: 12500, cached_prompt_text_token_price: 2000, completion_text_token_price: 25000, output_modalities: ['text'] }

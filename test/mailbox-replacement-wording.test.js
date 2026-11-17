@@ -13,7 +13,7 @@ test('writer default: replacement policy, how to get one, then no coupon codes /
   assert.match(defaults.replier.prompt, /in up to three sentences: \(a\) replacement cases are always \$20 plus shipping for as long as they own that phone; \(b\) how to get one: reply to this email with the original order number \(or the name, email and phone number used on the order\) plus the phone model, and the RF Safe team will set up the \$20 replacement; \(c\) we can\\?'t offer coupon codes or other discounts, but the cases are sometimes discounted, so check back during holiday sales\./);
   assert.doesNotMatch(defaults.replier.prompt, /can\\?'t authorize discounts/);
   assert.match(defaults.replier.prompt, /Never offer, promise or invent a discount, code or percentage off/);
-  assert.strictEqual(defaults.replier.version, '1.9.26');
+  assert.strictEqual(defaults.replier.version, '1.9.27');
 });
 
 test('checker default: accepts the new order and does not require the literal "can\'t authorize discounts"', () => {
@@ -21,7 +21,7 @@ test('checker default: accepts the new order and does not require the literal "c
   assert.match(ck, /in order: replacement cases are always \$20 plus shipping[^"]*will set up the \$20 replacement[^"]*can\\?'t offer coupon codes or other discounts/);
   assert.match(ck, /do not fail it just because it lacks the literal phrase "can\\?'t authorize discounts"/);
   assert.match(ck, /Fail any draft that offers, promises or invents a discount/);
-  assert.strictEqual(defaults.checker.version, '1.9.26');
+  assert.strictEqual(defaults.checker.version, '1.9.27');
 });
 
 test('"the RF Safe team will set up the $20 replacement" is not a hand-off, deferral, discount offer or hard block; "we\'ll get back to you" still is a hand-off', () => {
