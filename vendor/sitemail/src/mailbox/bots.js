@@ -142,8 +142,22 @@ function fixSignoff(body) {
   }
   return lines.join('\n');
 }
+// Staff names out of customer replies (r.65159806; John, Nov 16 8:12 PM ET: "keep me out of the KB, except ... as the
+// founder, not owner"). Drops "as John Coates approved it"-style attributions and says "the founder of RF Safe" instead of
+// his name; other staff names become "RF Safe". A customer's own first name in the greeting is untouched.
+function stripStaffNames(body) {
+  let t = String(body || '');
+  const NAME = '(?:John\\s+Coates|Mr\\.?\\s+Coates|Katie\\s+Webb|Ms\\.?\\s+Webb|our\\s+owner|the\\s+owner|RF\\s+Safe[\'\u2019]s\\s+owner)';
+  t = t.replace(new RegExp(',\\s*(?:as\\s+)?(?:approved|confirmed|signed\\s+off|reviewed)\\s+by\\s+' + NAME + '\\s*,', 'gi'), '');
+  t = t.replace(new RegExp('(?:,\\s*(?:as\\s+)?|\\s*\\(\\s*(?:as\\s+)?|\\s+\\bas\\s+)(?:approved|confirmed|signed\\s+off|reviewed)\\s+by\\s+' + NAME + '\\s*\\)?(?=[\\s,.:;!?]|$)', 'gi'), '');
+  t = t.replace(new RegExp('\\b(approved|confirmed|signed\\s+off|reviewed)\\s+by\\s+' + NAME, 'gi'), '$1 by RF Safe');
+  t = t.replace(new RegExp(',?\\s*as\\s+' + NAME + '\\s+(?:has\\s+)?(?:approved|confirmed|signed\\s+off\\s+on|wrote|put)\\s*(?:it|this|them)?(?=[\\s,.:;!?]|$)', 'gi'), '');
+  t = t.replace(/\bJohn\s+Coates\b|\bMr\.?\s+Coates\b/g, 'the founder of RF Safe').replace(/\b(?:our|the)\s+owner\b|\bRF\s+Safe['\u2019]s\s+owner\b/gi, 'the founder of RF Safe');
+  t = t.replace(/\bKatie\s+Webb\b|\bMs\.?\s+Webb\b/g, 'RF Safe');
+  return t.replace(/(^|[.!?]\s+|\n)the founder of RF Safe/g, (m, a) => a + 'The founder of RF Safe').replace(/ +([,.:;])/g, '$1').replace(/:\s*:/g, ':');
+}
 function fixGreeting(body, name) {
-  return fixSignoff(String(body)).replace(/^(\s*(?:hi|hello|hey|dear)\s+)([A-Z][a-zA-Z'’-]+)([,!])/i, (all, g, n, p) => (name && n.toLowerCase() === name.toLowerCase()) || /^(there|team|all|friend)$/i.test(n) ? all : g + 'there' + p);
+  return fixSignoff(stripStaffNames(String(body))).replace(/^(\s*(?:hi|hello|hey|dear)\s+)([A-Z][a-zA-Z'’-]+)([,!])/i, (all, g, n, p) => (name && n.toLowerCase() === name.toLowerCase()) || /^(there|team|all|friend)$/i.test(n) ? all : g + 'there' + p);
 }
 // Plain words for an auto-send hold, naming exactly what matched and where (e.g. topic money: "quote" in the draft reply).
 const TOPICS = { chargeback: 'a chargeback or payment dispute', money_request: 'a request that we send them money directly', refund: 'refunds', legal: 'legal', medical: 'medical', complaint: 'a complaint', names_staff: 'a staff name' };
@@ -180,8 +194,9 @@ function checkerMs(model, medical, body, { inputChars = 0, systemNotes = false, 
 function normUrl(u) { try { const x = new URL(u); let p = x.pathname; try { p = decodeURIComponent(p); } catch {} return (x.protocol + '//' + x.hostname.replace(/^www\./i, '') + p.replace(/\/+$/, '')).toLowerCase(); } catch { return null; } }
 // Phone models named in a text, as comparable keys ("pixel 9", "iphone 16 pro max", "galaxy s24 ultra").
 function phoneKeys(text) {
-  const out = new Set(); const re = /\b(iphone|galaxy|pixel|moto|oneplus)\s*([a-z]?\d{1,2}[a-z]?)((?:\s+(?:pro|max|plus|ultra|mini|air|xl|fold|flip|fe|edge))*)/gi; let m;
-  while ((m = re.exec(expandShortPhones(String(text || '').replace(/™|%E2%84%A2/gi, ' ').replace(/-/g, ' '))))) out.add((m[1] + ' ' + m[2] + (m[3] || '')).toLowerCase().replace(/\s+/g, ' ').trim());
+  // "e" is its own model (r.65159806, Nov 16): "iPhone 16 E" / "apple-iphone-16-e" is the iPhone 16e, never the iPhone 16.
+  const out = new Set(); const re = /\b(iphone|galaxy|pixel|moto|oneplus)\s*([a-z]?\d{1,2}[a-z]?)(\s+e(?![a-z0-9]))?((?:\s+(?:pro|max|plus|ultra|mini|air|xl|fold|flip|fe|edge))*)/gi; let m;
+  while ((m = re.exec(expandShortPhones(String(text || '').replace(/™|%E2%84%A2/gi, ' ').replace(/-/g, ' '))))) out.add((m[1] + ' ' + m[2] + (m[3] ? 'e' : '') + (m[4] || '')).toLowerCase().replace(/\s+/g, ' ').trim());
   return [...out];
 }
 function productHandle(u) {
@@ -381,6 +396,21 @@ function refundProblem(body) {
 // A hand-off line ("the RF Safe team will follow up", "we'll get back to you") is only for a real KB gap (John, 9:54 PM ET):
 // when the writer logged no gap, the knowledge answered everything and the line fails the checker.
 const HANDOFF = /\b(?:will|'ll|shall)\s+(?:be\s+)?(?:follow(?:ing)?\s+up|get(?:ting)?\s+back\s+to\s+you|be\s+in\s+touch|reach(?:ing)?\s+out|contact(?:ing)?\s+you|let\s+you\s+know)\b|\bfollow\s+up\s+(?:on|with\s+you|about)\b|\bsomeone\s+(?:will|from)\b[^.]{0,30}\b(?:contact|reach|follow)/i;
+// Which KB hit may back a "you deferred, the KB answers it" edit (r.4c0eb3df, Nov 16). An advocacy or call-to-action
+// entry (share this, contact your U.S. Reps, Zoom call, petition, before the vote) is never a customer-support answer
+// unless the question itself is about advocacy. And date or time words alone ("before the end of next week") are not a
+// topic match: the question needs at least one other word the passage covers.
+const ADVOCACY_ENTRY = /\bshare this\b|\b(?:contact|call|write to|email)(?:ing)?\s+(?:all\s+)?(?:of\s+)?(?:your\s+)?(?:key\s+)?(?:u\.?s\.?\s+)?(?:reps?|representatives?|senators?|congress(?:man|woman|people)?|lawmakers?)\b|\bpetition\b|\bzoom (?:conference )?call\b|\btake action\b|\bbefore the (?:next |final )?vote\b/i;
+const ASKS_ADVOCACY = /\b(?:advoca\w*|petition\w*|congress\w*|senators?|representatives?|reps|lawmakers?|legislat\w*|vote|voting|campaign|get involved|take action|zoom|activis\w*)\b/i;
+const TIME_WORDS = new Set('before after end next last this week weeks weekend month months day days today tomorrow tonight soon early late time year years date monday tuesday wednesday thursday friday saturday sunday'.split(' '));
+function advocacyEntry(h) { return ADVOCACY_ENTRY.test(String((h && h.title) || '') + '\n' + String((h && h.text) || '').slice(0, 4000)); }
+function supportHit(q, h, LF = require('../kblight')) {
+  if (!h) return false;
+  if (advocacyEntry(h) && !ASKS_ADVOCACY.test(String(q || ''))) return false;
+  const qt = LF.queryTerms(q); const own = qt.own.filter(w => !TIME_WORDS.has(w)); if (!own.length) return false;
+  if (h.layer === 'light') return true;
+  return !!LF.goodMatch({ ...qt, own }, h);
+}
 const DEFER = /\b(?:team|we|someone|i)\b[^.]{0,40}\b(?:will|'ll|can)\s+(?:confirm|check|look into|find out|get you|send you)\b|\b(?:confirm|check)\s+(?:with|and get back)\b/i;
 function handoffProblem(body, kbGaps) {
   if ((kbGaps || []).some(q => String(q || '').trim())) return null;
@@ -730,7 +760,7 @@ class MailBots {
     const out = []; const LF = require('../kblight');
     for (const q of qs) {
       let hit = null;
-      try { const hs = (await this.tools.action(r.id, 'kb', 'search', { query: q, k: 3 })).hits || []; const qt = LF.queryTerms(q); hit = hs.find(h => h && !/^\s*Related:/i.test(String(h.text || '')) && (h.layer === 'light' || LF.goodMatch(qt, h))) || null; } catch { hit = null; }
+      try { const hs = (await this.tools.action(r.id, 'kb', 'search', { query: q, k: 3 })).hits || []; const qt = LF.queryTerms(q); hit = hs.find(h => h && !/^\s*Related:/i.test(String(h.text || '')) && supportHit(q, h, LF)) || null; } catch { hit = null; }
       if (hit) { out.push({ question: q, fact: String(hit.text || '').replace(/^Owner-approved answer[^\n]*\n/i, '').trim(), source: hit.title || 'knowledge base' }); continue; }
       const k = phoneKeys(q)[0]; const p = k && ((storeLookup && storeLookup.products) || []).find(x => phoneKeys(x.title + ' ' + x.url + ' ' + (x.handle || '')).includes(k));
       if (p) { const colors = (p.variants || []).filter(v => v.available !== false).map(v => v.title).filter(v => v && v !== 'Default Title'); const price = (p.price && p.price.amount) || ((p.variants || [])[0] || {}).price; out.push({ question: q, fact: p.title + ': ' + p.url + (price ? ', $' + price : '') + (colors.length ? ', in stock in ' + colors.join(', ') : ''), source: 'store_lookup' }); }
@@ -1300,4 +1330,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { stripStaffNames, supportHit, advocacyEntry, fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
