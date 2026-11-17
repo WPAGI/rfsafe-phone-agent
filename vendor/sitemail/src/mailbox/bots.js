@@ -14,7 +14,7 @@ const { ModelCatalog } = require('./models');
 const WR = require('./webresearch');
 const O = require('./orderlookup'); // Mailbox Shopify order lookup + order-question web-research block (John, Nov 15, 10:49 PM ET)
 const R = require('./revise'); // checker evidence order, health-tip allowance, revise loop (John, 12:20–12:23 AM ET)
-const { isOfficialGovUrl } = require('./govlinks');
+const { isOfficialGovUrl, isSiteUrl } = require('./govlinks');
 const PC = require('./phone-catalog');
 const SN = require('./system-notes');
 const err = (s, status = 400) => Object.assign(new Error(s), { status });
@@ -344,6 +344,8 @@ function checkLinks(body, { kbUrls = [], storeLookup = null, sarLookup = null, e
     }
     // Carrier tracking links (Mailbox order lookup): only the exact link of the verified order for this email.
     if (O.isCarrierUrl(u)) { if (extra.includes(u)) ok.push(u); else problems.push({ url: u, problem: 'tracking link is not the verified order\'s tracking link' }); continue; }
+    // rfsafe.app pages (John, Nov 16 9:03 PM ET): exact host or www only; see govlinks.js. Product links above stay verified.
+    if (isSiteUrl(u)) { ok.push(u); continue; }
     if (known.has(n) || researchDir.isKnownUrl(u)) ok.push(u); else problems.push({ url: u, problem: 'link is not in the knowledge base or store or research directory' });
   }
   return { ok, problems };
