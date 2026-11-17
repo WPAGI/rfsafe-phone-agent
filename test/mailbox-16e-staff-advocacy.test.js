@@ -46,7 +46,7 @@ test('staff names: attributions are dropped; John Coates becomes "the founder of
   assert.strictEqual(B.stripStaffNames(greet), greet, "a customer's own first name stays");
   assert.match(defaults.replier.prompt, /Never name staff in a reply/); assert.match(defaults.replier.prompt, /the founder of RF Safe/);
   assert.match(defaults.checker.prompt, /Fail a draft that names staff/);
-  assert.strictEqual(defaults.replier.version, '1.9.26');
+  assert.strictEqual(defaults.replier.version, '1.9.27');
 });
 
 test('r.4c0eb3df: an advocacy entry never backs a deferral edit; date words alone are not a topic match', () => {

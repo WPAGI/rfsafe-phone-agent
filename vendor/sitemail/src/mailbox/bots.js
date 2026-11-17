@@ -421,6 +421,70 @@ function handoffProblem(body, kbGaps) {
   for (const sent of withoutUrls(body).split(/(?<=[.!?])\s+|\n+/)) { const t = sent.trim(); if (t && HANDOFF.test(t)) return t; }
   return null;
 }
+// Deal vs replacement, signal hedge, MagSafe wording and shop link (John, Nov 17 2026 4:32 PM ET, relayed by Jarvis: "fix the
+// prompts on both sites"). A deal, coupon, promo, multiple-case or bulk question gets only "we don't offer coupon codes or other
+// discounts; check back during holiday sales" (no $20 replacement how-to); the replacement policy, in the approved order, is for
+// a replacement-case question only. Deterministic checker backstops so a model slip cannot auto-send.
+const SENT_SPLIT = /(?<=[.!?])\s+|\n+/;
+const DEAL_Q = /\b(?:a|any|the|good|better|special|package|bundle|family|bulk|multi[- ]?(?:case|pack))\s+deals?\b|\bdeals?\s+(?:on|for|if|when)\b|\bcoupons?\b|\bpromo(?:tion(?:al)?)?s?\b|\bdiscount(?:s|ed)?\b|\bbulk\b|\bcheaper\b|\bon sale\b|\bany sales?\b|\bholiday sales?\b|\bblack friday\b|\bcyber monday\b|\bprice break\b/i;
+const REPLACEMENT_Q = /\breplacements?\b(?!\s+(?:phones?|iphones?|devices?|pixels?|galaxy))|\b(?:broke|broken|cracked|worn[- ]?out|wore out|damaged|fell apart|falling apart)\b[^.?!\n]{0,30}\bcase\b|\bcase\b[^.?!\n]{0,30}\b(?:broke|broken|cracked|worn[- ]?out|wore out|damaged|fell apart|falling apart)\b|\blost\s+(?:my|our|the)\s+(?:quanta\s?case|truth\s?case|case)\b/i;
+const REPLACEMENT_SENT = /\$\s?20\b|\breplacement\b/i;
+const DEAL_ANSWER = "We don't offer coupon codes or other discounts; check back during holiday sales.";
+const REPLACEMENT_ANSWER = "Replacement cases are always $20 plus shipping for as long as you own that phone. To get one, reply to this email with your original order number (or the name, email and phone number used on the order) plus your phone model, and the RF Safe team will set up the $20 replacement. We can't offer coupon codes or other discounts, but the cases are sometimes discounted, so check back during holiday sales.";
+function isDealQ(q) { return DEAL_Q.test(String(q || '')) && !REPLACEMENT_Q.test(String(q || '')); }
+function isReplacementQ(q) { return REPLACEMENT_Q.test(String(q || '')); }
+function dealReplacementProblem(question, body) {
+  const b = withoutUrls(body);
+  if (isDealQ(question)) {
+    const extra = b.split(SENT_SPLIT).map(t => t.trim()).filter(t => t && REPLACEMENT_SENT.test(t));
+    if (extra.length) return { kind: 'deal_has_replacement', problem: 'Deal question: the draft adds the $20 replacement-case policy, which is only for a replacement question', edits: extra.map(t => ({ action: 'cut', text: t.slice(0, 500), reason: 'A deal question gets only the coupon-code answer, not the replacement-case policy', source: 'owner_policy' })) };
+    if (!/\bholiday sales?\b/i.test(b)) return { kind: 'deal_missing', problem: 'Deal question: the draft does not say we don\'t offer coupon codes or other discounts and to check back during holiday sales', edits: [{ action: 'add', text: DEAL_ANSWER, reason: 'Owner-approved deal answer', fact: DEAL_ANSWER, source: 'owner_policy' }] };
+    return null;
+  }
+  if (isReplacementQ(question)) {
+    const a = b.search(/\$\s?20\s+plus\s+shipping/i), h = b.search(/\border number\b/i);
+    if (a < 0 || h < 0 || !/\bphone model\b/i.test(b) || !/\bset up the \$\s?20 replacement\b/i.test(b)) return { kind: 'replacement_missing', problem: 'Replacement-case question: the draft leaves out the $20 replacement policy or how to get one', edits: [{ action: 'add', text: REPLACEMENT_ANSWER, reason: 'Owner-approved replacement-case answer, in order', fact: REPLACEMENT_ANSWER, source: 'owner_policy' }] };
+    if (a > h) return { kind: 'replacement_order', problem: 'Replacement-case question: the $20 plus shipping policy must come before how to get one', edits: [{ action: 'add', text: REPLACEMENT_ANSWER, reason: 'Rewrite the replacement-case answer in the approved order: $20 policy, how to get one, then no coupon codes', fact: REPLACEMENT_ANSWER, source: 'owner_policy' }] };
+  }
+  return null;
+}
+// Signal answers are hedged (Brain box "Can a phone case make a phone put out more radiation?" and the TruthCase page FAQ).
+const SIGNAL_HEDGE = "QuantaCase's design choices are meant to avoid antenna detuning and the power increases that can come with it. The phone and network manage transmission power. QuantaCase's thin, antenna-conscious design is intended to avoid unnecessary interference, not to guarantee the lowest output under all conditions.";
+const FLAT_DETUNE = /\b(?:will|would|can|could|should)\s+(?:not|never)\s+(?:be\s+|get\s+)?detuned\b|\b(?:is|are|will be|gets?|get)\s+not\s+(?:be\s+)?detuned\b|\b(?:isn't|aren't|won't be|never(?: gets?| be)?)\s+detuned\b|\b(?:does not|doesn't|do not|don't|will not|won't|never|cannot|can't|can not)\s+(?:\w+\s+){0,2}detune\b|\bno\s+(?:antenna\s+)?detuning\b/i;
+const FLAT_POWER = /\b(?:does not|doesn't|do not|don't|will not|won't|never|cannot|can't|can not|is not|isn't)\s+(?:\w+\s+){0,4}?(?:ramp(?:s|ing)?(?:\s+up)?|increase|boost|raise|crank(?:\s+up)?|turn up)\s+(?:\w+\s+){0,2}?power\b|\bno\s+(?:transmit\s+|transmission\s+)?power\s+(?:increase|boost|ramp[- ]?up)s?\b/i;
+const HEDGED = /\b(?:meant|designed|intended|built|made)\s+to\s+(?:help\s+)?(?:avoid|minimi[sz]e|reduce|prevent)\b|\bhelps?\s+(?:to\s+)?avoid\b|\baims?\s+to\b/i;
+function flatSignalClaim(body) {
+  for (const sent of withoutUrls(body).split(SENT_SPLIT)) { const t = sent.trim(); if (t && (FLAT_DETUNE.test(t) || FLAT_POWER.test(t)) && !HEDGED.test(t)) return t; }
+  return null;
+}
+// MagSafe / wireless charging (owner-approved text): never volunteered; when the draft answers a charging question it uses this
+// exact text (its three sentences, word for word; a leading "No," or a short follow-on clause is fine).
+const MAGSAFE_TEXT = 'The QuantaCase is not MagSafe compatible. As a design preference, RF Safe chose not to add metal plates or magnets to the back of the case. It does not interfere with wireless charging.';
+const MAGSAFE_PARTS = [/\bnot magsafe compatible\b/, /\bas a design preference, rf safe chose not to add metal plates or magnets to the back of the case\b/, /\bdoes not interfere with wireless charging\b/];
+const CHARGE_Q = /\bmag[\s-]?safe\b|\bwireless(?:ly)?\s+charg\w*|\bqi\b|\bcharging\s+pads?\b|\bcharg(?:e|es|er|ers|ing)\b|\bmagnet(?:s|ic)?\b/i;
+const CHARGE_SENT = /\bmag[\s-]?safe\b|\bwireless(?:ly)?\s+charg\w*|\bchose not to add metal plates or magnets\b/i;
+function chargingProblem(question, body) {
+  const norm = (t) => String(t || '').replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!CHARGE_Q.test(String(question || ''))) {
+    const extra = withoutUrls(body).split(SENT_SPLIT).map(t => t.trim()).filter(t => t && CHARGE_SENT.test(t));
+    return extra.length ? { kind: 'unasked', problem: 'Mentions MagSafe or wireless charging, which the customer did not ask about', edits: extra.map(t => ({ action: 'cut', text: t.slice(0, 500), reason: 'Do not volunteer the MagSafe or wireless-charging line', source: 'owner_policy' })) } : null;
+  }
+  const answers = withoutUrls(body).split(SENT_SPLIT).map(t => t.trim()).filter(t => t && CHARGE_SENT.test(t) && !HANDOFF.test(t));
+  if (answers.length && !MAGSAFE_PARTS.every(re => re.test(norm(body)))) return { kind: 'missing', problem: 'Charging or MagSafe question: the draft does not use the owner-approved MagSafe text word for word', edits: [{ action: 'add', text: MAGSAFE_TEXT, reason: 'Owner-approved MagSafe and wireless-charging text, word for word (replace any other MagSafe wording)', fact: MAGSAFE_TEXT, source: 'owner_policy' }] };
+  return null;
+}
+// A would-be buyer who names no phone model gets the shop link (where they pick their model) and the TruthCase page link.
+const SHOP_URL = 'https://quantacase.com/'; const TRUTHCASE_URL = 'https://quantacase.com/pages/quantacase-truthcase';
+const BUY_Q = /\b(?:buy|buying|purchase|purchasing|order(?:ing)?\s+(?:a|one|the|your|some)|get(?:ting)?\s+(?:a|one|the|your)\s+(?:quanta\s?case|truth\s?case|case)|thinking\s+(?:about|of)\s+(?:getting|buying|ordering)|interested\s+in\s+(?:a|the|your|buying|getting)|considering\s+(?:a|the|your|buying|getting)|where\s+(?:can|do)\s+i\s+(?:buy|get|order))\b/i;
+const EXISTING_ORDER = /\b(?:my order|order\s*#|order number|tracking|shipped|delivered|refund|return|exchange|i (?:bought|ordered|purchased))\b/i;
+function isBuyerNoModel(question) { const q = String(question || ''); return BUY_Q.test(q) && !EXISTING_ORDER.test(q) && !isDealQ(q) && !isReplacementQ(q) && !phoneKeys(q).length; }
+function shopLinkProblem(question, body, linkAllowed = () => true) {
+  if (!isBuyerNoModel(question) || !linkAllowed(SHOP_URL)) return null;
+  const links = draftLinks(body).map(normUrl); const want = [];
+  if (!links.includes(normUrl(SHOP_URL))) want.push('Shop QuantaCase and pick your phone model here:\n' + SHOP_URL);
+  if (!links.includes(normUrl(TRUTHCASE_URL)) && linkAllowed(TRUTHCASE_URL)) want.push('How the TruthCase design works:\n' + TRUTHCASE_URL);
+  return want.length ? { problem: 'Buying question with no phone model: the draft needs the shop link (' + SHOP_URL + ') and the TruthCase page link', edits: want.map(t => ({ action: 'add', text: t, reason: 'Buyer named no phone model: add the shop link and the TruthCase page link', fact: t, source: 'owner_policy' })) } : null;
+}
 function discountOffer(body) {
   for (const sent of withoutUrls(body).split(/(?<=[.!?])\s+|\n+/)) {
     const s = sent.trim(); if (!s) continue;
@@ -1264,7 +1328,7 @@ class MailBots {
     const storeLookup = await withVerifiedHandles(extra.store_lookup, draft.body, asked, this.fetch);
     const symptomResearch = extra.symptom_research !== undefined ? extra.symptom_research : symptomLookup(this.tools, orig);
     const catProds = (extra.phone_catalog && extra.phone_catalog.products) || [];
-    const links = checkLinks(draft.body, { catalog: catProds, kbUrls: (this.tools && typeof this.tools.kbUrls === 'function' ? this.tools.kbUrls() : []), storeLookup, sarLookup: extra.sar_lookup, asked, extra: [...(extra.knowledge || knowledge || []).map(k => k && k.source).filter(Boolean), ...(researchDir.urlsOf(extra.research_lookup) || []), ...symptoms.urlsOf(symptomResearch), ...O.urlsOf(extra.order_lookup), this.newsletterJoinUrl].filter(Boolean) });
+    const linkOpts = { catalog: catProds, kbUrls: (this.tools && typeof this.tools.kbUrls === 'function' ? this.tools.kbUrls() : []), storeLookup, sarLookup: extra.sar_lookup, asked, extra: [...(extra.knowledge || knowledge || []).map(k => k && k.source).filter(Boolean), ...(researchDir.urlsOf(extra.research_lookup) || []), ...symptoms.urlsOf(symptomResearch), ...O.urlsOf(extra.order_lookup), this.newsletterJoinUrl].filter(Boolean) }; const links = checkLinks(draft.body, linkOpts);
     const kIn = (extra.knowledge && extra.knowledge.length) ? extra.knowledge : knowledge;
     // Always pass the URL-verified store lookup (withVerifiedHandles) to the model. Using extra.store_lookup first
     // hid those products when the short search query was empty (r.86b605a8).
@@ -1311,6 +1375,11 @@ class MailBots {
     if (detEdits.length) x.edits = [...(Array.isArray(x.edits) ? x.edits : []), ...detEdits];
     const ho = handoffProblem(draft.body, extra.kb_gaps); if (ho) { verdict = 'fail'; x.notes = (x.notes ? String(x.notes) + '. ' : '') + 'Hands the question off to the team although the knowledge base answers it (no KB gap was logged): "' + ho.slice(0, 120) + '"'; }
     const rp = refundProblem(draft.body); if (rp) { verdict = 'fail'; x.notes = 'Promises a refund amount or timeline, or says a refund was issued or approved: "' + rp.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
+    const askedQ = orig.subject + '\n' + orig.text; const addEdits = (es) => { x.edits = [...(Array.isArray(x.edits) ? x.edits : []), ...es]; };
+    const drp = dealReplacementProblem(askedQ, draft.body); if (drp) { verdict = 'fail'; x.notes = drp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(drp.edits); }
+    const fsc = flatSignalClaim(draft.body); if (fsc) { verdict = 'fail'; x.notes = 'States flatly that the antenna is not detuned or the phone does not ramp up power (use the hedged wording): "' + fsc.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); addEdits([{ action: 'change', text: fsc.slice(0, 500), instead: SIGNAL_HEDGE, reason: 'Use the hedged signal wording', fact: SIGNAL_HEDGE, source: 'knowledge' }]); }
+    const chp = chargingProblem(askedQ, draft.body); if (chp) { verdict = 'fail'; x.notes = chp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(chp.edits); }
+    const shp = shopLinkProblem(askedQ, draft.body, (u) => !linkProblems(u, linkOpts).length); if (shp) { verdict = 'fail'; x.notes = shp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(shp.edits); }
     const off = discountOffer(draft.body); if (off) { verdict = 'fail'; x.notes = 'Offers or promises a discount, which the writer may never do: "' + off.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
     const rf = percentRedFlagsMissing(orig.subject + '\n' + orig.text, draft.body); if (rf) { verdict = 'fail'; x.notes = "Answers the 99% question without RF Safe's red flags (missing " + rf.join('; ') + ')' + (x.notes ? '. ' + String(x.notes) : ''); }
     const pct = percentClaim(draft.body); if (pct) { verdict = 'fail'; x.notes = 'Affirms a radiation percentage the knowledge base does not support: "' + pct.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
@@ -1334,4 +1403,4 @@ class MailBots {
     this.note(orig.id, n); this.store.updateDraft(draft.id, { notes: [...(draft.notes || []), { reason: 'checker_' + verdict, notes: n.notes, ...n }] }); return n;
   }
 }
-module.exports = { stripStaffNames, supportHit, advocacyEntry, fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
+module.exports = { dealReplacementProblem, isDealQ, isReplacementQ, flatSignalClaim, chargingProblem, shopLinkProblem, isBuyerNoModel, SIGNAL_HEDGE, MAGSAFE_TEXT, DEAL_ANSWER, REPLACEMENT_ANSWER, stripStaffNames, supportHit, advocacyEntry, fixSignoff, fixTypos, specificKeys, LARGE_CHECK_INPUT_CHARS, extractPhoneModels, handleGuesses, noCarryProblems, missingProductProblems, productFactLine, askedStoreProducts, thirdPartyPurchase, sendsToSeller, returnAddressRequired, shortCaveat, writerRound1Ms, checkerMs, LONG_DRAFT_CHARS, sortReason, symptomLookup, medicalDisclaimerProblem, readDisclaimer, handoffProblem, isKidsQ, ownerSentences, verbatimOwner, isReturnsQ, returnAddress, missingAddress, pinCard, refundProblem, trimContext, percentRedFlagsMissing, phoneKeys, checkLinks, maskVerified, linkProblems, withoutUrls, discountOffer, scaffolding, percentClaim, askedQuestions, signedName, productQuery, sarQuery, expandShortPhones, stripColors, extractPhoneModel, productHandle, sameProduct, withVerifiedHandles, markMissingPhone, holdText, fixGreeting, explain, colorLinkProduct, withColorLinks, colorVariantConfig, chooseColorProblem, DEFAULT_SINGLE_VARIANT_COLOR, fetchPublicProduct, withVerifiedHandles, medicalClaimProblem, medicalResearchLinkProblem, readDisclaimer, DISCLAIMER_SLUG, MailBots, dateParts };
