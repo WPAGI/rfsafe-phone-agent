@@ -15,4 +15,13 @@ function isOfficialGovUrl(u) {
   if (/\/(?:pubmed|pmc)\//i.test(x.pathname)) return false;
   return GOV_DOMAINS.some((d) => host === d || host.endsWith('.' + d));
 }
-module.exports = { GOV_DOMAINS, isOfficialGovUrl };
+// RF Safe's own site rfsafe.app (John, Nov 16 2026, 9:03 PM ET: "add ... rfsafe dot app to call bots list of allowed
+// links"; r.65159806 was held for https://rfsafe.app/sar). Exact host rfsafe.app or www.rfsafe.app, any path, https only,
+// default port, no user info, so lookalikes (rfsafe.app.evil.com, notrfsafe.app, https://rfsafe.app@evil.com) stay blocked.
+const SITE_HOSTS = Object.freeze(['rfsafe.app', 'www.rfsafe.app']);
+function isSiteUrl(u) {
+  let x; try { x = new URL(String(u || '').trim()); } catch { return false; }
+  if (x.protocol !== 'https:' || x.username || x.password || (x.port && x.port !== '443')) return false;
+  return SITE_HOSTS.includes(x.hostname.toLowerCase().replace(/\.$/, ''));
+}
+module.exports = { GOV_DOMAINS, isOfficialGovUrl, SITE_HOSTS, isSiteUrl };
