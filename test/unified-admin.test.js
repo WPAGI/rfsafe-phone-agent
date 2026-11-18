@@ -271,6 +271,10 @@ test('N04-N09: one session for Admin, Mailbox and Brain box; Mailbox sign-in han
     // N01 with the package on, the Mailbox section has Mailbox + Brain box tiles
     const home = (await page(a, '/admin', s.cookie)).html;
     assert.match(home, /<section><h2>Mailbox<\/h2><div class="grid"><a class="tile" href="\/admin\/go\/inbox">[^]*?Mailbox<\/span><\/a><a class="tile" href="\/admin\/go\/kb">[^]*?Brain box<\/span><\/a><a class="tile" href="\/admin\/mail">/);
+    // N10 Edge testing: Mailbox-section tile and nav item; signed-out browser goes to sign-in, scripts and Bearer get 401
+    assert.match(home, /<a class="tile" href="\/admin\/edge-testing">[^]*?Edge testing<\/span><\/a>/); assert.match(home, /<a class="nb" href="\/admin\/edge-testing">/); assert.match(home, /Product version \d+\.\d+\.\d+/);
+    assert.strictEqual((await fetch(a.base + '/admin/edge-testing', { redirect: 'manual', headers: { accept: 'text/html' } })).headers.get('location'), '/admin/login');
+    assert.strictEqual((await fetch(a.base + '/admin/edge-testing', { headers: { authorization: 'Bearer ' + (a.deps.adminToken || 'none') } })).status, 401);
     // N04 handover: the admin session becomes the Mailbox session (same value, Path=/inbox)
     r = await fetch(a.base + '/admin/go/inbox', { redirect: 'manual', headers: { cookie: s.cookie } });
     assert.strictEqual(r.status, 303); assert.strictEqual(r.headers.get('location'), '/inbox'); assert.strictEqual(cookieOf(r, 'mail_session'), s.sess);

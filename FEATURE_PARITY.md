@@ -95,3 +95,4 @@ Old = where the feature was before this change. New = where it is now. Nothing w
 | N07 | Every old admin URL still answers or redirects | all | unified-admin |
 | N08 | `next` is a fixed list (inbox, kb, mail): no open redirect, no header injection | /admin/login, /admin/auth | unified-admin |
 | N09 | Mailbox package off: no Mailbox tiles, a clear "Mailbox is off" page | /admin, /admin/go/* | unified-admin |
+| N10 | Edge testing (Nov 18, 2026, build-only): a Mailbox-section tile and a left-nav item, existing admin session only (no Bearer), product version in every admin page's footer. Page, dry run and seed tests: `test/edge-testing.test.js`, `test/edge-testing-app.test.js` | /admin/edge-testing | unified-admin; also edge-testing, edge-testing-app |

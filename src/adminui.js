@@ -5,6 +5,7 @@
 // No folder column here: that stays inside the Mailbox itself. Zero dependencies; output is escaped.
 const MAILV = require('../vendor/sitemail/src/mail/views');
 const MBV = require('../vendor/sitemail/src/mailbox/views');
+const { PRODUCT_VERSION } = require('./version');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const I = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
@@ -23,6 +24,7 @@ const ICONS = {
   viewer: I('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/>'),
   brain: I('<path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 3 3h1V4z"/><path d="M15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-3 3h-1V4z"/>'),
   csv: I('<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/>'),
+  edge: I('<path d="M4 6h16M4 12h10M4 18h7"/><path d="m15 16 2 2 4-4"/>'),
   gaps: I('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'),
 };
 
@@ -46,6 +48,7 @@ const SECTIONS = [
     { id: 'mailbox', label: 'Mailbox', href: '/admin/go/inbox', icon: 'mailbox', mail: true },
     { id: 'brain', label: 'Brain box', href: '/admin/go/kb', icon: 'brain', mail: true },
     { id: 'viewer', label: 'Mail viewer', href: '/admin/mail', icon: 'viewer' },
+    { id: 'edge', label: 'Edge testing', href: '/admin/edge-testing', icon: 'edge', mail: true },
   ] },
   { title: 'Downloads', items: [
     { id: 'calls-csv', label: 'Calls (CSV)', href: '/admin/calls.csv', icon: 'csv' },
@@ -77,11 +80,11 @@ function nav(active, mailOn) {
   return `<nav class="nav glass" aria-label="Admin">${nb({ id: 'home', label: 'Home', href: '/admin', icon: 'home' })}${sections(mailOn).filter((s) => s.title !== 'Downloads').map((s) => `<h4>${esc(s.title)}</h4>${s.items.map(nb).join('')}`).join('')}</nav>`;
 }
 // Full admin page: Mailbox top bar + left nav + content pane. csrf (optional) adds the Sign out button.
-function layout(title, body, { active = '', csrf = '', mailOn = false } = {}) {
+function layout(title, body, { active = '', csrf = '', mailOn = false, css = '' } = {}) {
   const so = csrf ? `<form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="${esc(csrf)}"><button type="submit" class="so">Sign out</button></form>` : '';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(title)}</title><style>${MAILV.CSS}${MBV.CSS2}${ADMIN_CSS}</style></head><body>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(title)}</title><style>${MAILV.CSS}${MBV.CSS2}${ADMIN_CSS}${css}</style></head><body>
 <header class="top glass"><div class="logo">${MAILV.ICON}</div><div class="brand"><b>Callbots Admin</b><small>One sign-in for calls, texts, subscribers, Mailbox and Brain box</small></div><div class="sp"></div><span class="pill"><span class="dot"></span>Private · owner only</span>${so}</header>
-<div class="app wide">${nav(active, mailOn)}<main class="pane glass">${body}</main></div></body></html>`;
+<div class="app wide">${nav(active, mailOn)}<main class="pane glass">${body}<p class="pv"><small>Product version ${esc(PRODUCT_VERSION)}</small></p></main></div></body></html>`;
 }
 // Sign-in and message pages: same colors, one centered card, no nav (nothing behind sign-in is linked).
 function bare(title, body) {
