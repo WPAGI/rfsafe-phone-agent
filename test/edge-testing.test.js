@@ -108,7 +108,7 @@ test(`shipped seed: ${SEED_COUNT} ${SEED_SITE} tests, PII-free on re-scan, tagge
   const seed = JSON.parse(fs.readFileSync(SEED, 'utf8'));
   assert.strictEqual(seed.length, SEED_COUNT); assert.ok(seed.every(r => r.site === SEED_SITE));
   const scan = require(path.join(__dirname, '../scripts/edge-seed')).scanRecords(seed); assert.deepStrictEqual(scan, [], 'no PII left in the shipped seed');
-  assert.ok(seed.every(r => !r.from || /@mail\.grokbot\.com$/.test(r.from)), 'test sender only');
+  assert.ok(seed.every(r => !r.from || /@(mail\.grokbot\.com|example\.com)$/.test(r.from)), 'test sender only (our test mailbox or reserved example.com)');
   const d = tmp(); const s = new EdgeStore({ file: path.join(d, 'e.json') });
   const c = I.importRecords(s, seed, { site: SEED_SITE }); assert.strictEqual(c.added, SEED_COUNT); assert.strictEqual(c.refused.length, 0);
   const run = s.baseline(SEED_SITE); assert.strictEqual(runLabel(run).startsWith('1.0.0 run 1, prompts '), true); assert.strictEqual(run.total, SEED_COUNT);
