@@ -1,0 +1,2 @@
+{ "id": "r.fx-noprompt", "site": "rfsafe.app", "from": "bestdealon@mail.grokbot.com", "subject": "Signal", "body": "Will the case block my signal?", "expected_behavior": "Hedged signal wording.",
+  "runs": [ { "product_version": "1.0.0", "run_number": 1, "is_baseline": true, "date_utc": "2026-11-15T05:00:00.000Z", "disposition": "held", "reason": "Checker unsure", "checker_verdict": "unsure", "reply_text": "", "pass_fail": "mixed" } ] }

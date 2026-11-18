@@ -3,6 +3,7 @@
 // so the same code runs in demo (mocks) and production (real clients built in bin/server.js).
 const { URL } = require('url');
 const { readBody, safeEq, fp, appendJsonl } = require('./util');
+const { PRODUCT_VERSION } = require('./version');
 const { normNumber, resolveSecret } = require('./tenants');
 const { WebhookVerifier, sipHeader, callerIdFromSip, CallSession, buildInstructions } = require('./xai');
 const { verifyTwilio, twiml, sendCustomerSms } = require('./twilio');
@@ -478,6 +479,15 @@ function createApp(d) {
       const items = t ? owner.feedbackFor(t).filter((r) => r && r.tenant === t.id) : [];
       return adminUiSend(res, 200, adm.shell('Owner feedback', FB.reviewPage({ tenant: t, tenants: list, items }), { active: 'feedback', csrf: pageCsrf, mailOn: !!mailBase }));
     }
+    // Edge testing: admin session only (no Bearer), CSRF on every POST. See vendor/sitemail/src/edgetest.
+    if (p === '/admin/edge-testing' || p.startsWith('/admin/edge-testing/')) {
+      if (!sess) return req.method === 'GET' && /text\/html/.test(req.headers.accept || '') ? adminUiSend(res, 303, '', { location: '/admin/login' }) : json(res, 401, { error: 'unauthorized' });
+      if (!edge) return adminUiSend(res, 404, adm.shell('Not available', '<h1>Edge testing is off</h1><p>The Site Mail Mailbox is not running on this server.</p><p><a href="/admin">Back to admin home</a></p>', { active: 'edge', csrf: pageCsrf, mailOn: !!mailBase }));
+      return edge.route(req, res, u, { base: '/admin/edge-testing', csrf: pageCsrf, who: 'admin session ' + fp(sess.sid),
+        csrfOk: (f) => sameOrigin(req) && !!f.csrf && safeEq(String(f.csrf), pageCsrf), readForm: async (lim) => Object.fromEntries(new URLSearchParams(await readBody(req, lim))),
+        wrap: (title, body) => adm.shell(title, body, { active: 'edge', csrf: pageCsrf, mailOn: !!mailBase, css: edge.css }),
+        send: (code, html, h = {}) => adminUiSend(res, code, html, h), json: (code, obj) => json(res, code, obj) });
+    }
     // Usage & costs: GET only, admin session only (no Bearer), rate-limited per session. Provider keys stay server-side.
     if (p === '/admin/usage' || p === '/admin/usage.json') {
       const html = p === '/admin/usage';
@@ -583,6 +593,18 @@ function createApp(d) {
       sitemail = require('../vendor/sitemail/port/mount').mountSiteMail({ env: envAll, dataDir: d.dataDir, rootDir: require('path').join(__dirname, '..'), log, auth: d.adminAuth || undefined, productSearch, orderLookupQuery, orderIndexQuery }, require('../vendor/sitemail/site.config.js'));
     }
   } catch (e) { log('sitemail.mount_failed', { err: String(e && e.message || e).slice(0, 200) }); sitemail = null; }
+  // Edge testing (/admin/edge-testing): saved edge-case emails rerun as a dry run through the real Mailbox pipeline.
+  // Its own file on the data disk; never sends, never touches Mailbox threads or orders (vendor/sitemail/src/edgetest).
+  let edge = null;
+  try {
+    const mb = sitemail && sitemail.enabled ? sitemail.mailbox : null;
+    if (d.dataDir && mb && mb.enabled) edge = require('../vendor/sitemail/src/edgetest').createEdgeTesting({
+      site: 'callbots.org', dataDir: d.dataDir, file: d.edgeFile, productVersion: () => PRODUCT_VERSION, log, now: d.edgeNow,
+      env: { XAI_API_KEY: (d.env || process.env).XAI_API_KEY }, fetchImpl: d.edgeFetch || globalThis.fetch, products: d.edgeProducts, mods: d.edgeMods,
+      seedFile: d.edgeSeedFile !== undefined ? d.edgeSeedFile : require('path').join(__dirname, '..', 'seeds', 'edge-tests', 'callbots.org.json'),
+      live: { bots: () => mb.bots, kb: () => (mb.tools ? { kb: mb.tools.kb, kbUrls: () => mb.tools.kbUrls(), kbVersion: () => mb.tools.kbVersion(), entryBySlug: (s) => mb.tools.entryBySlug(s) } : null) },
+    });
+  } catch (e) { edge = null; log('edge.unavailable', { error: String(e && e.message || e).slice(0, 120) }); }
   try { mailBase = sitemail && sitemail.enabled && sitemail.mail ? require('../vendor/sitemail/port/lib/config').mailBase(require('../vendor/sitemail/site.config.js')) : null; } catch { mailBase = null; }
   const sitemailHealth = () => { try { return sitemail && sitemail.enabled ? { sitemail: sitemail.status() } : {}; } catch { return { sitemail: { error: true } }; } };
   const handler = async (req, res) => {
@@ -599,12 +621,12 @@ function createApp(d) {
       if (req.method === 'GET' && u.pathname === '/sitemap.xml') return bytes(res, 200, 'application/xml; charset=utf-8', SITEMAP);
       if (req.method === 'GET' && (u.pathname === '/favicon.svg' || u.pathname === '/favicon')) return bytes(res, 200, 'image/svg+xml; charset=utf-8', FAVICON_SVG);
       if (req.method === 'GET' && u.pathname === '/favicon.ico') return bytes(res, 200, 'image/x-icon', faviconIco());
-      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown', ...sitemailHealth() });
+      if (req.method === 'GET' && u.pathname === '/health') return json(res, draining ? 503 : 200, { ok: !draining, draining, tenants: d.tenants.list().length, active_calls: calls.size, mode: d.mode || 'unknown', product_version: PRODUCT_VERSION, ...sitemailHealth() });
       if (u.pathname === '/mail' || u.pathname.startsWith('/mail/')) return void await mail.route(req, res, u);
       if (u.pathname === '/admin' && req.method === 'GET' && (req.headers.authorization || '').startsWith('Bearer ')) return adminStatus(req, res);
       if (req.method === 'GET' && u.pathname === '/admin/status') return adminStatus(req, res);
       if (u.pathname === '/admin/usage/snapshot') return await usageSnapshotRoute(req, res);
-      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/') || u.pathname === '/admin/owner-feedback' || u.pathname === '/admin/owner-feedback.json') return await adminUi(req, res, u);
+      if (u.pathname === '/admin' || ADMIN_UI.has(u.pathname) || u.pathname === '/admin/subscribers' || u.pathname.startsWith('/admin/subscribers/') || u.pathname === '/admin/outbound' || u.pathname.startsWith('/admin/outbound/') || u.pathname === '/admin/owner-feedback' || u.pathname === '/admin/owner-feedback.json' || u.pathname === '/admin/edge-testing' || u.pathname.startsWith('/admin/edge-testing/')) return await adminUi(req, res, u);
       if (u.pathname.startsWith('/twilio/owner/')) return await owner.route(req, res, u, (t, params) => verifyTwilio(sec(t, 'twilio_auth_token'), d.publicBaseUrl + req.url, params, req.headers['x-twilio-signature']));
       if (req.method === 'POST' && u.pathname === '/xai/webhook') return await xaiWebhook(req, res);
       if (req.method === 'POST' && u.pathname === '/twilio/sms') return await twilioSms(req, res);
@@ -618,7 +640,7 @@ function createApp(d) {
       return json(res, 404, { error: 'not_found' });
     } catch (e) { log('http.error', { path: u.pathname, err: redactSecrets(e.message) }); if (!res.headersSent) json(res, e.status || 500, { error: e.status ? e.message : 'internal_error' }); }
   };
-  return { handler, approvals, calls, owner, toolsFor, startDrain: () => { draining = true; }, isDraining: () => draining, smsIdle: () => Promise.all([...smsJobs]) };
+  return { handler, get edge() { return edge; }, approvals, calls, owner, toolsFor, startDrain: () => { draining = true; }, isDraining: () => draining, smsIdle: () => Promise.all([...smsJobs]) };
 }
 
 function readGaps(f) { try { return require('fs').readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } }

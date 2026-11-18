@@ -1,4 +1,4 @@
-# RF Safe phone agent: v0.2.0
+# RF Safe phone agent (product version: `VERSION`)
 
 Demo mode is what runs on Render until `GO-LIVE.md`. Do not set `PA_MODE=live` until that checklist is done.
 
@@ -74,6 +74,21 @@ One sign-in for the whole admin (John, Nov 16, 2026, 9:13-9:22 PM ET). It covers
   - Every other admin URL still answers.
 - **Feature list:** every feature, with its new page and its test, is in `FEATURE_PARITY.md`. `test/unified-admin.test.js` fails if an id in that list has no test.
 - **Changed tests:** five older test files now read the new page instead of the old one-page `/admin` (admin, channel-toggles, sent-messages, sitemail-mount). Their assertions are the same. Design note: `docs/UNIFIED_ADMIN.md`.
+
+## Product version
+
+The product version lives in one place: the `VERSION` file at the repo root, read by `src/version.js`. `/health` (`product_version`), the admin footer (every admin page) and the Edge testing page all show it from there; `package.json` mirrors it (a test fails if they differ).
+
+Semver, starting at **1.0.0**:
+- **Patch** (1.0.1): small fixes and prompt tweaks.
+- **Minor** (1.1.0): new features.
+- **Major stays 1** while the product is in beta.
+
+Bump `VERSION` and `package.json` together in the PR that makes the change. The **prompt version** in `vendor/sitemail/src/mailbox/bot-defaults.js` (for example 1.9.27) is separate fine print: it is recorded on each Edge testing run but is never shown as the product version. A rerun with no software change stays on the same product version and gets the next run number (for example `1.0.0 run 3, prompts 1.9.27`).
+
+## Edge testing (/admin/edge-testing)
+
+A tile in the Mailbox section of the admin home and an item in the left nav. Saved edge-case emails, rerun as a **dry run** through the real Mailbox sorter, writer and checker; nothing is sent. Design note, guarantees and cost cap: [docs/EDGE_TESTING.md](docs/EDGE_TESTING.md). Seed: `seeds/edge-tests/callbots.org.json` (built with `scripts/edge-seed.js`, PII-redacted).
 
 ## Private Mail inbox (/mail)
 
