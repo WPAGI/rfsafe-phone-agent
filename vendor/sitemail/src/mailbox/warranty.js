@@ -95,6 +95,12 @@ function mismatchSentence(ordered, requested, orderCount, via) {
   const reqs = requested.length > 1 ? listJoin(requested) + ' cases' : requested[0] + ' case';
   return 'The only cases we show as warrantable under ' + idPhrase(via) + ' are for the ' + listJoin(ordered) + '. ' + PER_MODEL + ' For your ' + reqs + ', you would need to buy ' + (requested.length > 1 ? 'them' : 'it') + ' at the regular price, or send us the order details for ' + (requested.length > 1 ? 'them' : 'it') + '. ' + OTHER_CONTACT;
 }
+// No phone named, orders found (John, Nov 18 2026 9:53 PM ET; r.27cdb25a): list the models on file, ask which one the
+// replacement is for, and add the different email / phone line.
+const NO_MODEL_ASK = 'Which phone is the replacement case for?';
+function noModelSentence(ordered, via) {
+  return 'The cases we show as warrantable under ' + idPhrase(via) + ' are for the ' + listJoin(ordered) + '. ' + NO_MODEL_ASK + ' ' + OTHER_CONTACT;
+}
 function noOrdersSentence(via) {
   return 'We don\'t show any warrantable orders under ' + idPhrase(via) + '. ' + OTHER_CONTACT;
 }
@@ -116,7 +122,7 @@ function check({ match = 'none', orders = [], requestedText = '', via = { kind: 
   const models = orderedModels(orders);
   if (!models.length) return { result: 'no_items', requested, ordered: [], matched_orders: [] };
   const ordered = models.map(m => m.label);
-  if (!requestedKeys.length) return { result: 'no_model', requested, ordered, matched_orders: [] };
+  if (!requestedKeys.length) return { result: 'no_model', via: via.kind, requested, ordered, matched_orders: [], sentence: noModelSentence(ordered, via) };
   const have = new Map(models.map(m => [m.key, m]));
   const hit = requestedKeys.filter(k => have.has(k)); const miss = requestedKeys.filter(k => !have.has(k));
   const matched_orders = [...new Set(hit.flatMap(k => have.get(k).orders))];
@@ -148,7 +154,8 @@ function noteLines(wc) {
     lines.push('Include these sentences word for word: "' + wc.sentence + '"');
     lines.push('Do not say their order includes the ' + listJoin(wc.unmatched) + ', and only name phone models listed in this note.');
   } else if (wc.result === 'no_model') {
-    lines.push('Result: the customer did not name the phone. The cases on this sender\'s own past orders are for: ' + wc.ordered.join(', ') + '. Ask which phone model the replacement is for.');
+    lines.push('Result: the customer did not name the phone. The cases on this sender\'s own past orders (matched by the sender email) are for: ' + wc.ordered.join(', ') + '.');
+    lines.push('Include these sentences word for word: "' + wc.sentence + '"');
   } else if (wc.result === 'no_items') {
     lines.push('Result: the items on this sender\'s orders could not be read right now. Use the normal $20 replacement answer and make no claim about which phone their order was for.');
   } else {
@@ -166,6 +173,16 @@ function problem(wc, body) {
   if (wc.result === 'mismatch') {
     if (b.includes(norm(wc.sentence).replace(/[.!?]+$/, ''))) return null;
     return { kind: 'warranty_mismatch', problem: 'Replacement request for the ' + listJoin(wc.unmatched) + ', but the only cases under this email are for the ' + listJoin(wc.ordered) + ': the reply must list those models, ask for the order details for the ' + listJoin(wc.unmatched) + ' and say to contact us from the email or phone the order was placed with', edits: [{ action: 'add', text: wc.sentence, reason: 'Past-order model check: the requested phone is not on this sender\'s orders', fact: wc.sentence, source: 'system_notes' }] };
+  }
+  if (wc.result === 'no_model') {
+    // Every part is required: the models on file (each one), a which-phone question, and the different email / phone line.
+    const missing = [];
+    const have = new Set(modelKeys(body));
+    if (!/\bwarrantable under this (?:email|phone number)\b/.test(b) || wc.ordered.some(l => !modelKeys(l).every(k => have.has(k)))) missing.push('the models on file under this email');
+    if (!/\bwhich\b[^?]{0,80}\?/.test(b)) missing.push('which phone the replacement is for');
+    if (!b.includes(norm(OTHER_CONTACT).replace(/[.!?]+$/, ''))) missing.push('the different email or phone line');
+    if (!missing.length) return null;
+    return { kind: 'warranty_no_model', problem: 'Replacement request with orders on file but no phone named: the reply must list ' + listJoin(missing), edits: [{ action: 'add', text: wc.sentence, reason: 'Past-order model check: no phone named; list the models on file, ask which one, and add the different email or phone line', fact: wc.sentence, source: 'system_notes' }] };
   }
   if (wc.result === 'no_orders') {
     const edits = [];
@@ -186,4 +203,4 @@ function sayFor(wc) {
   return 'Say: "' + wc.sentence + '" Then ask for the order number, or the name, email and phone number used on the order. Never read out a full phone number or email.';
 }
 
-module.exports = { TITLE, NO_ORDERS_ASK, OTHER_CONTACT, PER_MODEL, idPhrase, last4, noOrdersSentence, WARRANTY_Q, modelKeys, label, listJoin, isWarrantyRequest, orderedModels, mismatchSentence, check, forEmail, noteLines, problem, sayFor };
+module.exports = { NO_MODEL_ASK, noModelSentence, TITLE, NO_ORDERS_ASK, OTHER_CONTACT, PER_MODEL, idPhrase, last4, noOrdersSentence, WARRANTY_Q, modelKeys, label, listJoin, isWarrantyRequest, orderedModels, mismatchSentence, check, forEmail, noteLines, problem, sayFor };
