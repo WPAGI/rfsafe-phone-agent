@@ -3,6 +3,7 @@
 // writer and the checker. Facts our system added, never the customer's words. Callbots Mailbox only; phone and text untouched.
 // Order details appear only for orders matched by the sender's email address. No address or payment details, ever.
 const PC = require('./phone-catalog');
+const W = require('./warranty');
 
 const TITLE = 'System notes for this email';
 const INTRO = 'Added automatically by our system, not written by the customer. Use these facts when replying.';
@@ -43,7 +44,8 @@ function orderLines(order, productFor, fallback) {
 
 // catalogHit: phoneCatalog.resolve() result. orderFacts: orderIndex.factsFor() result (null when the index is off).
 // productFor(item): the catalog product (with live stock) for an ordered item, or null.
-function build({ catalogHit = null, orderFacts = null, productFor = null, fallback = PC.DEFAULT_COLOR } = {}) {
+// warranty: warranty.forEmail() result (null unless the order index is on and this is a $20 replacement / warranty request).
+function build({ catalogHit = null, orderFacts = null, productFor = null, fallback = PC.DEFAULT_COLOR, warranty = null } = {}) {
   const sections = [];
   const found = (catalogHit && catalogHit.found) || [];
   if (found.length) sections.push([CATALOG_TITLE, ...found.map(x => PC.formatProductLine(x.product, fallback))].join('\n'));
@@ -58,8 +60,10 @@ function build({ catalogHit = null, orderFacts = null, productFor = null, fallba
     else lines.push(ORDERS_NONE);
     sections.push(lines.join('\n'));
   }
+  const wl = warranty ? W.noteLines(warranty) : null;
+  if (wl) sections.push(wl);
   if (!sections.length) return null;
-  return { text: [TITLE, INTRO, ...sections].join('\n\n'), switch_orders: switchOrders };
+  return { text: [TITLE, INTRO, ...sections].join('\n\n'), switch_orders: switchOrders, ...(warranty ? { warranty } : {}) };
 }
 
 // Fields for writer/checker inputs. phone_catalog stays structured for the deterministic catalog checks.
@@ -68,6 +72,7 @@ function fields(catalogHit, notes) {
   if (catalogHit && catalogHit.found && catalogHit.found.length) out.phone_catalog = { title: PC.BLOCK_TITLE, models: catalogHit.models || [], products: catalogHit.found.map(x => x.product) };
   if (notes && notes.text) out.system_notes = notes.text;
   if (notes && notes.switch_orders && notes.switch_orders.length) out.switch_orders = notes.switch_orders;
+  if (notes && notes.warranty) out.warranty_check = notes.warranty;
   return out;
 }
 

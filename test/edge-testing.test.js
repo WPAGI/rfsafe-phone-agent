@@ -57,7 +57,7 @@ function edgeFor(dir, over = {}) {
 
 test('product version: VERSION is the one source (semver 1.0.0), package.json matches, README documents the bump rules', () => {
   const V = require(path.join(__dirname, '../src/version'));
-  assert.strictEqual(V.PRODUCT_VERSION, '1.0.0');
+  assert.strictEqual(V.PRODUCT_VERSION, '1.1.0');
   assert.match(fs.readFileSync(V.FILE, 'utf8'), /^\d+\.\d+\.\d+\n?$/);
   assert.strictEqual(require('../package.json').version, V.PRODUCT_VERSION, 'package.json version mirrors VERSION');
   const readme = fs.readFileSync(path.join(__dirname, '../README.md'), 'utf8');

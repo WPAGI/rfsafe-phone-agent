@@ -39,6 +39,7 @@ npm run build       # dist/rfsafe-phone-agent-v0.1.0.zip + .sha256 (secret-scann
 | `deploy/` | `render.yaml`, `env.example` (names only), RF Safe tenant config |
 | `DESIGN.md`, `DEPLOY.md`, `RESEARCH.md`, `WIKI_PAGE.md`, `CHANGELOG.md` | docs |
 | `docs/OWNER_EMAIL_FEEDBACK.md` | verified-owner email recipient, PIN-gated feedback, read-only review feed, deploy config still required |
+| `docs/WARRANTY_CHECK.md` | $20 replacement / warranty past-order model check: Mailbox (order index on), phone and text (`warranty_check`, only with `order_lookup_enabled`) |
 
 ## Interim texting (important)
 Until A2P 10DLC texting is approved on the new number, every tenant ships with `sms_enabled: false`. The `send_link` tool tells the caller that texting is not on yet and offers to read the link aloud instead.
