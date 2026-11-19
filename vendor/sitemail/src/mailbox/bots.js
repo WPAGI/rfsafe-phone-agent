@@ -17,6 +17,7 @@ const R = require('./revise'); // checker evidence order, health-tip allowance, 
 const { isOfficialGovUrl, isSiteUrl } = require('./govlinks');
 const PC = require('./phone-catalog');
 const SN = require('./system-notes');
+const W = require('./warranty');
 const err = (s, status = 400) => Object.assign(new Error(s), { status });
 const clone = x => JSON.parse(JSON.stringify(x));
 // Reasoning models think before answering: give them more time and a thinking-token allowance on top of the reply budget.
@@ -1125,7 +1126,10 @@ class MailBots {
           orderedProducts.set(it.title, prod);
         }
       }
-      systemNotes = SN.build({ catalogHit, orderFacts, productFor: (it) => orderedProducts.get(it.title) || null, fallback: (this.colorCfg && this.colorCfg.single_variant_color) || PC.DEFAULT_COLOR });
+      // Warranty / $20 replacement past-order model check (John, Nov 18 2026 8:38 PM ET): only this sender's email-matched orders.
+      const warranty = W.forEmail(orig, orderFacts);
+      if (warranty) this.step(id, 'reply', 'lookup', 'Replacement check: ' + warranty.result.replace('_', ' ') + (warranty.requested.length ? ' (' + warranty.requested.join(', ') + ')' : ''), { bot: r.id, tool: 'warranty_check', result: warranty.result });
+      systemNotes = SN.build({ warranty, catalogHit, orderFacts, productFor: (it) => orderedProducts.get(it.title) || null, fallback: (this.colorCfg && this.colorCfg.single_variant_color) || PC.DEFAULT_COLOR });
       const input = { message: safeOrig, ...(systemNotes ? { system_notes: systemNotes.text } : {}), questions, sender: { signed_name: signed, greeting: signed ? 'Hi ' + signed + ',' : 'Hi there,' }, ...trimContext(knowledge, store_lookup), products, sar_lookup, ...(medical_disclaimer ? { medical_disclaimer } : {}), ...(research_lookup ? { research_lookup } : {}), ...(symptom_research ? { symptom_research } : {}), ...(order_lookup ? { order_lookup } : {}), ...SN.fields(catalogHit, systemNotes) };
       const redrafting = this.db.redraft && this.db.redraft[id];
       if (redrafting && redrafting.draft_id) {
@@ -1377,6 +1381,7 @@ class MailBots {
     const rp = refundProblem(draft.body); if (rp) { verdict = 'fail'; x.notes = 'Promises a refund amount or timeline, or says a refund was issued or approved: "' + rp.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); }
     const askedQ = orig.subject + '\n' + orig.text; const addEdits = (es) => { x.edits = [...(Array.isArray(x.edits) ? x.edits : []), ...es]; };
     const drp = dealReplacementProblem(askedQ, draft.body); if (drp) { verdict = 'fail'; x.notes = drp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(drp.edits); }
+    const wcp = W.problem(extra.warranty_check, draft.body); if (wcp) { verdict = 'fail'; x.notes = wcp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(wcp.edits); }
     const fsc = flatSignalClaim(draft.body); if (fsc) { verdict = 'fail'; x.notes = 'States flatly that the antenna is not detuned or the phone does not ramp up power (use the hedged wording): "' + fsc.slice(0, 120) + '"' + (x.notes ? '. ' + String(x.notes) : ''); addEdits([{ action: 'change', text: fsc.slice(0, 500), instead: SIGNAL_HEDGE, reason: 'Use the hedged signal wording', fact: SIGNAL_HEDGE, source: 'knowledge' }]); }
     const chp = chargingProblem(askedQ, draft.body); if (chp) { verdict = 'fail'; x.notes = chp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(chp.edits); }
     const shp = shopLinkProblem(askedQ, draft.body, (u) => !linkProblems(u, linkOpts).length); if (shp) { verdict = 'fail'; x.notes = shp.problem + (x.notes ? '. ' + String(x.notes) : ''); addEdits(shp.edits); }

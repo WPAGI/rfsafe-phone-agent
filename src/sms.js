@@ -37,6 +37,7 @@ function buildSmsInstructions(tenant, { returning = null, known = null } = {}) {
     (tenant.blocked_topics || []).length ? `Do not discuss: ${tenant.blocked_topics.join(', ')}.` : '',
     'You cannot transfer a text to a person. If they want a person, use take_message (name, callback number defaults to this sender, message) or give the support contact.',
     tenant.order_lookup_enabled ? 'For order status use order_status with the order number plus the email or phone on the order (this sender\'s number counts).' : '',
+    tenant.order_lookup_enabled ? 'For a $20 replacement-case (warranty) request, call warranty_check with the phone model they want it for, and reply with what its say field tells you.' : '',
     tenant.email_enabled ? 'To email something, confirm the address in writing with set_email_address (caller_said_yes only after they confirm), then send_email.' : '',
     known ? `The sender's number matches a known contact: ${known.name}${known.role ? ' (' + known.role + ')' : ''}. Changes the greeting only, no extra permissions.` : '',
     returning ? `The sender's number matches an RF Safe subscriber${returning.firstName ? ' (first name on file: ' + returning.firstName + '; use it, do not ask for their name)' : ''}.${returning.emailDomainSpoken && tenant.email_enabled ? ' They have an email on file at ' + returning.emailDomainSpoken + ': to email them, offer that (set_email_address with email_on_file true) instead of asking for an address, and never write the address out.' : ''}` : '',

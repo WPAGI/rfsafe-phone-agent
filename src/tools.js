@@ -35,6 +35,7 @@ const DEFS = {
   sar_lookup: { description: 'Look up a phone model\'s FCC-reported SAR values (head, body, hotspot; cellular-only and with Wi-Fi on) from RF Safe\'s public SAR database. Speak the numbers briefly; never read the URLs aloud.', parameters: { type: 'object', properties: { phone: { type: 'string', description: 'brand and model, e.g. iPhone 17 Pro Max' } }, required: ['phone'] } },
   sar_ranking: { description: 'List the LOWEST-SAR (lowest radiation) phones in RF Safe\'s public SAR database, ranked by FCC-reported SAR. Use for questions like "what is the lowest radiation phone", "which phone has the lowest SAR", or "lowest SAR Samsung". Report the top phones with their head and body SAR in W/kg against the 1.6 limit, and offer the ranking page.', parameters: { type: 'object', properties: { metric: { type: 'string', enum: ['combined', 'head', 'body'], description: 'combined (head + body, default), head, or body' }, brand: { type: 'string', description: 'optional brand filter, e.g. Apple, Samsung' }, limit: { type: 'integer', description: '1-10, default 5' } } } },
   end_call: { description: 'End the call politely after saying goodbye.', parameters: { type: 'object', properties: { reason: { type: 'string' } } } },
+  warranty_check: { description: 'For a $20 replacement-case (warranty) request: call with the phone model the caller wants a replacement case for. The server checks only this caller\'s own past orders (caller ID, or an order number plus the email or phone on that order). Say only what comes back in say: if their orders are for other phones, name those models and ask for the order details for the phone they asked about; if no orders are found, ask for the order number, or the name, email and phone number used on the order. Never read out other order details, addresses or payment details.', parameters: { type: 'object', properties: { phone_model: { type: 'string', description: 'the phone the replacement case is for, e.g. iPhone 16 Pro Max' }, order_number: { type: 'string', description: 'order number, if the caller gave one' }, email: { type: 'string', description: 'email on that order (only used with an order number)' }, phone: { type: 'string', description: 'phone on that order, if different from caller ID (only used with an order number)' } }, required: ['phone_model'] } },
   order_status: { description: 'Check a QuantaCase/store order. Ask for the order number AND the email address or phone number used on the order before calling; caller ID also counts as a phone. Share only what comes back (status, items, carrier, delivery estimate, city/state). Never read out a street address or payment details, never take payments, and if it fails just say you could not verify that order and offer to take a message.', parameters: { type: 'object', properties: { order_number: { type: 'string', description: 'digits, e.g. 1146' }, email: { type: 'string', description: 'email on the order, if the caller gave one' }, phone: { type: 'string', description: 'phone on the order, if different from caller ID' } }, required: ['order_number'] } },
 };
 
@@ -45,7 +46,8 @@ class Tools {
     const names = ['kb_answer', 'note_unanswered', 'website_lookup', 'send_link', 'send_link_sms', 'take_message', 'end_call', 'transfer_to_human'];
     if (this.tenant.shopify) names.splice(2, 0, 'product_search');
     if (this.tenant.sar_lookup && this.d.sarFor) names.splice(1, 0, 'sar_lookup', 'sar_ranking');
-    if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status');
+    // order_status and warranty_check: only when order lookup is on for this tenant (off in production as of Nov 18 2026).
+    if (this.tenant.order_lookup_enabled && this.tenant.shopify) names.push('order_status', 'warranty_check');
     if (this.tenant.sms_enabled) names.splice(names.indexOf('send_link'), 0, 'set_text_number');
     if (this.tenant.email_enabled && this.d.emailFor) names.splice(names.indexOf('take_message'), 0, 'set_email_address', 'send_email');
     return names.map((n) => ({ type: 'function', name: n, ...DEFS[n] }));
@@ -93,6 +95,20 @@ class Tools {
           if (ctx.channel !== 'voice') return { ok: true };
           setTimeout(() => this.d.callControl.hangup(ctx.callId).catch(() => {}), 4000).unref?.();
           return { ok: true, ending: true };
+        }
+        case 'warranty_check': {
+          // Past-order model check for a $20 replacement (John, Nov 18 2026 8:38 PM ET). Same failed-check budget as order_status.
+          const W = require('../vendor/sitemail/src/mailbox/warranty');
+          const key = t.id + '|' + (ctx.callId || ctx.caller || '');
+          const fails = (this._orderFails ||= new Map());
+          if ((fails.get(key) || 0) >= 3) return { ok: false, error: 'too_many_attempts', say: 'I can\'t check more orders on this call. I can take a message and the team will follow up.' };
+          const model = String(args.phone_model || '').slice(0, 80);
+          const r = await this.d.shopifyFor(t).pastOrders({ orderName: String(args.order_number || '').slice(0, 20), email: String(args.email || '').slice(0, 120), phone: String(args.phone || '').slice(0, 30), callerPhone: ctx.caller });
+          if (!r.ok) { log('warranty.check', { tenant: t.id, ok: false, reason: r.reason || null }); return { ok: false, error: r.reason, say: r.reason === 'bad_order_number' ? 'Ask for the order number again; it is the number in the order confirmation email.' : r.reason === 'need_email_or_phone' ? 'Ask for the email or phone number used on the order.' : 'Order lookup is not available right now. Continue with the normal $20 replacement steps and ask for the order number, or the name, email and phone number used on the order.' }; }
+          if (args.order_number && r.match === 'none') fails.set(key, (fails.get(key) || 0) + 1);
+          const wc = W.check({ match: r.match, orders: r.orders, requestedText: model, via: r.match === 'order' ? { kind: 'order' } : { kind: 'phone', last4: W.last4(ctx.caller) } });
+          log('warranty.check', { tenant: t.id, ok: true, result: wc.result });
+          return { ok: true, result: wc.result, requested_model: wc.requested[0] || null, ordered_models: wc.ordered, ...(wc.matched_orders.length ? { matched_orders: wc.matched_orders } : {}), say: W.sayFor(wc) };
         }
         case 'order_status': {
           // at most 3 failed checks per call (or per caller on SMS): stops order-number/email guessing

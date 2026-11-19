@@ -92,6 +92,28 @@ class ShopifyClient {
     if (!o || !verifyOrderContact(o, { email: em, phones })) return { ok: false, reason: 'not_found_or_not_verified' };
     return { ok: true, ...safeOrderView(o) };
   }
+  // Past orders for the $20 replacement / warranty model check (John, Nov 18 2026 8:38 PM ET). Only the requester's own orders:
+  // with an order number, the email or phone on it must match (same rule as orderStatus); without one, ONLY caller ID is used
+  // (a spoken email or phone alone is never enough to list someone's orders). Returns order numbers and item titles only.
+  async pastOrders({ orderName, email, phone, callerPhone }) {
+    if (!this.admin) return { ok: false, reason: 'order_lookup_not_connected' };
+    const num = String(orderName || '').trim().replace(/^#/, '').replace(/^order\s*/i, '');
+    const view = (o) => ({ order_number: '#' + String(o.name).replace(/^#/, ''), items: (o.lineItems?.nodes || []).map((li) => ({ title: String(li.title || '').slice(0, 160) })) });
+    if (num) {
+      if (!/^\d{3,10}$/.test(num)) return { ok: false, reason: 'bad_order_number' };
+      const em = normEmail(email); const phones = [phone, callerPhone].map(digits10).filter(Boolean);
+      if (!em && !phones.length) return { ok: false, reason: 'need_email_or_phone' };
+      const j = await this.admin.query(ORDER_QUERY, { q: 'name:' + num });
+      const o = (j.data?.orders?.nodes || []).find((x) => String(x.name).replace(/^#/, '') === num);
+      if (!o || !verifyOrderContact(o, { email: em, phones })) return { ok: true, match: 'none', orders: [] };
+      return { ok: true, match: 'order', orders: [view(o)] };
+    }
+    const caller = digits10(callerPhone);
+    if (!caller) return { ok: true, match: 'none', orders: [] };
+    const j = await this.admin.query(ORDER_QUERY, { q: caller });
+    const mine = (j.data?.orders?.nodes || []).filter((o) => verifyOrderContact(o, { email: '', phones: [caller] }));
+    return { ok: true, match: mine.length ? 'phone' : 'none', orders: mine.map(view) };
+  }
 }
 
 const ORDER_QUERY = `query($q:String!){ orders(first:5, query:$q){ nodes{ name createdAt cancelledAt displayFulfillmentStatus email phone
