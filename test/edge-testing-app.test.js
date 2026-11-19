@@ -45,10 +45,10 @@ test('edge testing (callbots): 401/303 without a session; tile + left nav; seede
     const red = await fetch(a.base + P, { redirect: 'manual', headers: { accept: 'text/html' } }); assert.strictEqual(red.status, 303); assert.strictEqual(red.headers.get('location'), '/admin/login');
     const r = await a.get(P); assert.strictEqual(r.status, 200); const t = await r.text();
     assert.match(t, /<a class="nb on" href="\/admin\/edge-testing" aria-current="page">/); assert.match(t, /<h1>Edge testing<\/h1>/);
-    assert.match(t, /callbots\.org · product version <b>1\.1\.0<\/b>/); assert.match(t, /22 saved tests/); assert.match(t, /1\.0\.0 run 1, prompts 1\.9\.27/);
-    assert.match(t, /@media \(max-width:980px\)\{\.et-sbs\{grid-template-columns:1fr\}/); assert.match(t, /Product version 1\.1\.0/); assert.ok(!/<script/i.test(t));
-    const home = await (await a.get('/admin')).text(); assert.match(home, /<a class="tile" href="\/admin\/edge-testing">[^]*?Edge testing<\/span><\/a>/); assert.match(home, /Product version 1\.1\.0/);
-    assert.strictEqual((await (await fetch(a.base + '/health')).json()).product_version, '1.1.0');
+    assert.match(t, /callbots\.org · product version <b>1\.1\.1<\/b>/); assert.match(t, /22 saved tests/); assert.match(t, /1\.0\.0 run 1, prompts 1\.9\.27/);
+    assert.match(t, /@media \(max-width:980px\)\{\.et-sbs\{grid-template-columns:1fr\}/); assert.match(t, /Product version 1\.1\.1/); assert.ok(!/<script/i.test(t));
+    const home = await (await a.get('/admin')).text(); assert.match(home, /<a class="tile" href="\/admin\/edge-testing">[^]*?Edge testing<\/span><\/a>/); assert.match(home, /Product version 1\.1\.1/);
+    assert.strictEqual((await (await fetch(a.base + '/health')).json()).product_version, '1.1.1');
   } finally { await a.close(); fs.rmSync(a.dataDir, { recursive: true, force: true }); }
 });
 
@@ -59,10 +59,10 @@ test('edge testing (callbots): rerun dry run over HTTP, no mail writes, side by 
   try {
     assert.strictEqual((await a.post(P + '/run', { csrf: 'wrong' })).status, 403);
     const before = a.mailCalls.filter(c => c.method !== 'GET').length;
-    const r1 = await a.post(P + '/run', { csrf: a.csrf }); assert.match(decodeURIComponent(r1.headers.get('location')), /Rerun started: 1\.1\.0 run 1/);
+    const r1 = await a.post(P + '/run', { csrf: a.csrf }); assert.match(decodeURIComponent(r1.headers.get('location')), /Rerun started: 1\.1\.1 run 1/);
     const r2 = await a.post(P + '/run', { csrf: a.csrf }); assert.match(decodeURIComponent(r2.headers.get('location')), /already in progress/);
     await waitIdle(a);
-    const runId = I.runId('callbots.org', '1.1.0', 1); const run = a.app.edge.store.run(runId); assert.strictEqual(run.status, 'done'); assert.strictEqual(run.done, 1);
+    const runId = I.runId('callbots.org', '1.1.1', 1); const run = a.app.edge.store.run(runId); assert.strictEqual(run.status, 'done'); assert.strictEqual(run.done, 1);
     assert.strictEqual(a.mailCalls.filter(c => c.method !== 'GET').length, before, 'no mail API writes');
     assert.ok(a.seen.length && a.seen.every(x => new URL(x.url).hostname === 'api.x.ai'));
     const d = await (await a.get(P + '?test=r.fx-cb')).text();

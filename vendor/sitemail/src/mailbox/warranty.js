@@ -87,9 +87,13 @@ function orderedModels(orders) {
   return [...out.values()];
 }
 
+// John, Nov 18 2026 8:54 PM ET: "the warranty is applied only toward the phone models that have been purchased. And they're
+// good for as long as you own that phone." A requested model that is not on their orders: buy that case at the regular
+// price, or reach us from the number or email that model's order was placed with.
+const PER_MODEL = 'The $20 replacement applies only to those models, for as long as you own that phone.';
 function mismatchSentence(ordered, requested, orderCount, via) {
-  const reqs = requested.length > 1 ? 'your ' + listJoin(requested) + ' cases' : 'your ' + requested[0] + ' case';
-  return 'The only cases we show as warrantable under ' + idPhrase(via) + ' are for the ' + listJoin(ordered) + '. Please send the order details for ' + reqs + ' so we can start the replacement. ' + OTHER_CONTACT;
+  const reqs = requested.length > 1 ? listJoin(requested) + ' cases' : requested[0] + ' case';
+  return 'The only cases we show as warrantable under ' + idPhrase(via) + ' are for the ' + listJoin(ordered) + '. ' + PER_MODEL + ' For your ' + reqs + ', you would need to buy ' + (requested.length > 1 ? 'them' : 'it') + ' at the regular price, or send us the order details for ' + (requested.length > 1 ? 'them' : 'it') + '. ' + OTHER_CONTACT;
 }
 function noOrdersSentence(via) {
   return 'We don\'t show any warrantable orders under ' + idPhrase(via) + '. ' + OTHER_CONTACT;
@@ -138,7 +142,9 @@ function noteLines(wc) {
   if (wc.result === 'match') {
     lines.push('Result: match. ' + (wc.matched_orders.length ? 'Order ' + wc.matched_orders.join(', ') + ' includes' : 'Their past orders include') + ' a case for the ' + listJoin(wc.matched || wc.requested) + '. Continue with the normal $20 replacement answer.');
   } else if (wc.result === 'mismatch') {
-    lines.push('Result: no match. The cases on this sender\'s own past orders (matched by the sender email) are for: ' + wc.ordered.join(', ') + '.');
+    lines.push('Result: ' + (wc.matched && wc.matched.length ? 'partial match' : 'no match') + '. The cases on this sender\'s own past orders (matched by the sender email) are for: ' + wc.ordered.join(', ') + '.');
+    if (wc.matched && wc.matched.length) lines.push('Covered: the ' + listJoin(wc.matched) + (wc.matched_orders.length ? ' (order ' + wc.matched_orders.join(', ') + ')' : '') + ' is on their orders: give the normal $20 replacement answer for it.');
+    lines.push('Not covered: the ' + listJoin(wc.unmatched) + '. The $20 replacement applies only to models on their orders.');
     lines.push('Include these sentences word for word: "' + wc.sentence + '"');
     lines.push('Do not say their order includes the ' + listJoin(wc.unmatched) + ', and only name phone models listed in this note.');
   } else if (wc.result === 'no_model') {
@@ -174,10 +180,10 @@ function problem(wc, body) {
 // Phone and text: what the agent should say for a check result (tool "say" field).
 function sayFor(wc) {
   if (wc.result === 'match') return 'Their past order includes a case for the ' + listJoin(wc.matched || wc.requested) + '. Continue with the normal $20 replacement steps.';
-  if (wc.result === 'mismatch') return 'Say: "' + wc.sentence + '" Do not name any other phone models, and never read out a full phone number or email.';
+  if (wc.result === 'mismatch') return (wc.matched && wc.matched.length ? 'Their past order includes a case for the ' + listJoin(wc.matched) + ': continue with the normal $20 replacement steps for it. For the ' + listJoin(wc.unmatched) + ', say: "' : 'Say: "') + wc.sentence + '" Do not name any other phone models, and never read out a full phone number or email.';
   if (wc.result === 'no_model') return 'Ask which phone model the replacement case is for, then check again.';
   if (wc.result === 'no_items') return 'Continue with the normal $20 replacement steps, without saying which phone their order was for.';
   return 'Say: "' + wc.sentence + '" Then ask for the order number, or the name, email and phone number used on the order. Never read out a full phone number or email.';
 }
 
-module.exports = { TITLE, NO_ORDERS_ASK, OTHER_CONTACT, idPhrase, last4, noOrdersSentence, WARRANTY_Q, modelKeys, label, listJoin, isWarrantyRequest, orderedModels, mismatchSentence, check, forEmail, noteLines, problem, sayFor };
+module.exports = { TITLE, NO_ORDERS_ASK, OTHER_CONTACT, PER_MODEL, idPhrase, last4, noOrdersSentence, WARRANTY_Q, modelKeys, label, listJoin, isWarrantyRequest, orderedModels, mismatchSentence, check, forEmail, noteLines, problem, sayFor };

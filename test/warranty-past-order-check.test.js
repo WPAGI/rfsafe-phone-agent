@@ -94,11 +94,11 @@ test('match: requested model is on one of their orders -> normal flow, matched o
 test('mismatch: lists every model on their orders and asks for the order details for the requested model', () => {
   const r = W.check({ match: 'email', orders: DANA, requestedText: 'My iPhone 16 Pro case cracked. Replacement please?' });
   assert.strictEqual(r.result, 'mismatch'); assert.deepStrictEqual(r.ordered, ['iPhone 15 Pro Max', 'Galaxy S24']);
-  assert.strictEqual(r.sentence, 'The only cases we show as warrantable under this email are for the iPhone 15 Pro Max and Galaxy S24. Please send the order details for your iPhone 16 Pro case so we can start the replacement. ' + W.OTHER_CONTACT);
+  assert.strictEqual(r.sentence, 'The only cases we show as warrantable under this email are for the iPhone 15 Pro Max and Galaxy S24. ' + W.PER_MODEL + ' For your iPhone 16 Pro case, you would need to buy it at the regular price, or send us the order details for it. ' + W.OTHER_CONTACT);
   const three = W.check({ match: 'email', orders: [...DANA, { order_number: '#1170', items: [{ title: 'QuantaCase for Google Pixel 9' }] }], requestedText: 'replacement for my iPhone 16 Pro' });
-  assert.match(three.sentence, /under this email are for the iPhone 15 Pro Max, Galaxy S24 and Pixel 9\. Please send the order details for your iPhone 16 Pro case/);
+  assert.match(three.sentence, /under this email are for the iPhone 15 Pro Max, Galaxy S24 and Pixel 9\. The \$20 replacement applies only to those models, for as long as you own that phone\. For your iPhone 16 Pro case, you would need to buy it at the regular price/);
   const one = W.check({ match: 'email', orders: [DANA[0]], requestedText: 'replacement for my iPhone 16 Pro' });
-  assert.strictEqual(one.sentence, 'The only cases we show as warrantable under this email are for the iPhone 15 Pro Max. Please send the order details for your iPhone 16 Pro case so we can start the replacement. ' + W.OTHER_CONTACT);
+  assert.strictEqual(one.sentence, 'The only cases we show as warrantable under this email are for the iPhone 15 Pro Max. ' + W.PER_MODEL + ' For your iPhone 16 Pro case, you would need to buy it at the regular price, or send us the order details for it. ' + W.OTHER_CONTACT);
   // The sentence is not a hand-off, discount offer or hard block.
   for (const t of [r.sentence, W.noOrdersSentence({ kind: 'email' }), W.noOrdersSentence({ kind: 'phone', last4: '0150' })]) for (const sent of t.split(/(?<=[.!?])\s+/)) { assert.strictEqual(B.handoffProblem(sent, []), null, sent); assert.strictEqual(B.discountOffer(sent), null, sent); assert.deepStrictEqual(P.hardBlock(sent), [], sent); }
 });
@@ -234,7 +234,7 @@ test('Mailbox pipeline: writer and checker get the replacement check in System n
   const writer = on.captured.find(c => c.user && c.user.message && !/Independently review/.test(c.sys) && !/Classify/.test(c.sys));
   assert.ok(writer && writer.user.system_notes, 'writer got system notes');
   assert.match(writer.user.system_notes, /Replacement check against this sender's past orders/);
-  assert.ok(writer.user.system_notes.includes('The only cases we show as warrantable under this email are for the iPhone 15 Pro Max and Galaxy S24. Please send the order details for your iPhone 16 Pro case so we can start the replacement. ' + W.OTHER_CONTACT));
+  assert.ok(writer.user.system_notes.includes('The only cases we show as warrantable under this email are for the iPhone 15 Pro Max and Galaxy S24. ' + W.PER_MODEL + ' For your iPhone 16 Pro case, you would need to buy it at the regular price, or send us the order details for it. ' + W.OTHER_CONTACT));
   assert.doesNotMatch(writer.user.system_notes.split('Replacement check')[1], /dana@example\.com|8135550150|813-555-0150/, 'no identifier echoed in the warranty section');
   assert.doesNotMatch(writer.user.system_notes, /#1173|#1120|17 Pro Max/);
   const checker = on.captured.find(c => /Independently review/.test(c.sys));
@@ -271,9 +271,9 @@ test('phone: caller ID matches -> match / mismatch from that caller\'s own order
   assert.strictEqual(m.result, 'match'); assert.deepStrictEqual(m.matched_orders, ['#1162']);
   const mm = await t.run('warranty_check', { phone_model: 'iPhone 16 Pro' }, ctx);
   assert.strictEqual(mm.result, 'mismatch'); assert.deepStrictEqual(mm.ordered_models, ['iPhone 15 Pro Max', 'Galaxy S24']);
-  assert.ok(mm.say.includes('The only cases we show as warrantable under this phone number ending in 0150 are for the iPhone 15 Pro Max and Galaxy S24. Please send the order details for your iPhone 16 Pro case so we can start the replacement. ' + W.OTHER_CONTACT), mm.say);
+  assert.ok(mm.say.includes('The only cases we show as warrantable under this phone number ending in 0150 are for the iPhone 15 Pro Max and Galaxy S24. ' + W.PER_MODEL + ' For your iPhone 16 Pro case, you would need to buy it at the regular price, or send us the order details for it. ' + W.OTHER_CONTACT), mm.say);
   const s = JSON.stringify([m, mm]);
-  for (const bad of ['Mock Ave', 'Tampa', 'dana@', '555-0150', '8135550150', '#1173', '#1120', 'price']) assert.ok(!s.includes(bad), bad);
+  for (const bad of ['Mock Ave', 'Tampa', 'dana@', '555-0150', '8135550150', '#1173', '#1120', 'amount', '69']) assert.ok(!s.includes(bad), bad);
   assert.ok(admin.calls.every(c => !/mutation/i.test(c.q)));
 });
 test('phone: a different caller never sees someone else\'s orders (fuzzy search near-miss is verified away)', async () => {
@@ -305,7 +305,7 @@ test('order #1173 (mock, processing): match for the 17 Pro Max, mismatch for the
   assert.strictEqual(a.result, 'match'); assert.deepStrictEqual(a.matched_orders, ['#1173']);
   const b = await t.run('warranty_check', { phone_model: 'iPhone 17 Pro' }, ctx);
   assert.strictEqual(b.result, 'mismatch');
-  assert.match(b.say, /The only cases we show as warrantable under this phone number ending in 0173 are for the iPhone 17 Pro Max\. Please send the order details for your iPhone 17 Pro case/);
+  assert.match(b.say, /The only cases we show as warrantable under this phone number ending in 0173 are for the iPhone 17 Pro Max\. The \$20 replacement applies only to those models, for as long as you own that phone\. For your iPhone 17 Pro case, you would need to buy it at the regular price/);
   const c = await t.run('warranty_check', { phone_model: 'iPhone 17 Pro Max', order_number: '#1173', email: 'pat@example.com' }, { channel: 'voice', callId: 'c1173b', caller: '+19995550111' });
   assert.strictEqual(c.result, 'match');
   // Mailbox side for #1173 by email.
@@ -324,7 +324,7 @@ test('earlier caller case (REPRESENTATIVE fixture; no concrete transcript found)
   const { t } = tools();
   const r = await t.run('warranty_check', { phone_model: 'iPhone 15 Pro Max' }, { channel: 'voice', callId: 'c-early', caller: '+17275550120' });
   assert.strictEqual(r.result, 'mismatch'); assert.deepStrictEqual(r.ordered_models, ['iPhone 15 Pro']);
-  assert.match(r.say, /The only cases we show as warrantable under this phone number ending in 0120 are for the iPhone 15 Pro\. Please send the order details for your iPhone 15 Pro Max case so we can start the replacement\./);
+  assert.match(r.say, /The only cases we show as warrantable under this phone number ending in 0120 are for the iPhone 15 Pro\. The \$20 replacement applies only to those models, for as long as you own that phone\. For your iPhone 15 Pro Max case, you would need to buy it at the regular price, or send us the order details for it\./);
   const ok = await t.run('warranty_check', { phone_model: 'iPhone 15 Pro' }, { channel: 'voice', callId: 'c-early', caller: '+17275550120' });
   assert.strictEqual(ok.result, 'match');
 });
@@ -340,7 +340,7 @@ test('edge-test seed email r.35d09429 (Galaxy S24 replacement, read-only seed te
   assert.strictEqual(W.forEmail(orig, { match: 'email', orders: [DANA[1]] }).result, 'match');
   const ultra = W.forEmail(orig, { match: 'email', orders: [{ order_number: '#1101', items: [{ title: 'RF Safe QuantaCase for Samsung Galaxy S24 Ultra' }] }] });
   assert.strictEqual(ultra.result, 'mismatch');
-  assert.strictEqual(ultra.sentence, 'The only cases we show as warrantable under this email are for the Galaxy S24 Ultra. Please send the order details for your Galaxy S24 case so we can start the replacement. ' + W.OTHER_CONTACT);
+  assert.strictEqual(ultra.sentence, 'The only cases we show as warrantable under this email are for the Galaxy S24 Ultra. ' + W.PER_MODEL + ' For your Galaxy S24 case, you would need to buy it at the regular price, or send us the order details for it. ' + W.OTHER_CONTACT);
 });
 
 test('John 8:48 PM wording across channels: names the identifier (email / phone last 4 / order number), lists models, other-contact line; never a full number or address', async () => {
@@ -362,4 +362,43 @@ test('John 8:48 PM wording across channels: names the identifier (email / phone 
   const nm = SN.build({ orderFacts: { match: 'email', orders: DANA }, warranty: mis }).text; const nn = SN.build({ orderFacts: { match: 'none', orders: [] }, warranty: none }).text;
   assert.ok(nm.includes('The only cases we show as warrantable under this email are for the iPhone 15 Pro Max and Galaxy S24.') && nm.includes(W.OTHER_CONTACT));
   assert.ok(nn.includes("We don't show any warrantable orders under this email. " + W.OTHER_CONTACT));
+});
+
+// ---- John, Nov 18 2026 8:54 PM ET: per-model rule ------------------------------------------------------------------------
+const E16 = [{ order_number: '#1180', items: [{ title: 'RF Safe QuantaCase for Apple iPhone 16e', color: 'Black' }] }];
+test("John's example: orders show an iPhone 16e, request is for an iPhone 17 -> only the 16e is covered; buy the 17 at regular price or contact us from that order's email or phone", () => {
+  const wc = W.forEmail({ subject: 'Replacement case', text: 'Hi, can I get a $20 replacement case for my iPhone 17?' }, { match: 'email', orders: E16 });
+  assert.strictEqual(wc.result, 'mismatch'); assert.deepStrictEqual(wc.ordered, ['iPhone 16e']); assert.deepStrictEqual(wc.matched, []);
+  assert.strictEqual(wc.sentence, 'The only cases we show as warrantable under this email are for the iPhone 16e. The $20 replacement applies only to those models, for as long as you own that phone. For your iPhone 17 case, you would need to buy it at the regular price, or send us the order details for it. ' + W.OTHER_CONTACT);
+  // iPhone 17 is never confused with the 16e, the 17 Pro or the 17 Pro Max.
+  for (const m of ['iPhone 17 Pro', 'iPhone 17 Pro Max', 'iPhone 16']) assert.strictEqual(W.check({ match: 'email', orders: E16, requestedText: m }).result, 'mismatch', m);
+  assert.strictEqual(W.check({ match: 'email', orders: E16, requestedText: 'iPhone 16e' }).result, 'match');
+  for (const sent of wc.sentence.split(/(?<=[.!?])\s+/)) { assert.strictEqual(B.handoffProblem(sent, []), null, sent); assert.strictEqual(B.discountOffer(sent), null, sent); assert.deepStrictEqual(P.hardBlock(sent), [], sent); }
+});
+test('two models in one message, one owned and one not: owned gets the normal $20 flow, the other gets buy-at-regular-price / contact-from-that-order wording (Mailbox, phone, SMS)', async () => {
+  const two = [...E16, { order_number: '#1181', items: [{ title: 'RF Safe QuantaCase for Samsung Galaxy S24', color: 'Black' }] }];
+  // Mailbox
+  const orig = { id: 'r.mock-two', from: 'sam@example.com', subject: 'Replacement cases', text: 'Both of our cases are worn out. Can I get the $20 replacement for my Galaxy S24 and for my iPhone 17?' };
+  const wc = W.forEmail(orig, { match: 'email', orders: two });
+  assert.strictEqual(wc.result, 'mismatch'); assert.deepStrictEqual(wc.matched, ['Galaxy S24']); assert.deepStrictEqual(wc.unmatched, ['iPhone 17']); assert.deepStrictEqual(wc.matched_orders, ['#1181']);
+  assert.ok(wc.sentence.includes('For your iPhone 17 case, you would need to buy it at the regular price') && !/For your Galaxy S24/.test(wc.sentence));
+  const notes = SN.build({ orderFacts: { match: 'email', orders: two }, warranty: wc });
+  assert.match(notes.text, /Result: partial match\./); assert.match(notes.text, /Covered: the Galaxy S24 \(order #1181\) is on their orders: give the normal \$20 replacement answer for it\./); assert.match(notes.text, /Not covered: the iPhone 17\./);
+  const h = harness(); const extra = { kb_gaps: [], store_lookup: { products: [] }, ...SN.fields(null, notes) };
+  const onlyNormal = h.store.createDraft({ author: 'bot:replier', reply_to_id: orig.id, to: orig.from, subject: 'Re: x', body: 'Hi Sam,\n\n' + REPL + '\n\nThe RF Safe team' });
+  assert.strictEqual((await h.bots.review(h.bots.db.installed.checker, orig, onlyNormal, extra)).verdict, 'fail', 'the iPhone 17 wording is required');
+  const both = h.store.createDraft({ author: 'bot:replier', reply_to_id: orig.id, to: orig.from, subject: 'Re: x', body: 'Hi Sam,\n\nYour Galaxy S24 case is covered. ' + REPL + '\n\n' + wc.sentence + '\n\nThe RF Safe team' });
+  const g = await h.bots.review(h.bots.db.installed.checker, orig, both, extra); assert.strictEqual(g.verdict, 'pass', g.notes);
+  // Phone and SMS (caller ID / sender number matches both orders).
+  const admin = { calls: [], async query(q, vars) { assertReadOnlyQuery(q); this.calls.push(q); const o = (n, title) => ({ name: n, email: 'sam@example.com', phone: '+17275550180', customer: {}, shippingAddress: {}, lineItems: { nodes: [{ title, quantity: 1 }] }, fulfillments: [] }); return { data: { orders: { nodes: [o('#1180', 'RF Safe QuantaCase for Apple iPhone 16e'), o('#1181', 'RF Safe QuantaCase for Samsung Galaxy S24')] } } }; } };
+  const { t } = tools({}, admin);
+  for (const ctx of [{ channel: 'voice', callId: 'c-two', caller: '+17275550180' }, { channel: 'sms', caller: '+17275550180' }]) {
+    const r = await t.run('warranty_check', { phone_model: 'Galaxy S24 and iPhone 17' }, ctx);
+    assert.strictEqual(r.result, 'mismatch', ctx.channel); assert.deepStrictEqual(r.matched_orders, ['#1181']);
+    assert.match(r.say, /^Their past order includes a case for the Galaxy S24: continue with the normal \$20 replacement steps for it\. For the iPhone 17, say: "The only cases we show as warrantable under this phone number ending in 0180 are for the iPhone 16e and Galaxy S24\. The \$20 replacement applies only to those models, for as long as you own that phone\. For your iPhone 17 case, you would need to buy it at the regular price/);
+    assert.ok(!JSON.stringify(r).includes('7275550180') && !JSON.stringify(r).includes('sam@'));
+    const solo = await t.run('warranty_check', { phone_model: 'iPhone 17' }, { ...ctx, callId: ctx.callId ? ctx.callId + 'b' : undefined });
+    assert.match(solo.say, /^Say: "The only cases we show as warrantable under this phone number ending in 0180 are for the iPhone 16e and Galaxy S24\./);
+  }
+  assert.ok(admin.calls.every(q => !/mutation/i.test(q)));
 });
