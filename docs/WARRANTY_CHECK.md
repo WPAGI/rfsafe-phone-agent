@@ -14,7 +14,7 @@ they want a replacement case for. Shared logic: `vendor/sitemail/src/mailbox/war
 | match | every requested model is on one of their orders | normal replacement answer (PR #75 wording, prompts 1.9.27) |
 | mismatch | they have orders, but not for the requested model | "The only cases we show as warrantable under [this email / this phone number ending in 1234 / that order number] are for the [A] and [B]. The $20 replacement applies only to those models, for as long as you own that phone. For your [requested] case, you would need to buy it at the regular price, or send us the order details for it. If the order was placed with a different email or phone number, please let us know, or contact us from that email or call us from that number, to access warranty information." |
 | no_orders | no verified orders | "We don't show any warrantable orders under [this email / this phone number ending in 1234]. If the order was placed with a different email or phone number, ..." plus the ask for the order number, or the name, email and phone number used on the order |
-| no_model | orders found, no phone named | ask which phone the replacement is for |
+| no_model | orders found, no phone named | "The cases we show as warrantable under this email are for the [models]. Which phone is the replacement case for?" plus the different email / phone line; the checker fails a no_model reply missing any of the three parts (rule `warranty_no_model`) |
 | no_items | items could not be read (live lookup failed) | normal replacement answer, no claim about which phone the order was for |
 
 Model names are exact keys (`bots.phoneKeys`, most specific wins): iPhone 16 Pro and iPhone 16 Pro Max are different phones, and
